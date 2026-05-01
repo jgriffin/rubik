@@ -4,12 +4,22 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
-## 2026-05-01 — M1 cubie oracle 🟡 in-progress
+## 2026-05-01 — M1 cubie oracle ✅ done
 **Goal:** Hand-rolled cubie oracle for the 2x2 cube — corner state as `(positions, orientations)`, moves applied as physical rotations, sticker rendering. Pins within-face geometric ordering. Acceptance: M⁴=I, (RUR'U')⁶=I, Sune⁶=I, M'=M³, color-multiset preservation, 1000-step random walk without divergence.
 **Milestone:** [plans/m1-cubie-oracle.md](plans/m1-cubie-oracle.md)
 **Approach:** Frozen `CornerState` dataclass holding two 8-tuples. Bit-packed slot numbering `(U/D, L/R, F/B)`. U/D-axis orientation reference. Hand-write 6 CW move tables `dict[face, tuple[(slot_before, slot_after, ori_delta)*4]]`; derive CCW as CW³. `cubie_to_tensor(state, spec) -> torch.Tensor[24]` lives in `oracle/cubie.py` (cubie struct is internal, not a notation). Single test file `tests/oracle/test_cubie.py`. No new deps. Branch: `m1-cubie-oracle`.
-**Next:** Implement `src/rubik/oracle/cubie.py` per the plan; iterate on orientation deltas until all identity tests pass.
-**In progress:**
+**Outcome:**
+- Acceptance gate green: `79 passed`, `ruff check` clean, `ruff format --check` clean. Oracle tests: 37 (10 categories, several parameterized over moves/faces).
+- 4 source files added (`src/rubik/oracle/cubie.py` 207 lines, `src/rubik/oracle/__init__.py`, `tests/oracle/__init__.py`, `tests/oracle/test_cubie.py` 97 lines), 1 modified (`LOG.md`), plan committed to `plans/m1-cubie-oracle.md`.
+- **Decision (recorded):** Within-face sticker layout pinned per the plan's `FACE_SLOTS` table — row-major reading order viewed from outside, with per-face "up" axes (U toward B, D toward F, side faces toward U). All downstream consumers (M2 tensor cube, M3 renderer) inherit this.
+- **Decision (recorded):** Slot numbering bit-packed `(U/D, L/R, F/B)` — slot 0=ULF..7=DRB. Internal-only; not exposed in any user-facing API. Pays off in mask-based U-row vs D-row logic.
+- **Decision (recorded):** CCW moves derived as `CW³` (composed from CW), not hand-written. The `M' = M³` test thereby reduces to "CW table is internally consistent" — fine because CW correctness is also covered by M⁴=I, (RUR'U')⁶=I, and Sune⁶=I.
+- **Deviation (recorded):** The plan's `SLOT_FACETS` table prescribed `(UD, FB, LR)` ordering uniformly across all 8 slots. That labeling does not satisfy the algebraic identities under any consistent orientation-delta assignment — verified by hand-derivation, then by brute-force search over (SLOT_FACETS labeling × side-face orientation patterns). Final labeling is per-slot specific (4 of 8 slots differ from the plan): rotation geometry forces it, equivalent to standard speedcubing convention up to choice of "first side facet" at each slot. Captured in code comments in `oracle/cubie.py`.
+- **Decision (recorded):** Side-face moves use `(1, 2, 1, 2)` orientation-delta pattern uniformly around each cycle (not a mix of patterns across L/F/R/B). Cleaner than the prompt's initial `(2, 1, 2, 1)` for R/B — both are mathematically valid but the uniform pattern was chosen for symmetry with the SLOT_FACETS labeling.
+- **Decision (recorded):** `cubie_to_tensor` lives in `oracle/cubie.py`, not in `notation/`. Cubie struct is the oracle's internal representation; not promoted to a user-facing notation. `tensor_to_cubie` deliberately not implemented (sticker→cubie inversion non-trivial; M1 acceptance doesn't need it).
+- **Decision (recorded):** `apply_move` raises `ValueError` on out-of-range move index — boundary validation, even though internal callers won't hit it.
+- Drive-by: module-import asserts on `_CW_MOVES` (cycle is permutation, deltas sum to 0 mod 3) — cheap typo-catcher, runs once at import.
+**Commits:** 5d86d55
 
 ## 2026-05-01 — M0 skeleton ✅ done
 **Goal:** Land the package skeleton, `CubeSpec` abstraction, and notation hub stubs (move + state converters with round-trip tests). Acceptance: `uv run pytest` green, `uv run ruff check` clean, `CubeSpec(CUBE_2X2)` round-trips through every notation converter.
