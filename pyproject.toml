@@ -1,0 +1,20 @@
+[project]
+name = "rubik"
+version = "0.1.0"
+description = "Deep RL solver for the Rubik's Cube on Apple Silicon (MPS) — DAVI training + GPU beam search."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.4.4",
+    "torch>=2.11.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-snapshot>=0.9.0",
+    "ruff>=0.15.12",
+]
