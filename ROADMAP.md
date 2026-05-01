@@ -7,7 +7,7 @@ mode produces them; we don't pre-create stubs).
 
 ## Milestones
 
-- **M0** — Repo skeleton, `CubeSpec` abstraction, notation hub scaffolding — *not yet planned*
+- **M0** — Repo skeleton, `CubeSpec` abstraction, notation hub scaffolding — ✅ done ([plan](plans/m0-skeleton.md))
 - **M1** — Slow cubie oracle (2x2), hand-rolled, generic enough for 3x3 later — *not yet planned*
 - **M2** — Fast tensor cube (2x2), correctness only (oracle equivalence + identities) — *not yet planned*
 - **M3** — Visualization stack: ASCII + HTML/SVG, first human-verifiable checkpoint — *not yet planned*
