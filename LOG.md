@@ -4,6 +4,13 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-01 — M1 cubie oracle 🟡 in-progress
+**Goal:** Hand-rolled cubie oracle for the 2x2 cube — corner state as `(positions, orientations)`, moves applied as physical rotations, sticker rendering. Pins within-face geometric ordering. Acceptance: M⁴=I, (RUR'U')⁶=I, Sune⁶=I, M'=M³, color-multiset preservation, 1000-step random walk without divergence.
+**Milestone:** [plans/m1-cubie-oracle.md](plans/m1-cubie-oracle.md)
+**Approach:** Frozen `CornerState` dataclass holding two 8-tuples. Bit-packed slot numbering `(U/D, L/R, F/B)`. U/D-axis orientation reference. Hand-write 6 CW move tables `dict[face, tuple[(slot_before, slot_after, ori_delta)*4]]`; derive CCW as CW³. `cubie_to_tensor(state, spec) -> torch.Tensor[24]` lives in `oracle/cubie.py` (cubie struct is internal, not a notation). Single test file `tests/oracle/test_cubie.py`. No new deps. Branch: `m1-cubie-oracle`.
+**Next:** Implement `src/rubik/oracle/cubie.py` per the plan; iterate on orientation deltas until all identity tests pass.
+**In progress:**
+
 ## 2026-05-01 — M0 skeleton ✅ done
 **Goal:** Land the package skeleton, `CubeSpec` abstraction, and notation hub stubs (move + state converters with round-trip tests). Acceptance: `uv run pytest` green, `uv run ruff check` clean, `CubeSpec(CUBE_2X2)` round-trips through every notation converter.
 **Milestone:** [plans/m0-skeleton.md](plans/m0-skeleton.md)
