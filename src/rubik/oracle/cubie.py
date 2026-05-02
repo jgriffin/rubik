@@ -43,10 +43,11 @@ SOLVED = CornerState(
 # slot_before to slot_after, bumping its orientation by orientation_delta
 # (mod 3)".
 #
-# Position cycles (verified by hand against the slot/face geometry):
+# Position cycles (CW viewed from outside the moved face — verified
+# physically and by `test_cw_direction`):
 #   U: ULF→ULB→URB→URF→ULF, i.e. 0→1→3→2→0 (CW from above)
 #   D: DLF→DRF→DRB→DLB→DLF, i.e. 4→6→7→5→4 (CW from below)
-#   R: URF→DRF→DRB→URB→URF, i.e. 2→6→7→3→2 (CW from right)
+#   R: URF→URB→DRB→DRF→URF, i.e. 2→3→7→6→2 (CW from right)
 #   L: ULB→ULF→DLF→DLB→ULB, i.e. 1→0→4→5→1 (CW from left)
 #   F: ULF→URF→DRF→DLF→ULF, i.e. 0→2→6→4→0 (CW from front)
 #   B: URB→ULB→DLB→DRB→URB, i.e. 3→1→5→7→3 (CW from back)
@@ -55,12 +56,12 @@ SOLVED = CornerState(
 # orientation. The 4 side moves alternate +1/+2 around their cycle (must
 # sum to 0 mod 3). The (1, 2, 1, 2) assignment around each side-face cycle
 # matches the SLOT_FACETS canonical labeling — verified by Sune^6 = I,
-# (R U R' U')^6 = I, and the 8-stickers-changed-per-move sanity check.
+# (R U R' U')^6 = I, and the per-move directional checks.
 _CW_MOVES: dict[str, tuple[tuple[int, int, int], ...]] = {
     "U": ((0, 1, 0), (1, 3, 0), (3, 2, 0), (2, 0, 0)),
     "L": ((1, 0, 1), (0, 4, 2), (4, 5, 1), (5, 1, 2)),
     "F": ((0, 2, 1), (2, 6, 2), (6, 4, 1), (4, 0, 2)),
-    "R": ((2, 6, 1), (6, 7, 2), (7, 3, 1), (3, 2, 2)),
+    "R": ((2, 3, 1), (3, 7, 2), (7, 6, 1), (6, 2, 2)),
     "B": ((3, 1, 1), (1, 5, 2), (5, 7, 1), (7, 3, 2)),
     "D": ((4, 6, 0), (6, 7, 0), (7, 5, 0), (5, 4, 0)),
 }

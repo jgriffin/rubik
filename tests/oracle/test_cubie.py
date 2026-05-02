@@ -95,3 +95,30 @@ def test_after_one_move_changes_8_stickers(m):
     assert diffs == 8, (
         f"move {MOVE_STRINGS[m]}: expected 8 changed stickers, got {diffs}"
     )
+
+
+# Hand-derived position permutations after each face's CW move applied to
+# SOLVED. positions[slot] = original cubie identity now at that slot.
+# Cycles are CW viewed from outside the moved face. These are the "is
+# this CW or CCW" ground truth — algebraic identities (M^4 = I, Sune^6,
+# sexy^6) are symmetric under R<->R' and don't catch direction errors.
+EXPECTED_CW_POSITIONS = {
+    "U": (2, 0, 3, 1, 4, 5, 6, 7),  # ULF→ULB→URB→URF→ULF
+    "L": (1, 5, 2, 3, 0, 4, 6, 7),  # ULB→ULF→DLF→DLB→ULB
+    "F": (4, 1, 0, 3, 6, 5, 2, 7),  # ULF→URF→DRF→DLF→ULF
+    "R": (0, 1, 6, 2, 4, 5, 7, 3),  # URF→URB→DRB→DRF→URF
+    "B": (0, 3, 2, 7, 4, 1, 6, 5),  # URB→ULB→DLB→DRB→URB
+    "D": (0, 1, 2, 3, 5, 7, 4, 6),  # DLF→DRF→DRB→DLB→DLF
+}
+
+
+@pytest.mark.parametrize(
+    "face,expected",
+    list(EXPECTED_CW_POSITIONS.items()),
+    ids=list(EXPECTED_CW_POSITIONS),
+)
+def test_cw_direction(face, expected):
+    state = apply_move(SOLVED, str_to_move(face))
+    assert state.positions == expected, (
+        f"{face} CW position permutation wrong — cycle is likely reversed (R' for R)"
+    )
