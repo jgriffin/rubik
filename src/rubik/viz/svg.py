@@ -30,7 +30,7 @@ trailing newline).
 from collections.abc import Sequence
 
 from rubik.cube.spec import CubeSpec
-from rubik.viz.colors import FACE_COLORS
+from rubik.viz.colors import SPEEDCUBING_PALETTE, Palette
 
 # Face position in the unfolded cross, in face-units (col, row).
 _FACE_GRID: dict[str, tuple[int, int]] = {
@@ -77,6 +77,7 @@ def _state_rects(
     *,
     sticker_size: int,
     gap: int,
+    palette: Palette,
     x_offset: int = 0,
     y_offset: int = 0,
 ) -> list[str]:
@@ -92,7 +93,7 @@ def _state_rects(
             c = i % n
             x = x_offset + (face_col * n + c) * cell + gap
             y = y_offset + (face_row * n + r) * cell + gap
-            color = FACE_COLORS[block[i]]
+            color = palette[block[i]]
             parts.append(
                 f'<rect x="{x}" y="{y}" width="{sticker_size}"'
                 f' height="{sticker_size}" rx="1.5"'
@@ -116,11 +117,15 @@ def render_svg_state(
     *,
     sticker_size: int = 20,
     gap: int = 1,
+    palette: Palette | None = None,
 ) -> str:
     """Render a single cube state as an unfolded-cross SVG fragment."""
+    palette = palette if palette is not None else SPEEDCUBING_PALETTE
     _validate(face_dict, spec)
     width, height = _state_dims(spec, sticker_size, gap)
-    rects = _state_rects(face_dict, spec, sticker_size=sticker_size, gap=gap)
+    rects = _state_rects(
+        face_dict, spec, sticker_size=sticker_size, gap=gap, palette=palette
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}"'
         f' height="{height}" viewBox="0 0 {width} {height}">'
@@ -137,8 +142,10 @@ def render_svg_sequence(
     sticker_size: int = 20,
     gap: int = 1,
     frame_gap: int = 24,
+    palette: Palette | None = None,
 ) -> str:
     """Render a horizontal row of states with optional labels above each frame."""
+    palette = palette if palette is not None else SPEEDCUBING_PALETTE
     if labels is not None and len(labels) != len(face_dicts):
         raise ValueError(
             f"labels length {len(labels)} != face_dicts length {len(face_dicts)}"
@@ -167,6 +174,7 @@ def render_svg_sequence(
                 spec,
                 sticker_size=sticker_size,
                 gap=gap,
+                palette=palette,
                 x_offset=x_offset,
                 y_offset=label_offset,
             )
@@ -191,8 +199,10 @@ def render_svg_compare(
     gap: int = 1,
     frame_gap: int = 24,
     row_gap: int = 24,
+    palette: Palette | None = None,
 ) -> str:
     """Render two stacked sequences of cube states with optional per-frame labels."""
+    palette = palette if palette is not None else SPEEDCUBING_PALETTE
     if top_labels is not None and len(top_labels) != len(top_dicts):
         raise ValueError(
             f"top_labels length {len(top_labels)} != top_dicts length {len(top_dicts)}"
@@ -240,6 +250,7 @@ def render_svg_compare(
                 spec,
                 sticker_size=sticker_size,
                 gap=gap,
+                palette=palette,
                 x_offset=x_offset,
                 y_offset=top_label_offset,
             )
@@ -262,6 +273,7 @@ def render_svg_compare(
                 spec,
                 sticker_size=sticker_size,
                 gap=gap,
+                palette=palette,
                 x_offset=x_offset,
                 y_offset=bottom_y0 + bottom_label_offset,
             )

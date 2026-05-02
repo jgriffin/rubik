@@ -13,7 +13,8 @@ from rubik.cube import (
     valid_next_moves_mask,
 )
 from rubik.viz import (
-    FACE_COLORS,
+    SPEEDCUBING_PALETTE,
+    Palette,
     render_ascii,
     render_svg_compare,
     render_svg_sequence,
@@ -25,7 +26,8 @@ __version__ = "0.1.0"
 __all__ = [
     "CUBE_2X2",
     "CubeSpec",
-    "FACE_COLORS",
+    "Palette",
+    "SPEEDCUBING_PALETTE",
     "__version__",
     "apply_move_sequence",
     "apply_moves",

@@ -20,7 +20,7 @@ from rubik.cube.spec import CUBE_2X2
 from rubik.notation.moves import move_to_str, str_to_move
 from rubik.notation.state import state_to_dict
 from rubik.oracle.cubie import SOLVED, apply_move, cubie_to_tensor
-from rubik.viz.colors import FACE_COLORS
+from rubik.viz.colors import SPEEDCUBING_PALETTE
 from rubik.viz.svg import render_svg_state
 
 CSS = """
@@ -145,7 +145,7 @@ def _color_legend() -> str:
             '<div class="labeled-cube"><div class="label">' + name + "</div>"
             f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"'
             f' viewBox="0 0 24 24"><rect x="0" y="0" width="24" height="24"'
-            f' rx="1.5" fill="{FACE_COLORS[face_idx]}"'
+            f' rx="1.5" fill="{SPEEDCUBING_PALETTE[face_idx]}"'
             f' stroke="#0a0a0a"/></svg></div>'
         )
     return (

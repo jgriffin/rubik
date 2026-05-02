@@ -44,6 +44,24 @@ def test_svg_sequence_solved_R_U(snapshot) -> None:
     snapshot.assert_match(svg, "sequence_solved_R_U.svg")
 
 
+def test_render_svg_state_with_custom_palette() -> None:
+    custom = {
+        0: "#ff0000",
+        1: "#00ff00",
+        2: "#0000ff",
+        3: "#ffff00",
+        4: "#ff00ff",
+        5: "#00ffff",
+    }
+    svg = render_svg_state(_fd(CUBE_2X2.solved_state), CUBE_2X2, palette=custom)
+    for hex_color in custom.values():
+        assert hex_color in svg, f"custom color {hex_color} not in SVG"
+    # Default speedcubing palette colors must be absent.
+    defaults = ("#f5f5f5", "#ff8c00", "#1aa64a", "#dd2222", "#1144cc", "#ffdd00")
+    for default_hex in defaults:
+        assert default_hex not in svg, f"default color {default_hex} leaked into SVG"
+
+
 def test_svg_compare_scramble_vs_solved(snapshot) -> None:
     snapshot.snapshot_dir = SNAPSHOT_DIR
     solved = CUBE_2X2.solved_state
