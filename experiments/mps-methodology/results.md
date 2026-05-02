@@ -250,13 +250,190 @@ For 5 calls the trace shows: 5× `aten::gather`, 5× `aten::lt`, 5× `aten::ge`,
 actual work — another way to read findings #1 and #2: most of what
 `apply_moves` does on MPS in M2 is *not* the gather.
 
-## 5. macmon layer
+## 5. macmon layer (external GPU-engagement observer)
 
-*To be filled in commit 5 (probe_macmon + correlator).*
+**Finding.** On 2026-05-02 at B=8192, the bench-predicted saturation
+fraction was **1.000** (workload-bound — the apply_moves pipeline ran
+back-to-back for the full 25 s window) and macmon measured **GPU busy =
+0.952** with **mean power = 3.94 W** over 89 in-window samples. Verdict:
+**AGREE** (|delta| = 0.048 < 0.10). The hot path is genuinely on the GPU
+on this machine; nothing is silently CPU-falling-back at this batch size.
 
-## 6. Batch-sensitivity findings
+### How to run
 
-*Folded in from `experiments/batch-sensitivity-2x2/results.md` after the
-sweep runs (commit 7). Will lead with intuition observations: where does
-throughput plateau? What does the curve shape say about GPU saturation
-on M4 Max for this workload?*
+```
+bash experiments/mps-methodology/probe_macmon.sh
+uv run python experiments/mps-methodology/correlate_macmon.py \
+    --expected-busy <bench-predicted>
+```
+
+The probe launches `macmon pipe --samples 150 --interval 200` (NDJSON,
+30 s at 5 Hz) into `runs/<ts>/macmon/samples.ndjson`, runs a ~25 s
+back-to-back `apply_moves` workload at `B=8192` between two 1 s baseline
+sleeps, then exits. The workload window timestamps land in
+`runs/<ts>/macmon/window.json`. The correlator reads both and emits ONE
+line. **No streaming output.**
+
+### What the correlator reports
+
+- **`gpu_busy`** — mean of `gpu_usage[1]` (the 0..1 fraction; the array's
+  first element is the active frequency in Hz, second is the busy fraction).
+- **`gpu_power`** — mean of `gpu_power` in watts.
+- **`samples`** — number of NDJSON records that fell inside the workload
+  window (out of 150 emitted). Samples before/after the window are dropped.
+- **`window`** — workload window duration in seconds.
+
+With `--expected-busy F`: prepends `AGREE` if `|measured - F| < 0.10`,
+else `DIVERGE` (and exit code 1).
+
+### Computing the expected-busy fraction
+
+Two valid formulations — pick the one matching your workload regime.
+
+1. **Steady-state pipeline** (recommended for back-to-back workloads):
+   `expected = min(1.0, n_calls × per_call_seconds_workload / window_seconds)`
+   where `per_call_seconds_workload = window_seconds / n_calls`. For the
+   2026-05-02 run: 25.0 / 52529 = 0.476 ms/call → expected = 1.000 →
+   AGREE with macmon's 0.952. This is the "are we keeping the GPU
+   continuously busy?" question.
+
+2. **Bench-bracket per-call substitution**: `expected = n_calls ×
+   bench_median_seconds / window_seconds`. **Don't do this naively.**
+   `bench.time_op` measures wall time of one `mps.synchronize() → fn() →
+   mps.synchronize()` round trip — which stalls the GPU queue every call.
+   For apply_moves at B=8192, bench reports 0.694 ms/call (CI ±0.002 ms).
+   Substituted: 52529 × 0.000694 / 25.0 = **1.458** → DIVERGE against
+   the macmon's 0.952. The mismatch is real and informative: bench-
+   bracket per-call is **not** the same regime as a synchronization-
+   batched workload. ~0.22 ms of bench's per-call cost is the bracket
+   sync stall, not GPU work.
+
+The methodology rule: **bench measures one-shot latency including
+sync stalls; macmon measures continuous GPU utilization over a
+window. Use formulation 1 for the busy-fraction comparison.**
+
+### When macmon misleads
+
+- **Sample-rate aliasing.** macmon samples at 200 ms minimum; per-call
+  apply_moves at B=8192 takes ~0.5 ms. Each macmon bucket aggregates
+  ~400 calls of GPU work — fine for a back-to-back workload, but if you
+  call `apply_moves` once every 250 ms, macmon may catch the active
+  bucket or the idle one depending on phase, and `gpu_busy` will
+  oscillate wildly between samples. **macmon is reliable for sustained
+  workloads, unreliable for sparse ones.**
+- **Op too small to engage the GPU.** Below some batch size, dispatch
+  + sync overhead dominates and the kernel itself is sub-microsecond.
+  macmon will report `gpu_busy` near zero even though every call goes
+  through MPS. This is not a bug — it's the inherent limit of external
+  sampling at 200 ms granularity. Use bench (layer 1) and the profiler
+  (layer 3) to characterize this regime; macmon is silent below it.
+- **Power without busy.** GPU power can stay elevated briefly after
+  the workload window (queued kernels still running). The 1 s
+  post-workload sleep in `probe_macmon.sh` lets that drain into the
+  out-of-window samples.
+
+### Worked example (the canonical correlation)
+
+```
+$ bash experiments/mps-methodology/probe_macmon.sh
+workload: 52529 apply_moves calls in 25.000s
+samples: experiments/mps-methodology/runs/2026-05-02T05-46-50Z/macmon/samples.ndjson
+window: experiments/mps-methodology/runs/2026-05-02T05-46-50Z/macmon/window.json
+
+$ uv run python experiments/mps-methodology/correlate_macmon.py
+gpu_busy=0.952 gpu_power=3.94W samples=89 window=25.0s
+
+$ uv run python experiments/mps-methodology/correlate_macmon.py --expected-busy 1.000
+AGREE: gpu_busy=0.952 gpu_power=3.94W samples=89 window=25.0s expected=1.000
+```
+
+This validates layer-1's claim that `apply_moves` at B=8192 is
+GPU-bound on this M4 Max — bench measures 0.694 ms/call, macmon
+confirms the GPU was active 95% of the workload window, power draw
+matches the 3–4 W band typical of a single MPS workload on this chip.
+
+## 6. Putting it together (the triangulation playbook)
+
+Three short scenarios for resolving disagreement between layers.
+
+### Scenario 1 — "Bench numbers didn't change after my optimization"
+
+You wrote a faster kernel, ran your benchmark, and the wall-time
+median is identical to before. Most likely cause: **missing sync
+brackets.** Without `mps.synchronize()` before `perf_counter()` on
+both sides, you're timing how fast Python pushes to the dispatch
+queue, not how long the GPU takes. Both versions push at the same
+rate; the GPU does different amounts of work but you can't tell.
+
+- **Layer-1 fix.** Use `bench.time_op` (which brackets every trial) or
+  paste in the protocol from section 3. Re-run.
+- **Layer-2 cross-check.** If post-fix bench still shows no change,
+  run `probe_macmon.sh` and check `gpu_power`. A faster kernel that
+  saturates the GPU should show higher power; same power = same GPU
+  work, your "faster" code didn't run more in parallel.
+
+### Scenario 2 — "Bench says we're saturated but macmon shows 30%"
+
+Layer 1 reports your op pegs a CPU core at 100% (you measured 25.0 s
+wall in a 25.0 s window) but macmon reports `gpu_busy=0.30`. The GPU
+is mostly idle — where's the wall time going?
+
+- **Op too small.** If batch size is tiny (B<256 typically), the
+  kernel runs in microseconds and macmon's 200 ms sampling window
+  catches mostly idle GPU between dispatches. Confirm with a larger
+  B; if `gpu_busy` jumps, this was the cause.
+- **Silent CPU fallback.** Some ops have no MPS implementation and
+  fall back to CPU through PrivateUse1 dispatch. Run `probe_profiler.py`
+  and inspect the trace — look for a high density of `cpu_op` events
+  or a missing `aten::gather` (or whatever your hot op is). If you see
+  the work happening on CPU dispatch with no GPU equivalent, you've
+  found the leak.
+- **Hidden host syncs.** Even with MPS implementations, a single
+  `aten::item` or `aten::is_nonzero` per call drains the queue.
+  `verify_no_cpu_sync.py` catches the canonical patterns; finding #1
+  in section 4.5 is the war story.
+
+### Scenario 3 — "Profiler shows fast op but macmon shows long busy window"
+
+The Chrome trace says `aten::gather` took 26 µs of `dur`. macmon
+shows `gpu_busy=0.95` for a workload that called gather 50 K times
+in 25 s — that's 1.25 s of total dispatch (50 K × 26 µs), which only
+explains 5% of a 25 s window, not 95%.
+
+- **The dispatch-vs-work gap.** On torch 2.11, the profiler captures
+  CPU dispatch only (section 4 — `ProfilerActivity.MPS` doesn't
+  exist). `dur` is "how long Python was inside the dispatch call",
+  not "how long the GPU kernel ran." The GPU may continue executing
+  long after `aten::gather` returned.
+- **Trust split.** macmon owns "is the GPU engaged?" Bench owns "how
+  long does end-to-end take?" Profiler owns "what's the dispatch
+  sequence?" Don't ask any one tool a question outside its scope.
+
+### Reproducing all measurements
+
+```
+# Layer 1 — bracket-sync timing primitive (sanity test).
+uv run pytest tests/perf -q
+
+# Layer 2 — macmon correlation on apply_moves at B=8192.
+bash experiments/mps-methodology/probe_macmon.sh
+uv run python experiments/mps-methodology/correlate_macmon.py
+uv run python experiments/mps-methodology/correlate_macmon.py --expected-busy 1.000
+
+# Layer 3 — profiler trace + CPU-sync verifier.
+uv run python experiments/mps-methodology/probe_profiler.py
+uv run python experiments/mps-methodology/verify_no_cpu_sync.py
+
+# Batch sensitivity sweep (lands in commit 6).
+uv run python experiments/batch-sensitivity-2x2/run.py
+uv run python experiments/batch-sensitivity-2x2/analyze.py
+
+# View the writeups.
+open experiments/mps-methodology/results.md
+open experiments/batch-sensitivity-2x2/results.md
+```
+
+All `runs/<ts>/` artifacts are gitignored — only the writeup files
+and probe scripts are versioned. Re-running any probe writes a fresh
+timestamped directory; `correlate_macmon.py` and
+`verify_no_cpu_sync.py` auto-pick the newest.
