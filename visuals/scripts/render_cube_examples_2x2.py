@@ -15,8 +15,8 @@ preview — open it in a browser to eyeball the geometry.
 
 Run:
 
-    uv run python visuals/scripts/generate_cube_preview_2x2.py
-    open visuals/cube_preview_2x2.html
+    uv run python visuals/scripts/render_cube_examples_2x2.py
+    open visuals/cube_examples_2x2.html
 """
 
 from pathlib import Path
@@ -176,7 +176,7 @@ def main() -> None:
         f"<style>{CSS}</style></head><body>{body}</body></html>"
     )
 
-    out = Path(__file__).parent.parent / "cube_preview_2x2.html"
+    out = Path(__file__).parent.parent / "cube_examples_2x2.html"
     out.write_text(html)
     print(f"wrote {out}  ({out.stat().st_size:,} bytes)")
 

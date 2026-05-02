@@ -11,7 +11,7 @@ Prints the (12, 24) tuple-of-tuples as a Python literal for paste into
 changes (drift caught in CI by `test_move_perm_matches_oracle`).
 
 Run:
-    uv run python visuals/scripts/generate_move_perm_2x2.py
+    uv run python scripts/move_perm_from_oracle_2x2.py
 """
 
 import torch

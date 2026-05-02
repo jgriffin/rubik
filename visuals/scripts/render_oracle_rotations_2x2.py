@@ -9,8 +9,8 @@ parallel rendering logic. If a state looks wrong here, the oracle is
 wrong.
 
 Run:
-    uv run python visuals/scripts/generate_cubie_2x2_rotations.py
-    open visuals/cubie_2x2_rotations.html
+    uv run python visuals/scripts/render_oracle_rotations_2x2.py
+    open visuals/oracle_rotations_2x2.html
 """
 
 import random
@@ -18,26 +18,10 @@ from pathlib import Path
 
 from rubik.cube.spec import CUBE_2X2
 from rubik.notation.moves import move_to_str, str_to_move
+from rubik.notation.state import state_to_dict
 from rubik.oracle.cubie import SOLVED, apply_move, cubie_to_tensor
 from rubik.viz.colors import FACE_COLORS
-
-# Position of each face in the unfolded-cross grid (rows × cols of stickers).
-# Cross layout (each face is 2x2, so the sticker grid is 8 cols × 6 rows):
-#     . . U U . . . .
-#     . . U U . . . .
-#     L L F F R R B B
-#     L L F F R R B B
-#     . . D D . . . .
-#     . . D D . . . .
-FACE_TOP_LEFT = {
-    0: (1, 3),  # U
-    1: (3, 1),  # L
-    2: (3, 3),  # F
-    3: (3, 5),  # R
-    4: (3, 7),  # B
-    5: (5, 3),  # D
-}
-
+from rubik.viz.svg import render_svg_state
 
 CSS = """
 body {
@@ -75,18 +59,6 @@ h2 {
     white-space: nowrap;
     letter-spacing: 0.02em;
 }
-.cube-net {
-    display: grid;
-    grid-template-columns: repeat(8, 13px);
-    grid-template-rows: repeat(6, 13px);
-    gap: 1px;
-    background: #1a1a1a;
-}
-.sticker {
-    border: 1px solid #0a0a0a;
-    box-sizing: border-box;
-    border-radius: 1.5px;
-}
 code {
     background: #2a2a2a;
     padding: 1px 5px;
@@ -97,19 +69,8 @@ code {
 
 
 def _render_cube_net(state) -> str:
-    colors = cubie_to_tensor(state, CUBE_2X2).tolist()
-    cells: list[str] = []
-    for face_idx in range(6):
-        top, left = FACE_TOP_LEFT[face_idx]
-        offset = face_idx * 4
-        for sticker_idx in range(4):
-            row, col = sticker_idx // 2, sticker_idx % 2
-            color = FACE_COLORS[colors[offset + sticker_idx]]
-            cells.append(
-                f'<div class="sticker" style="grid-row:{top + row};'
-                f'grid-column:{left + col};background:{color}"></div>'
-            )
-    return f'<div class="cube-net">{"".join(cells)}</div>'
+    tensor = cubie_to_tensor(state, CUBE_2X2)
+    return render_svg_state(state_to_dict(tensor, CUBE_2X2), CUBE_2X2)
 
 
 def _labeled(label: str, state) -> str:
@@ -182,8 +143,10 @@ def _color_legend() -> str:
     for face_idx, name in enumerate(names):
         items.append(
             '<div class="labeled-cube"><div class="label">' + name + "</div>"
-            f'<div class="sticker" style="width:24px;height:24px;'
-            f'background:{FACE_COLORS[face_idx]}"></div></div>'
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"'
+            f' viewBox="0 0 24 24"><rect x="0" y="0" width="24" height="24"'
+            f' rx="1.5" fill="{FACE_COLORS[face_idx]}"'
+            f' stroke="#0a0a0a"/></svg></div>'
         )
     return (
         "<section><h2>Color legend</h2>"
@@ -234,7 +197,7 @@ def main() -> None:
     )
 
     # Script lives in visuals/scripts/; output goes one level up in visuals/.
-    out = Path(__file__).parent.parent / "cubie_2x2_rotations.html"
+    out = Path(__file__).parent.parent / "oracle_rotations_2x2.html"
     out.write_text(html)
     print(f"wrote {out}  ({out.stat().st_size:,} bytes)")
 

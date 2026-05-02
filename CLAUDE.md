@@ -31,8 +31,8 @@ by swapping a `CubeSpec` — same code path, parameterized.
 - **Cube / cubie naming.** `cube` and `cubie` are *generic* — they apply
   to both 2x2 and 3x3. Anything specific to one size MUST carry `_2x2`
   or `_3x3` in its name: constants like `CUBE_2X2` / `CUBE_3X3`, files
-  like `cubie_2x2_rotations.html`, scripts like
-  `generate_cubie_2x2_rotations.py`, test functions like
+  like `oracle_rotations_2x2.html`, scripts like
+  `render_oracle_rotations_2x2.py`, test functions like
   `test_cube_2x2_basic_fields`, etc. The goal: `grep "2x2"` (or `3x3`)
   finds every size-specific identifier in the repo. `2x2` is verbose
   but unambiguous and search-friendly; the alternative `2`/`3` suffix
