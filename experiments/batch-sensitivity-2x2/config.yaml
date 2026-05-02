@@ -1,0 +1,7 @@
+device: mps
+ops: [apply_moves, random_scrambles]
+batch_sizes: [1, 8, 64, 512, 4096, 32768, 262144, 2097152]
+random_scrambles_depth: 20
+warmup: 5
+trials: 30
+seed: 0
