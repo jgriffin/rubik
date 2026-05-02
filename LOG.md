@@ -4,6 +4,14 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-01 — M2 fast tensor cube (2x2) 🟡 in-progress
+**Goal:** Land the vectorized tensor cube for the 2x2. Batched `apply_moves`, `apply_move_sequence`, `is_solved`, `random_scrambles`, `valid_next_moves_mask` in `src/rubik/cube/env.py`. Move tables snapshotted from the M1 oracle (no runtime dep). Acceptance: all 2x2 identities; tensor ≡ oracle on 10k random sequences; inverse-of-scramble round-trip solves.
+**Milestone:** [plans/m2-tensor-cube.md](plans/m2-tensor-cube.md)
+**Approach:** Single branch `m2-tensor-cube`. State = flat `int8` sticker tensor `(spec.n_stickers,)` or batched `(B, n_stickers)`, exactly `CubeSpec.solved_state` shape. Move table = `(12, 24)` int64 permutation; apply via `torch.gather(states, -1, perm[move_idxs])`. Generate the snapshot offline via `visuals/scripts/generate_move_perm_2x2.py` (uses oracle's `apply_move` + a fingerprint variant of `cubie_to_tensor`); paste the literal into `env.py`; `_MOVE_PERM[spec.name]` dispatch keeps the code path 2x2/3x3 generic. Module-level functions, no `Cube` class. Device-agnostic, dtype-preserving. Tests mirror M1's identity suite + EXPECTED_CW_POSITIONS direction check, add 10k oracle-equivalence sweep, batched-apply, random-scrambles + same-face-prune, mask correctness, dtype/device preservation.
+**Next:** Generator script + commit, then env.py, then tests.
+**In progress:**
+- Plan + LOG block + ROADMAP toggle (commit pending).
+
 ## 2026-05-01 — M1 follow-up: R direction fix + 2x2/3x3 naming + visuals/ ✅ done
 **Goal:** Fix the R move (CW cycle was reversed — physically R'; user spotted via visual preview). Add direction-sensitive regression tests. Codify the **cube/cubie + `_2x2`/`_3x3` naming convention** in `CLAUDE.md` (search-friendly: `grep "2x2"` finds all 2x2-specific identifiers; `cube`/`cubie` stay generic). Reorganize HTML visualization artifacts into `visuals/` at the repo root with a `generate_<thing>.py` script convention.
 **Milestone:** drive-by (M1 follow-up)
