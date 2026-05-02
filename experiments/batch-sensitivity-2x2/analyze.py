@@ -24,9 +24,11 @@ EXPERIMENT_DIR = REPO_ROOT / "experiments" / "batch-sensitivity-2x2"
 RUNS_ROOT = EXPERIMENT_DIR / "runs"
 RESULTS_PATH = EXPERIMENT_DIR / "results.md"
 
-# Saturation heuristic: a doubling (or larger step) that gains less than
-# this fraction is treated as "stopped scaling".
-SATURATION_GAIN_THRESHOLD = 0.10
+# Scaling efficiency = (throughput_ratio / batch_ratio). Linear scaling
+# = 1.0; full saturation = 0.0. We use efficiency rather than raw gain
+# because the sweep grid uses non-uniform (8x) batch steps.
+SATURATION_ONSET_EFFICIENCY = 0.80  # first transition below this = onset
+HEAVY_SATURATION_EFFICIENCY = 0.40  # below this = heavily saturated
 
 # Dispatch-bound heuristic: across the smallest few batch sizes, if per-call
 # seconds vary by less than this relative spread, dispatch dominates work.
@@ -127,46 +129,57 @@ def compute_observations(cells: list[dict[str, Any]]) -> dict[str, list[str]]:
                     f"only {spread * 100:.1f}% — call overhead dominates work."
                 )
 
-        # Saturation point: first doubling (or larger) where throughput gain
-        # < SATURATION_GAIN_THRESHOLD.
-        sat_b: int | None = None
+        # Scaling efficiency per transition = throughput_ratio / batch_ratio.
+        # 1.0 = perfect linear scaling. 0.0 = fully saturated. We surface the
+        # full curve and call out the saturation-onset cell.
+        eff_curve: list[tuple[int, int, float]] = []  # (prev_B, cur_B, eff)
+        onset_b: int | None = None
+        heavy_b: int | None = None
         for prev, cur in zip(rows, rows[1:], strict=False):
             prev_t = prev["throughput_per_sec_median"]
             cur_t = cur["throughput_per_sec_median"]
             if prev_t <= 0:
                 continue
-            gain = (cur_t - prev_t) / prev_t
-            if gain < SATURATION_GAIN_THRESHOLD:
-                sat_b = prev["batch_size"]
-                break
-        if sat_b is not None:
+            tput_ratio = cur_t / prev_t
+            batch_ratio = cur["batch_size"] / prev["batch_size"]
+            eff = tput_ratio / batch_ratio if batch_ratio > 0 else 0.0
+            eff_curve.append((prev["batch_size"], cur["batch_size"], eff))
+            if onset_b is None and eff < SATURATION_ONSET_EFFICIENCY:
+                onset_b = prev["batch_size"]
+            if heavy_b is None and eff < HEAVY_SATURATION_EFFICIENCY:
+                heavy_b = prev["batch_size"]
+
+        if eff_curve:
+            curve_str = ", ".join(f"{p}→{c}: {e:.2f}" for p, c, e in eff_curve)
+            notes.append(f"Scaling efficiency curve (per 8x batch step): {curve_str}.")
+
+        if onset_b is not None:
             notes.append(
-                f"Saturation: throughput stops scaling above B={sat_b} (gain "
-                f"< {SATURATION_GAIN_THRESHOLD * 100:.0f}% on next doubling)."
+                f"Saturation onset: scaling efficiency drops below "
+                f"{SATURATION_ONSET_EFFICIENCY:.0%} starting at B={onset_b} "
+                f"(throughput grows but no longer linearly with batch)."
             )
         else:
             notes.append(
-                "No saturation detected in the swept range — top batch may "
+                "Linear-scaling regime across the full sweep — top batch may "
                 "still have headroom."
             )
 
-        # Largest-batch sanity: any unusual jump in per-call latency at the
-        # top end?
-        if len(rows) >= 3:
-            last = rows[-1]
-            prev = rows[-2]
-            ratio = (
-                last["median_seconds"] / prev["median_seconds"]
-                if prev["median_seconds"] > 0
-                else 0.0
+        if heavy_b is not None and heavy_b != onset_b:
+            notes.append(
+                f"Heavy saturation: efficiency below "
+                f"{HEAVY_SATURATION_EFFICIENCY:.0%} starting at B={heavy_b} — "
+                f"throughput is approaching a hard ceiling."
             )
-            batch_ratio = last["batch_size"] / prev["batch_size"]
-            if ratio > 1.5 * batch_ratio:
-                notes.append(
-                    f"Largest batch B={last['batch_size']} per-call grew "
-                    f"{ratio:.2f}x for a {batch_ratio:.0f}x batch step — "
-                    f"possible allocator pressure or memory-bandwidth wall."
-                )
+
+        # Peak observed throughput.
+        peak = max(rows, key=lambda r: r["throughput_per_sec_median"])
+        peak_t = peak["throughput_per_sec_median"]
+        peak_unit = "states/s" if op == "apply_moves" else "scrambles/s"
+        notes.append(
+            f"Peak observed throughput: {fmt_throughput(peak_t)}{peak_unit} "
+            f"at B={peak['batch_size']}."
+        )
         obs[op] = notes
     return obs
 
@@ -296,6 +309,11 @@ def render_results_md(
             "regime-dependent factor (see "
             "`experiments/mps-methodology/results.md` §5).\n"
         )
+
+    # 7. Intuition (hand-written, preserved across regenerations).
+    intuition_path = EXPERIMENT_DIR / "intuition.md"
+    if intuition_path.exists():
+        sections.append(intuition_path.read_text().rstrip() + "\n")
 
     return "\n".join(sections)
 

@@ -179,8 +179,10 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cells: list[dict[str, Any]] = []
+    per_op_batch_sizes = config.get("per_op_batch_sizes", {}) or {}
     for op in config["ops"]:
-        for batch_size in config["batch_sizes"]:
+        op_batch_sizes = per_op_batch_sizes.get(op, config["batch_sizes"])
+        for batch_size in op_batch_sizes:
             cell = run_cell(op, batch_size, config=config, device=device)
             cells.append(cell)
             print(
