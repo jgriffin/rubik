@@ -12,6 +12,7 @@ from rubik.cube import (
     random_scrambles,
     valid_next_moves_mask,
 )
+from rubik.perf import bootstrap_ci, time_op
 from rubik.viz import (
     SPEEDCUBING_PALETTE,
     Palette,
@@ -31,11 +32,13 @@ __all__ = [
     "__version__",
     "apply_move_sequence",
     "apply_moves",
+    "bootstrap_ci",
     "is_solved",
     "random_scrambles",
     "render_ascii",
     "render_svg_compare",
     "render_svg_sequence",
     "render_svg_state",
+    "time_op",
     "valid_next_moves_mask",
 ]
