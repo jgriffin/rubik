@@ -4,6 +4,14 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-01 — M4 Perf-1: MPS methodology + batch sensitivity (2x2) 🟡 in-progress
+**Goal:** Stand up the project's first perf milestone — a reproducible MPS measurement methodology on this M4 Max, a batch-size sensitivity sweep on `apply_moves` and `random_scrambles` with bootstrap 95% CIs, profiler-trace verification of no CPU round-trips in the hot path, and the `experiments/<name>/` pattern itself (template for M8). Co-equal goal: build genuine GPU intuition — where does this hardware saturate, what's parallelizable, where does dispatch overhead end. The writeup is the deliverable, not just an output.
+**Milestone:** [plans/m4-perf-1.md](plans/m4-perf-1.md)
+**Approach:** Single branch `m4-perf-1`. Three measurement layers that cross-check each other: (1) bracket-sync timing in `src/rubik/perf/bench.py` (`time_op`, `bootstrap_ci`) — primary truth; (2) `macmon` external correlation — answers "are we actually on the GPU?"; (3) `torch.profiler` — investigation tool when (1) and (2) disagree, with explicit fidelity probe upfront since MPS profiler has historically been patchy and we're on torch 2.11 (unknown). Two experiment dirs: `experiments/mps-methodology/` (writeup + probes + correlator) and `experiments/batch-sensitivity-2x2/` (sweep + analysis). Adds `pyyaml` dev dep for config files. M4 measures, doesn't optimize — perm-migration cost gets flagged if material, fixing it is a follow-up block.
+**Next:** Land commits 2–3 (perf module + experiment skeletons), then commit 4 (profiler probe + verifier) — pause there to eyeball MPS profiler fidelity on torch 2.11 before fully committing the methodology approach.
+**In progress:**
+- Block opened on branch `m4-perf-1`. Plan committed to `plans/m4-perf-1.md`.
+
 ## 2026-05-01 — M3 visualization stack (2x2) ✅ done
 **Goal:** Land the human-verifiable layer for the 2x2: ASCII renderer, SVG render components (single state / sequence grid / side-by-side compare), and a static HTML view of canonical cube states. Renderers consume *notations* (face-dict), not raw tensors. Acceptance: snapshot tests green; user can `open` the HTML view and visually confirm solved, single-move, and depth-20 scramble states render correctly.
 **Milestone:** [plans/m3-viz.md](plans/m3-viz.md)
