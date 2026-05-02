@@ -9,7 +9,7 @@ mode produces them; we don't pre-create stubs).
 
 - **M0** — Repo skeleton, `CubeSpec` abstraction, notation hub scaffolding — ✅ done ([plan](plans/m0-skeleton.md))
 - **M1** — Slow cubie oracle (2x2), hand-rolled, generic enough for 3x3 later — ✅ done ([plan](plans/m1-cubie-oracle.md))
-- **M2** — Fast tensor cube (2x2), correctness only (oracle equivalence + identities) — 🟡 in progress ([plan](plans/m2-tensor-cube.md))
+- **M2** — Fast tensor cube (2x2), correctness only (oracle equivalence + identities) — ✅ done ([plan](plans/m2-tensor-cube.md))
 - **M3** — Visualization stack: ASCII + HTML/SVG, first human-verifiable checkpoint — *not yet planned*
 - **M4** — Perf-1: MPS measurement methodology + batch sensitivity + experiment-loop pattern — *not yet planned*
 - **M5** — Scale to 3x3 via `CubeSpec` swap; rerun M1–M4 verification — *not yet planned*
