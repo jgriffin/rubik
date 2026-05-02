@@ -19,16 +19,7 @@ from pathlib import Path
 from rubik.cube.spec import CUBE_2X2
 from rubik.notation.moves import move_to_str, str_to_move
 from rubik.oracle.cubie import SOLVED, apply_move, cubie_to_tensor
-
-# Standard speedcubing scheme. Face index per FACE_NAMES = (U,L,F,R,B,D).
-FACE_COLORS = {
-    0: "#f5f5f5",  # U  white
-    1: "#ff8c00",  # L  orange
-    2: "#1aa64a",  # F  green
-    3: "#dd2222",  # R  red
-    4: "#1144cc",  # B  blue
-    5: "#ffdd00",  # D  yellow
-}
+from rubik.viz.colors import FACE_COLORS
 
 # Position of each face in the unfolded-cross grid (rows × cols of stickers).
 # Cross layout (each face is 2x2, so the sticker grid is 8 cols × 6 rows):
