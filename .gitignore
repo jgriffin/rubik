@@ -70,3 +70,6 @@ experiments/*/cache/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local Claude Code harness state
+.claude/

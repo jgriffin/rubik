@@ -11,7 +11,7 @@ mode produces them; we don't pre-create stubs).
 - **M1** — Slow cubie oracle (2x2), hand-rolled, generic enough for 3x3 later — ✅ done ([plan](plans/m1-cubie-oracle.md))
 - **M2** — Fast tensor cube (2x2), correctness only (oracle equivalence + identities) — ✅ done ([plan](plans/m2-tensor-cube.md))
 - **M3** — Visualization stack: ASCII + HTML/SVG, first human-verifiable checkpoint — ✅ done ([plan](plans/m3-viz.md))
-- **M4** — Perf-1: MPS measurement methodology + batch sensitivity + experiment-loop pattern — *not yet planned*
+- **M4** — Perf-1: MPS measurement methodology + batch sensitivity + experiment-loop pattern — ✅ done ([plan](plans/m4-perf-1.md))
 - **M5** — Scale to 3x3 via `CubeSpec` swap; rerun M1–M4 verification — *not yet planned*
 - **M6** — Scramble pipeline + DAVI training (2x2 smoke test against BFS V\*, then 3x3) — *not yet planned*
 - **M7** — Beam search (2x2 vs BFS-optimal, then 3x3) — *not yet planned*

@@ -1,0 +1,13 @@
+device: mps
+ops: [apply_moves, random_scrambles]
+batch_sizes: [1, 8, 64, 512, 4096, 32768, 262144, 2097152]
+# Per-op overrides: random_scrambles drops the 2M cell because it builds a
+# (B, depth) move-seqs tensor on CPU (~6.4 GB at B=2M, depth=20) and runs
+# `depth` sequential apply_moves over it. Wall-clock outlier with no
+# curve-shape benefit beyond what 262K already shows.
+per_op_batch_sizes:
+  random_scrambles: [1, 8, 64, 512, 4096, 32768, 262144]
+random_scrambles_depth: 20
+warmup: 5
+trials: 30
+seed: 0

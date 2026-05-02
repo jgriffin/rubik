@@ -67,6 +67,21 @@ by swapping a `CubeSpec` — same code path, parameterized.
 - **Experiment-loop pattern.** Each perf-sensitive milestone gets an
   `experiments/<name>/` directory with reproducible scripts and a
   `results.md`. Established in M4, reused in M8 for hyperparams.
+- **Experiment results.md format.** Every experiment dir's `results.md`
+  ends with an `## Intuition` section in epistemically honest format:
+  **Observations** (mechanical, from this run's data) → **Hypotheses**
+  (interpretive claims with confidence level + supporting evidence +
+  explicit verification plan) → **Open questions** (well-defined next
+  experiments) → optionally **What we haven't verified** (caveats on
+  the most speculative claims). Datestamp + run conditions at the top so
+  stale interpretations are obvious. Hand-written in
+  `experiments/<name>/intuition.md`; `analyze.py` reads it and appends to
+  `results.md` so the section persists across regenerations. Goal:
+  capture conceptual learning per experiment so a human can read just
+  the intuition section to internalize what we learned, **without**
+  anchoring future agents — the format invites investigation rather than
+  asserting conclusions. Distinguish observation from inference from
+  hypothesis; hypotheses get verification plans, not authoritative tone.
 
 ## Pointers
 
