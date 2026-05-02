@@ -6,7 +6,7 @@ import torch
 from rubik.cube.spec import CUBE_2X2
 
 
-def test_cube_2x2_basic_fields():
+def test_cube_basic_fields_2x2():
     assert CUBE_2X2.faces == ("U", "L", "F", "R", "B", "D")
     assert len(CUBE_2X2.faces) == 6
     assert CUBE_2X2.stickers_per_face == 4
