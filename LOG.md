@@ -4,6 +4,15 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-01 — M3 visualization stack (2x2) 🟡 in-progress
+**Goal:** Land the human-verifiable layer for the 2x2: ASCII renderer, SVG render components (single state / sequence grid / side-by-side compare), and a static HTML preview at `visuals/cube_preview_2x2.html`. Renderers consume *notations* (face-dict), not raw tensors. Acceptance: snapshot tests green; user can `open` the HTML preview and visually confirm solved, single-move, and depth-20 scramble states render correctly.
+**Milestone:** [plans/m3-viz.md](plans/m3-viz.md)
+**Approach:** Single branch `m3-viz`. New module `src/rubik/viz/` with `colors.py` (palette as single source of truth — lifts the duplicate out of `generate_cubie_2x2_rotations.py`), `ascii.py` (unfolded cross, face-letter cells), `svg.py` (3 functions: `render_svg_state`, `render_svg_sequence`, `render_svg_compare` — all return SVG fragment strings, embeddable in HTML). Tests mirror prior milestones: exact-string asserts for ASCII (4 tests), `pytest-snapshot` for SVG (4 snapshots under `tests/viz/snapshots/`). Static preview `visuals/cube_preview_2x2.html` with sections: solved, single-move (R/U/F), depth-10 canonical sequence, depth-20 scramble side-by-side with its inverse. Reuses M1 `FACE_TOP_LEFT` cross layout and the dark-theme CSS aesthetics for visual consistency with the rotations preview.
+**Next:** Atomic commits 2–7 per the plan: `viz/colors.py` + tests → `viz/ascii.py` + tests → `viz/svg.py` + snapshot tests → re-exports → preview generator + artifact → drive-by colors dedup.
+**In progress:**
+- Plan: `plans/m3-viz.md` written.
+- Branch `m3-viz` created off `main`.
+
 ## 2026-05-01 — M2 fast tensor cube (2x2) ✅ done
 **Goal:** Land the vectorized tensor cube for the 2x2. Batched `apply_moves`, `apply_move_sequence`, `is_solved`, `random_scrambles`, `valid_next_moves_mask` in `src/rubik/cube/env.py`. Move tables snapshotted from the M1 oracle (no runtime dep). Acceptance: all 2x2 identities; tensor ≡ oracle on 10k random sequences; inverse-of-scramble round-trip solves.
 **Milestone:** [plans/m2-tensor-cube.md](plans/m2-tensor-cube.md)
