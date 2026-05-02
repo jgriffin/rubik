@@ -9,6 +9,8 @@ the oracle at runtime. Drift is caught by `test_move_perm_matches_oracle`.
 Functions are device-agnostic and dtype-preserving — MPS tuning is M4.
 """
 
+from collections.abc import Sequence
+
 import torch
 
 from rubik.cube.spec import CubeSpec
@@ -108,3 +110,96 @@ def is_solved(states: torch.Tensor, spec: CubeSpec) -> torch.Tensor:
     if states.dim() == 1:
         return (states == target).all()
     return (states == target).all(dim=-1)
+
+
+def apply_move_sequence(
+    state: torch.Tensor, moves: Sequence[int], spec: CubeSpec
+) -> torch.Tensor:
+    """Apply a Python sequence of move indices to a single state, in order."""
+    if state.dim() != 1:
+        raise ValueError(
+            f"apply_move_sequence expects a single state (1-d);"
+            f" got shape {tuple(state.shape)}"
+        )
+    cur = state
+    for m in moves:
+        cur = apply_moves(cur, m, spec)
+    return cur
+
+
+def random_scrambles(
+    spec: CubeSpec,
+    batch_size: int,
+    depth: int,
+    generator: torch.Generator | None = None,
+    prune_same_face: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Generate `batch_size` random scrambles of length `depth` from solved.
+
+    Returns `(states, move_seqs)` with shapes `(B, n_stickers)` int8 and
+    `(B, depth)` int64. When `prune_same_face=True` (default), consecutive
+    moves on the same face are excluded — matches scramble-generation and
+    beam-search conventions.
+    """
+    if batch_size < 0:
+        raise ValueError(f"batch_size must be non-negative; got {batch_size}")
+    if depth < 0:
+        raise ValueError(f"depth must be non-negative; got {depth}")
+
+    n_moves = spec.n_moves
+    move_seqs = torch.empty((batch_size, depth), dtype=torch.int64)
+
+    if depth > 0 and batch_size > 0:
+        move_seqs[:, 0] = torch.randint(
+            low=0, high=n_moves, size=(batch_size,), generator=generator
+        )
+        if not prune_same_face:
+            for d in range(1, depth):
+                move_seqs[:, d] = torch.randint(
+                    low=0, high=n_moves, size=(batch_size,), generator=generator
+                )
+        else:
+            face_idxs = torch.arange(n_moves) >> 1  # (n_moves,)
+            for d in range(1, depth):
+                prev_face = move_seqs[:, d - 1] >> 1  # (B,)
+                # Per-row probability: 0 on same-face moves, uniform elsewhere.
+                probs = (face_idxs.unsqueeze(0) != prev_face.unsqueeze(1)).to(
+                    torch.float32
+                )
+                move_seqs[:, d] = torch.multinomial(
+                    probs, num_samples=1, generator=generator
+                ).squeeze(1)
+
+    states = spec.solved_state.unsqueeze(0).expand(batch_size, -1).clone()
+    for d in range(depth):
+        states = apply_moves(states, move_seqs[:, d], spec)
+    return states, move_seqs
+
+
+def valid_next_moves_mask(
+    prev_move_idxs: torch.Tensor | int | None, spec: CubeSpec
+) -> torch.Tensor:
+    """Bool mask over `spec.n_moves`. Same-face repeats relative to `prev` are False.
+
+    `prev_move_idxs=None` -> shape `(n_moves,)` all True (no constraint).
+    Scalar / 0-d prev -> shape `(n_moves,)`.
+    1-d prev of shape `(B,)` -> shape `(B, n_moves)`.
+    """
+    n_moves = spec.n_moves
+    if prev_move_idxs is None:
+        return torch.ones(n_moves, dtype=torch.bool)
+    prev_t = (
+        prev_move_idxs
+        if isinstance(prev_move_idxs, torch.Tensor)
+        else torch.tensor(prev_move_idxs, dtype=torch.int64)
+    )
+    if prev_t.dtype != torch.int64:
+        prev_t = prev_t.to(torch.int64)
+    face_idxs = torch.arange(n_moves, device=prev_t.device) >> 1
+    if prev_t.dim() == 0:
+        return face_idxs != (prev_t >> 1)
+    if prev_t.dim() == 1:
+        return face_idxs.unsqueeze(0) != (prev_t >> 1).unsqueeze(1)
+    raise ValueError(
+        f"prev_move_idxs must be 0-d or 1-d; got {prev_t.dim()}-d"
+    )
