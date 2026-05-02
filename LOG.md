@@ -8,9 +8,15 @@ ahead, `SPEC.md` for the full project spec. Process docs at
 **Goal:** Land the vectorized tensor cube for the 2x2. Batched `apply_moves`, `apply_move_sequence`, `is_solved`, `random_scrambles`, `valid_next_moves_mask` in `src/rubik/cube/env.py`. Move tables snapshotted from the M1 oracle (no runtime dep). Acceptance: all 2x2 identities; tensor ≡ oracle on 10k random sequences; inverse-of-scramble round-trip solves.
 **Milestone:** [plans/m2-tensor-cube.md](plans/m2-tensor-cube.md)
 **Approach:** Single branch `m2-tensor-cube`. State = flat `int8` sticker tensor `(spec.n_stickers,)` or batched `(B, n_stickers)`, exactly `CubeSpec.solved_state` shape. Move table = `(12, 24)` int64 permutation; apply via `torch.gather(states, -1, perm[move_idxs])`. Generate the snapshot offline via `visuals/scripts/generate_move_perm_2x2.py` (uses oracle's `apply_move` + a fingerprint variant of `cubie_to_tensor`); paste the literal into `env.py`; `_MOVE_PERM[spec.name]` dispatch keeps the code path 2x2/3x3 generic. Module-level functions, no `Cube` class. Device-agnostic, dtype-preserving. Tests mirror M1's identity suite + EXPECTED_CW_POSITIONS direction check, add 10k oracle-equivalence sweep, batched-apply, random-scrambles + same-face-prune, mask correctness, dtype/device preservation.
-**Next:** Generator script + commit, then env.py, then tests.
+**Next:** LOG closure (Outcome + branch merge) — main thread to handle.
 **In progress:**
-- Plan + LOG block + ROADMAP toggle (commit pending).
+- Plan + LOG block + ROADMAP toggle committed (88dbf7b).
+- `visuals/scripts/generate_move_perm_2x2.py` — fingerprint renderer over the oracle, prints the (12, 24) tuple-of-tuples, includes self-check and per-row permutation assert (f379ea1).
+- `src/rubik/cube/env.py` — `MOVE_PERM_2X2` snapshot constant (int64), `_MOVE_PERM` dispatch dict keyed by `spec.name`, `apply_moves` (scalar / 0-d / 1-d move idxs, broadcasts across (S,) and (B,S)), `is_solved`, `apply_move_sequence`, `random_scrambles` (with `prune_same_face` via per-row multinomial), `valid_next_moves_mask` (None/scalar/1-d) (5de9312, 8a2b198).
+- `tests/cube/test_env.py` — 36 tests across all 15 plan sections including 10k oracle-equivalence sweep (runs in <1s on CPU; well under the 60s budget) (292b419).
+- Lint/format fixups: noqa per snapshot row (24-int rows don't fit in 88), import sort (6536cef).
+- Re-exports from `cube/__init__.py` + `rubik/__init__.py` (d60935d).
+- Acceptance gate green: `122 passed in 1.40s`, `ruff check` clean, `ruff format --check` clean.
 
 ## 2026-05-01 — M1 follow-up: R direction fix + 2x2/3x3 naming + visuals/ ✅ done
 **Goal:** Fix the R move (CW cycle was reversed — physically R'; user spotted via visual preview). Add direction-sensitive regression tests. Codify the **cube/cubie + `_2x2`/`_3x3` naming convention** in `CLAUDE.md` (search-friendly: `grep "2x2"` finds all 2x2-specific identifiers; `cube`/`cubie` stay generic). Reorganize HTML visualization artifacts into `visuals/` at the repo root with a `generate_<thing>.py` script convention.
