@@ -19,7 +19,6 @@ import torch
 from rubik.cube.spec import CUBE_2X2
 from rubik.notation.moves import MOVE_STRINGS
 from rubik.oracle.cubie import (
-    CORNER_COLORS,
     FACE_NAMES,
     FACE_SLOTS,
     SLOT_FACETS,
@@ -49,7 +48,9 @@ def _cubie_to_position_tensor(state) -> torch.Tensor:
             # In SOLVED, ori=0 so k = SLOT_FACETS[slot].index(face).
             k = SLOT_FACETS[slot].index(face)
             cubie_id = slot  # SOLVED: cubie_id == slot
-            facet_to_sticker[(cubie_id, k)] = _solved_sticker_index(face_idx, within_idx)
+            facet_to_sticker[(cubie_id, k)] = _solved_sticker_index(
+                face_idx, within_idx
+            )
 
     tensor = torch.zeros(CUBE_2X2.n_stickers, dtype=torch.int64)
     for face_idx, face in enumerate(FACE_NAMES):

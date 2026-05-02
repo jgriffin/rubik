@@ -16,14 +16,8 @@ from rubik.cube.env import (
 )
 from rubik.cube.spec import CUBE_2X2
 from rubik.notation.moves import FACE_NAMES, str_to_move
-from rubik.oracle.cubie import (
-    CORNER_COLORS,
-    FACE_SLOTS,
-    SLOT_FACETS,
-    SOLVED,
-    apply_move as oracle_apply_move,
-    cubie_to_tensor,
-)
+from rubik.oracle.cubie import FACE_SLOTS, SLOT_FACETS, SOLVED, cubie_to_tensor
+from rubik.oracle.cubie import apply_move as oracle_apply_move
 
 
 def parse(seq: str) -> list[int]:
@@ -41,10 +35,11 @@ def test_move_perm_matches_oracle():
     # equality with the embedded snapshot. Drift catcher: any change to the
     # oracle's sticker geometry that isn't reflected in env.py fails here.
     facet_to_sticker: dict[tuple[int, int], int] = {}
+    n_per_face = CUBE_2X2.stickers_per_face
     for face_idx, face in enumerate(FACE_NAMES):
         for within_idx, slot in enumerate(FACE_SLOTS[face]):
             k = SLOT_FACETS[slot].index(face)
-            facet_to_sticker[(slot, k)] = face_idx * CUBE_2X2.stickers_per_face + within_idx
+            facet_to_sticker[(slot, k)] = face_idx * n_per_face + within_idx
 
     expected = torch.zeros((12, CUBE_2X2.n_stickers), dtype=torch.int64)
     for move_idx in range(CUBE_2X2.n_moves):
@@ -54,11 +49,8 @@ def test_move_perm_matches_oracle():
                 cubie_id = moved.positions[slot]
                 ori = moved.orientations[slot]
                 k = (SLOT_FACETS[slot].index(face) - ori) % 3
-                sticker_idx = face_idx * CUBE_2X2.stickers_per_face + within_idx
+                sticker_idx = face_idx * n_per_face + within_idx
                 expected[move_idx, sticker_idx] = facet_to_sticker[(cubie_id, k)]
-    # Touch CORNER_COLORS so the import is exercised (sanity that module
-    # geometry constants haven't drifted in shape).
-    assert len(CORNER_COLORS) == 8
     assert torch.equal(MOVE_PERM_2X2, expected)
 
 
