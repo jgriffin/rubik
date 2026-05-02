@@ -45,7 +45,7 @@ ahead, `SPEC.md` for the full project spec. Process docs at
 - Drive-by: `.claude/` (local Claude Code harness state — `scheduled_tasks.lock` etc.) added to `.gitignore`.
 - Drive-by: `_format_throughput` reuse fix in `analyze.py` (originally referenced a non-existent helper; now uses `fmt_throughput` consistently).
 - Drive-by: macmon worked-example AGREE result (`gpu_busy=0.952 gpu_power=3.94W expected=1.000`) embedded in `mps-methodology/results.md` §5 as the calibration ground truth.
-**Commits:** 17269cd (open), c33e772, d0aafcd, 990afd2, 63242a2, 3a0b530, fd3bf76, 1e0d94a (close)
+**Commits:** 17269cd (open), c33e772, d0aafcd, 990afd2, 63242a2, 3a0b530, fd3bf76, 4f8e677 (close), ee56b82 (merge)
 
 ## 2026-05-01 — M3 visualization stack (2x2) ✅ done
 **Goal:** Land the human-verifiable layer for the 2x2: ASCII renderer, SVG render components (single state / sequence grid / side-by-side compare), and a static HTML view of canonical cube states. Renderers consume *notations* (face-dict), not raw tensors. Acceptance: snapshot tests green; user can `open` the HTML view and visually confirm solved, single-move, and depth-20 scramble states render correctly.
