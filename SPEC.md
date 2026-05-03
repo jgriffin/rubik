@@ -116,9 +116,9 @@ Rationale: perf and hyperparam work is a search problem with many wrong
 answers. We treat each perf-sensitive milestone as an experiment dir
 under `experiments/<name>/` with reproducible scripts (`run.py`,
 `config.yaml`), an output dir (`runs/`, gitignored), and a `results.md`
-that accumulates findings. A "perf-tuner" subagent runs hypotheses
-through `hyperfine` + `macmon` + `torch.profiler`. M4 establishes the
-pattern; M8 reuses it for training hyperparams.
+that accumulates findings. M4 established the pattern; M7 reuses it for
+training hyperparams (2x2), and M8 reuses it again for the 3x3
+throughput rerun.
 
 ### 8. pycuber dropped
 
@@ -162,15 +162,15 @@ src/rubik/
     __init__.py
     ascii.py
     svg.py
-  model/               # value network — M6
+  model/               # value network — M5
     __init__.py
     network.py
-  training/            # DAVI loop + scramble pipeline — M6
+  training/            # DAVI loop + scramble pipeline — M5
     __init__.py
     davi.py
     scrambles.py
     config.py
-  search/              # batched beam search — M7
+  search/              # batched beam search — M6
     __init__.py
     beam.py
     pack.py            # state packing for dedup
@@ -190,8 +190,9 @@ experiments/           # appears at M4
 ## Milestones
 
 Acceptance criteria are derived from the draft spec where applicable but
-adjusted for our 2x2-first sequencing — the draft's "10M transitions/sec
-on 3x3" target lives at **M4**, not M2.
+adjusted for our 2x2-first sequencing. The draft's "10M transitions/sec
+on 3x3" target lives at **M8** (the 3x3-enablement milestone), not M2 or
+M4 — both of those are 2x2-only by design.
 
 ### M0 — Repo skeleton, `CubeSpec`, notation hub scaffolding
 
@@ -200,7 +201,7 @@ on 3x3" target lives at **M4**, not M2.
   (most are empty `__init__.py` placeholders at this stage).
 - `CubeSpec` dataclass defined: `size`, `n_stickers`, `faces`,
   `n_moves`, `n_colors`, plus the slot-permutation table type.
-  2x2 spec instantiated as `CUBE_2X2`; 3x3 left as a `# TODO M5`.
+  2x2 spec instantiated as `CUBE_2X2`; 3x3 left as a `# TODO M8`.
 - Notation hub stubs: `moves.py` (index ↔ string ↔ tuple) and
   `state.py` (tensor ↔ unfolded face dict) with TDD'd round-trip tests.
 - `tests/` runs green (even if it's just sanity tests).
@@ -214,7 +215,7 @@ on 3x3" target lives at **M4**, not M2.
 - `src/rubik/oracle/cubie.py`: corner state as
   `[position_idx, orientation]` per corner slot. Moves applied as
   physical rotations of the affected corners (slots and twists explicit
-  in code). Generic enough to extend to 3x3 by adding edges in M5.
+  in code). Generic enough to extend to 3x3 by adding edges in M8.
 - Tests: identities (`M⁴ = I`, `(R U R' U')⁶ = I`, `Sune⁶ = I`),
   inverse relation `M' = M³`, color-multiset preservation when
   rendered into sticker form.
@@ -273,68 +274,81 @@ visually confirm correctness.
 from a clean shell; throughput numbers logged with confidence intervals;
 no CPU round-trips in the hot path (verified via profiler trace).
 
-### M5 — Scale to 3x3 via `CubeSpec` swap
-
-- Add `CUBE_3X3` spec.
-- Extend cubie oracle with edge cubies (position + orientation).
-- Tensor env automatically picks up the new spec (the whole point of M0's
-  abstraction).
-- Re-run M1 / M2 / M3 / M4 verification matrices on 3x3:
-  - All standard 3x3 identities (`(R U R' U')⁶`, `Sune⁶`, T-perm² etc.)
-  - 10k random-sequence equivalence vs. oracle
-  - HTML preview shows correct 3x3 unfolded cross
-  - Throughput re-measured
-
-**Acceptance:** every M1–M4 acceptance criterion repeats on 3x3 without
-any 2x2-specific code path.
-
-### M6 — Scramble pipeline + DAVI training (parametric)
+### M5 — Scramble pipeline + DAVI training (2x2)
 
 - `training/scrambles.py`: backward random-scramble generator with
   non-trivial-move pruning. Returns `(states, depths, last_faces)`.
 - `model/network.py`: MLP value network (architecture from draft spec —
   input one-hot, body of 5000→1000→4×residual(1000→1000)→1).
   Parameterized on `CubeSpec` (input dim derives from sticker count and
-  color count).
+  color count) so the same network class drops in for 3x3 at M8.
 - `training/davi.py`: DAVI training loop — target is
   `min_a (1 + V_target(child))` with terminal-child clamp; periodic
   `V_target ← V_θ` sync.
-- **2x2 first as smoke test.** State space is small enough that BFS gives
-  optimal `V*` for every reachable state. Score `V_θ` against `V*`
-  per-state — strong signal beyond just loss curves.
-- Then 3x3 with the same code path.
+- **2x2 only at this milestone.** State space is small enough that BFS
+  gives optimal `V*` for every reachable state. Score `V_θ` against `V*`
+  per-state — strong signal beyond just loss curves. 3x3 happens at M8.
 
 **Acceptance (2x2):** loss decreases monotonically over 100k steps; mean
 absolute error vs BFS-optimal `V*` < 1.0 across all reachable states;
 greedy solve rate ≥ 99% on depth ≤ 11 (2x2 God's Number is 11 QTM).
 
-**Acceptance (3x3):** loss decreases; greedy solve rate ≥ 95% on depth
-≤ 15 (matches the draft's target).
-
-### M7 — Beam search (parametric)
+### M6 — Beam search (2x2)
 
 - `search/beam.py`: batched beam search using `V` as scorer. Within-beam
-  dedup via state packing.
-- **2x2 first.** Verify beam search returns BFS-optimal solution lengths
-  for a sample of 1000 random scrambles — we have ground truth here.
-- Then 3x3 with the same code.
+  dedup via state packing. Parametric on `CubeSpec` from day one — no
+  2x2-specific branches.
+- Verify beam search returns BFS-optimal solution lengths for a sample
+  of 1000 random scrambles — 2x2 gives us this ground truth. 3x3
+  validation happens at M8.
 
 **Acceptance (2x2):** 100% solve rate on 1000 depth ≤ 11 scrambles at
 beam_width=256; mean solution length within 1 move of BFS-optimal.
 
-**Acceptance (3x3):** 100% solve rate on 1000 depth-20 scrambles at
-beam_width=4096; mean solution length ≤ 24 moves; per-scramble solve
-time < 10s wall on M4 MPS.
+### M7 — Perf-2 / hyperparam experiment loop (2x2 training)
 
-### M8 — Perf-2 / hyperparam experiment loop (3x3 training)
-
-- Reuse the M4 experiment-loop infrastructure for hyperparam sweeps:
-  batch size, LR, target update frequency, network width.
+- Reuse the M4 experiment-loop infrastructure for hyperparam sweeps on
+  2x2 training: batch size, LR, target update frequency, network width.
 - Parallel sweeps if MPS has headroom (one process per config; the
   perf-tuner subagent dispatches and aggregates).
+- **Why 2x2 at this milestone, not 3x3.** Iterating on training
+  hyperparams against 2x2's BFS-optimal `V*` gives faster, sharper
+  signal than 3x3's "loss-curve only" view. Patterns surfaced here
+  inform the 3x3 retrain at M8.
 
-**Acceptance:** training reaches M6 acceptance numbers in ≤ 50% of the
-baseline wall-clock from M6.
+**Acceptance:** training reaches M5 acceptance numbers in ≤ 50% of the
+baseline wall-clock from M5.
+
+### M8 — 3x3 enablement (CubeSpec swap + rerun)
+
+The 2x2 pipeline shipped end-to-end through M5/M6/M7. M8 is where the
+`CubeSpec` abstraction earns its keep — adding 3x3 should be **adding a
+spec, not adding code paths**.
+
+- Add `CUBE_3X3` spec.
+- Extend cubie oracle (M1) with edge cubies (position + orientation).
+- Snapshot 3x3 move-perm from the extended oracle into `env.py`
+  alongside `MOVE_PERM_2X2`; tensor env picks up the new spec via
+  `_MOVE_PERM[spec.name]` dispatch (already in place from M2).
+- Re-run M2 / M3 / M4 / M5 / M6 verification matrices on 3x3:
+  - All standard 3x3 identities (`(R U R' U')⁶`, `Sune⁶`, T-perm² etc.)
+  - 10k random-sequence equivalence vs. oracle
+  - HTML preview shows correct 3x3 unfolded cross
+  - Throughput re-measured (the draft's "10M transitions/sec on 3x3"
+    target is judged here — not at M2 or M4)
+  - DAVI retrain on 3x3
+  - Beam search on 3x3 against trained `V_θ`
+- Optional: rerun M7 hyperparam sweep to retune for 3x3 if M5's 2x2
+  recipe transfers poorly.
+
+**Acceptance:**
+- Every M2–M4 acceptance criterion repeats on 3x3 without any
+  2x2-specific code path.
+- DAVI loss decreases on 3x3; greedy solve rate ≥ 95% on depth ≤ 15
+  (matches the draft's target).
+- Beam search: 100% solve rate on 1000 depth-20 scrambles at
+  beam_width=4096; mean solution length ≤ 24 moves; per-scramble solve
+  time < 10s wall on M4 MPS.
 
 ### M9 — Stretch: 3D / web frontend, solution-trace analysis
 
@@ -383,8 +397,10 @@ investigation that uncovers a new gotcha appends to it.
 
 Anywhere we'd be tempted to write `if cube_size == 2: ... else: ...` is
 a sign we need to push the variation into `CubeSpec` instead. The whole
-M5 milestone is essentially "did we succeed?" — adding 3x3 should be
-adding a spec, not adding code paths.
+M8 milestone is essentially "did we succeed?" — adding 3x3 should be
+adding a spec, not adding code paths. M2's `_MOVE_PERM[spec.name]` and
+M3's `spec.size`-parametric renderers are the working examples; M5–M7
+must keep that discipline so M8 stays cheap.
 
 ## References
 
