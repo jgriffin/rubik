@@ -26,6 +26,18 @@ analyzed without bespoke tooling.
 
 ## Approach overview
 
+> **Methodology pivot (2026-05-02 chat).** Original commits 5–6 ("scaffold
+> experiment dir + single 100k run + acceptance writeup") were replaced via
+> two iterations: first to a Karpathy-style auto-research loop, then to a
+> tiered hand-curated experimentation methodology (tier 0 calibration →
+> tier 1 downscaled sanity → tier 2 single-axis sweeps → tier 3 champion
+> full-scale run). DeepCubeA defaults move to `experiments/davi-2x2/baselines/`
+> as comparison-only, not the starting config. `MetricLogger` abstraction
+> keeps W&B integration as a one-flag flip for the tier 1 → 2 boundary.
+> See `LOG.md`'s active M5 block for the full reasoning. Deliverables 1–4
+> below are accurate as shipped (commits 1–4); commits 5–6 are reshaped
+> per the LOG and tier outputs replace the table's row 5–6 entries.
+
 Branch `m5-davi`. Six deliverables, each its own atomic commit. Sequenced
 so each commit ships something testable end-to-end (or close to it):
 
