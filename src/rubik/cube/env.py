@@ -126,6 +126,26 @@ def apply_moves(
     raise ValueError(f"move_idxs must be 0-d or 1-d; got {move_idxs_t.dim()}-d")
 
 
+def apply_all_moves(states: torch.Tensor, spec: CubeSpec) -> torch.Tensor:
+    """Apply every move in the move set to each state; preserves device + dtype.
+
+    Used by DAVI (M5) for all-children expansion when computing the
+    Bellman target, and by beam-search children expansion (M6).
+
+    `states` shape `(S,)` or `(B, S)`. Output prepends a move axis:
+    `(n_moves, S)` or `(B, n_moves, S)`. Equivalent to calling
+    ``apply_moves(state, m, spec)`` for every `m`, but vectorized via a
+    single fancy-index against the cached perm — no per-move dispatch.
+    """
+    if states.shape[-1] != spec.n_stickers:
+        raise ValueError(
+            f"states last dim {states.shape[-1]} does not match"
+            f" spec.n_stickers ({spec.n_stickers})"
+        )
+    perm = _perm_for_device(spec, states.device)  # (n_moves, n_stickers)
+    return states[..., perm]
+
+
 def is_solved(states: torch.Tensor, spec: CubeSpec) -> torch.Tensor:
     """Return scalar bool for `(S,)` input, shape `(B,)` for `(B, S)`."""
     if states.shape[-1] != spec.n_stickers:
