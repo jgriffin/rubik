@@ -31,20 +31,21 @@ analyzed without bespoke tooling.
 > two iterations: first to a Karpathy-style auto-research loop, then to a
 > tiered hand-curated experimentation methodology (tier 0 calibration →
 > tier 1 downscaled sanity → tier 2 single-axis sweeps → tier 3 champion
-> full-scale run). DeepCubeA defaults move to `experiments/davi-2x2/baselines/`
-> as comparison-only, not the starting config. `MetricLogger` abstraction
-> keeps W&B integration as a one-flag flip for the tier 1 → 2 boundary.
-> See `LOG.md`'s active M5 block for the full reasoning. Deliverables 1–4
-> below are accurate as shipped (commits 1–4); commits 5–6 are reshaped
-> per the LOG and tier outputs replace the table's row 5–6 entries.
+> full-scale run). The repo carries no starting reference config — every
+> hyperparameter is earned from our own measurements. `MetricLogger`
+> abstraction keeps W&B integration as a one-flag flip for the tier 1 → 2
+> boundary. See `LOG.md`'s active M5 block for the full reasoning.
+> Deliverables 1–4 below are accurate as shipped (commits 1–4); commits
+> 5–6 are reshaped per the LOG and tier outputs replace the table's
+> row 5–6 entries.
 
 Branch `m5-davi`. Six deliverables, each its own atomic commit. Sequenced
 so each commit ships something testable end-to-end (or close to it):
 
 1. **BFS V\* enumerator** — `oracle/v_star_2x2.py`. Runs once, produces a `dict[bytes, int]` mapping packed states → min-cost-to-solve. Reusable in M6 (verify beam returns optimal lengths) and M7 (hparam eval). State-packing here is CPU `state.numpy().tobytes()` — no GPU pack needed for M5, defer that to M6.
 2. **`apply_all_moves` env helper + ADI scramble pipeline** — extend `cube/env.py` with `apply_all_moves(states, spec) -> (B, n_moves, n_stickers)`; add `training/scrambles.py` with `generate_adi_batch(spec, batch_size, max_depth, generator) -> (states, depths, last_faces)`. ADI batches use **balanced per-depth slicing** (B/max_depth states per depth) — no padding waste, reuses existing `random_scrambles`.
-3. **Value network** — `model/network.py`. MLP per draft spec but parametric on `CubeSpec`: input `(B, n_stickers, n_colors)` one-hot → flat `(B, n_stickers × n_colors)` → 5000 → 1000 → 4×residual(1000→1000) → 1. BatchNorm + ReLU on body, no activation on output. ~10M params on 2x2.
-4. **DAVI loop** — `training/davi.py` + `training/config.py`. Per-step: expand all 12 children via `apply_all_moves`, run `V_target` on `(B*12, n_stickers)`, mask solved children to 0, take `min_a (1 + V_target(child))` per row, MSE against `V_θ(states)`. Periodic `V_target ← V_θ` sync. Adam, LR 1e-4, batch 1000, target-sync every 5000 steps (DeepCubeA values, the M7 sweep retunes).
+3. **Value network** — `model/network.py`. MLP parametric on `CubeSpec`: input `(B, n_stickers, n_colors)` one-hot → flat `(B, n_stickers × n_colors)` → Linear(h1) + BN + ReLU → Linear(h2) + BN + ReLU → n × residual(h2→h2) → Linear(1). `body_widths=(h1, h2)` and `n_residual_blocks=n` are required kwargs — picking the right values is itself an experiment.
+4. **DAVI loop** — `training/davi.py` + `training/config.py`. Per-step: expand all 12 children via `apply_all_moves`, run `V_target` on `(B*12, n_stickers)`, mask solved children to 0, take `min_a (1 + V_target(child))` per row, MSE against `V_θ(states)`. Periodic `V_target ← V_θ` sync. Adam optimizer; LR, batch size, sync interval are config fields with no defaults — every run carries its own values in YAML.
 5. **Experiment dir + training run** — `experiments/davi-2x2/` with `config.yaml`, `run.py`, `analyze.py`, `runs/` (gitignored). One full 100k-step run end-to-end. JSONL training log; text-summary analyzer; checkpoints every 10k steps. **No tensorboard/wandb/matplotlib** — same JSONL-then-digest discipline as M4.
 6. **Acceptance evaluation + writeup** — `analyze.py` loads final checkpoint, evaluates against V\*: per-state MAE, MAE bucketed by depth, greedy solve rate at depth 1..11. `results.md` (auto-generated tables) + `intuition.md` (hand-written, hypotheses with verification plans per the M4 convention) → appended to `results.md`.
 
@@ -58,17 +59,13 @@ enough — ~80 MB dict, ~30s BFS wall clock. The GPU-resident uint64 pack
 the draft spec mentions for beam-search dedup is **M6 work**, where it's
 actually used. M5 doesn't pre-build infrastructure for unborn callers.
 
-### Network width — keep draft architecture, parametric on `CubeSpec`
+### Network width — parametric on `CubeSpec`, no committed default
 
-Draft says 5000 → 1000 → 4×residual(1000→1000) on 3x3 (input 288). On
-2x2 (input 144) the same body width is ~10M params. Tempting to shrink
-for 2x2, but: (a) 5000-wide first layer with 144 input is only 725k
-params (the 9M+ lives in the residual body, which we keep identical
-for M8 transfer); (b) M7's hparam sweep is the right place to find the
-2x2 sweet spot, not M5; (c) keeping the architecture matches DeepCubeA
-numerically — divergences become bugs, not "did we change the recipe?"
-The constructor takes `CubeSpec` and derives input dim from
-`spec.n_stickers × spec.n_colors`, so 3x3 drops in at M8 unchanged.
+The class takes `body_widths` and `n_residual_blocks` as required kwargs.
+Input dim derives from `spec.n_stickers × spec.n_colors` so 3x3 drops in
+at M8 unchanged. The right values for 2x2 are an open empirical question
+— that's what tier 1+ experimentation is for; the repo doesn't ship a
+"recommended" size to anchor against.
 
 ### Depth curriculum — uniform 1..14 for 2x2
 

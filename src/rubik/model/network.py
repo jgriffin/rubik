@@ -1,23 +1,24 @@
 """Value network for DAVI training.
 
-Architecture follows the DeepCubeA / draft-spec MLP, parameterized on
-``CubeSpec`` so the same class drops in for 3x3 at M8 by changing the
-spec only — input dim derives from ``spec.n_stickers × spec.n_colors``.
+MLP value network parameterized on ``CubeSpec`` so the same class drops
+in for 3x3 at M8 by changing the spec only — input dim derives from
+``spec.n_stickers × spec.n_colors``.
 
 Pipeline:
-    int8 state ``(B, n_stickers)`` → one-hot ``(B, n_stickers, n_colors)``
+    int state ``(B, n_stickers)`` → one-hot ``(B, n_stickers, n_colors)``
     → flat ``(B, n_stickers·n_colors)`` → MLP body → scalar cost-to-go.
 
-Body (per draft spec):
-    - Linear(in_dim, 5000) + BN + ReLU
-    - Linear(5000, 1000) + BN + ReLU
-    - 4 × residual blocks: ``[Linear(1000, 1000) + BN + ReLU] × 2`` with skip
-    - Linear(1000, 1) — scalar output, no activation (regression target)
+Body shape:
+    - Linear(in_dim, h1) + BN + ReLU
+    - Linear(h1, h2) + BN + ReLU
+    - n × residual blocks: ``[Linear(h2, h2) + BN + ReLU] × 2`` with skip
+    - Linear(h2, 1) — scalar output, no activation (regression target)
 
-For 2x2 (in_dim = 144), this is ~10M params; for 3x3 (in_dim = 288)
-it's the canonical DeepCubeA size. Body widths and residual count are
-parametric so M7 hyperparam sweep can vary them without touching the
-architecture.
+``body_widths=(h1, h2)`` and ``n_residual_blocks=n`` are required kwargs.
+The class ships with no opinion on the right size — that's an empirical
+question for tier 1+ experimentation. Module-level defaults exist only
+so the unit tests can construct a tiny instance for shape/gradient
+checks; they are placeholders, not a recommended config.
 """
 
 from __future__ import annotations
@@ -48,12 +49,18 @@ class ResidualBlock(nn.Module):
 class ValueNet(nn.Module):
     """MLP value network for the cube; parameterized on ``CubeSpec``."""
 
+    # Test-only placeholder defaults. Tiny on purpose — they exist so unit
+    # tests can spin up an instance without committing to architecture
+    # choices. No real training run should rely on them.
+    _PLACEHOLDER_BODY_WIDTHS: tuple[int, int] = (64, 32)
+    _PLACEHOLDER_N_RESIDUAL_BLOCKS: int = 1
+
     def __init__(
         self,
         spec: CubeSpec,
         *,
-        body_widths: tuple[int, int] = (5000, 1000),
-        n_residual_blocks: int = 4,
+        body_widths: tuple[int, int] = _PLACEHOLDER_BODY_WIDTHS,
+        n_residual_blocks: int = _PLACEHOLDER_N_RESIDUAL_BLOCKS,
     ):
         super().__init__()
         self.spec = spec

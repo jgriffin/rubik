@@ -21,6 +21,8 @@ by swapping a `CubeSpec` — same code path, parameterized.
   visualization regression. Property-based tests for cube identities.
 - **Lint + format.** `ruff` does both — `uv run ruff check` and
   `uv run ruff format`. No black/flake8/isort.
+- **Markdown line wrapping.** Don't manually wrap lines in markdown files (CLAUDE.md, LOG.md, ROADMAP.md, results.md, intuition.md, plans/, etc.). Let the editor soft-wrap. Manual ~80-col breaks fragment readability for users on wider editors. Code line length is a separate rule, set by the formatter config.
+- **Earn every hyperparameter — do not borrow.** Specific values for things like `body_widths`, `n_residual_blocks`, `learning_rate`, `batch_size`, `target_sync_interval`, `n_steps`, `max_scramble_depth` are an empirical question for this hardware and this problem. Pick them by running tier 0+ experiments. Do **not** reach for values from prior published work (DeepCubeA, EfficientCube, etc.) as starting points, "reference runs," "baselines for comparison," or fallback defaults — that shortcut is what the methodology exists to avoid. The general algorithmic lineage (DAVI / value iteration with target net + curriculum scrambles + MLP value head) is fine to reference; specific numeric choices are not. If you find yourself thinking "I'll just start with what they used," stop — that's the cheat.
 - **Move set.** QTM only at first — 12 quarter-turn moves (6 faces × 2
   directions). No double moves (R2). Indexed 0..11 with the mapping
   documented in `src/rubik/notation/`.
@@ -90,6 +92,3 @@ by swapping a `CubeSpec` — same code path, parameterized.
 - **`ROADMAP.md`** — current milestone status and backlog.
 - **`LOG.md`** — work blocks, newest on top (cc-process).
 - **`plans/m<N>-<name>.md`** — written when each milestone block opens.
-- **`plans/archive/llm-draft-spec.md`** — original draft, retained for
-  technical details (sticker indexing, network architecture, hyperparams).
-  Do **not** treat as authoritative — superseded by `SPEC.md`.

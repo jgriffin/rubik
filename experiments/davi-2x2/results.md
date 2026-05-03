@@ -9,8 +9,10 @@ DAVI training experiments toward M5 acceptance on the 2x2 cube.
 
 **Methodology — tiered hand-curated.**
 
-Every config we ship is *earned*, not inherited. DeepCubeA defaults sit
-in `baselines/deepcubea_defaults.yaml` for comparison only.
+Every config we ship is *earned* — picked from our own measurements, not
+borrowed from prior work. There is no starting reference config in the
+repo on purpose: the question of "what hyperparameters work for 2x2 DAVI
+on this hardware" is what these experiments answer.
 
 | Tier | Question                                                         | Script                       | Cost              |
 |------|------------------------------------------------------------------|------------------------------|-------------------|

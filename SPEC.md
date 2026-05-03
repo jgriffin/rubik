@@ -278,10 +278,12 @@ no CPU round-trips in the hot path (verified via profiler trace).
 
 - `training/scrambles.py`: backward random-scramble generator with
   non-trivial-move pruning. Returns `(states, depths, last_faces)`.
-- `model/network.py`: MLP value network (architecture from draft spec —
-  input one-hot, body of 5000→1000→4×residual(1000→1000)→1).
-  Parameterized on `CubeSpec` (input dim derives from sticker count and
-  color count) so the same network class drops in for 3x3 at M8.
+- `model/network.py`: MLP value network parameterized on `CubeSpec`
+  (input dim derives from sticker count and color count). Body shape
+  (`body_widths=(h1, h2)`, `n_residual_blocks=n`) is a required kwarg —
+  no committed default. The right values for 2x2 are an open empirical
+  question, picked by tier 1+ experimentation. Same class drops in for
+  3x3 at M8.
 - `training/davi.py`: DAVI training loop — target is
   `min_a (1 + V_target(child))` with terminal-child clamp; periodic
   `V_target ← V_θ` sync.
@@ -360,9 +362,8 @@ spec, not adding code paths**.
   frontend that reads a JSON solve trace.
 - Analysis: extract 3- and 5-move subsequences from 1000 random solves;
   frequency analysis vs. uniform baseline; check for `aba⁻¹` conjugate
-  patterns (DeepCubeA reports 13.1%); compare to CFOP step boundaries
-  ("does it ever pass through a white-cross-solved state?"). Writeup in
-  `reports/`.
+  patterns; compare to CFOP step boundaries ("does it ever pass through
+  a white-cross-solved state?"). Writeup in `reports/`.
 
 ## Cross-cutting concerns
 
@@ -418,10 +419,12 @@ Primary papers:
 
 Reference implementations:
 
-- DeepCubeA: https://github.com/forestagostinelli/DeepCubeA — move
-  tables, training hyperparameter starting points.
+- DeepCubeA: https://github.com/forestagostinelli/DeepCubeA — reference
+  for cube-group conventions and ADI loop shape. **Hyperparameter values
+  are deliberately not borrowed** — see CLAUDE.md "Earn every
+  hyperparameter."
 - EfficientCube: https://github.com/kyo-takano/efficientcube — beam
-  search with policy.
+  search with policy. Same caveat.
 
 Background:
 

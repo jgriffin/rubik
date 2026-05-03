@@ -26,14 +26,6 @@ def test_forward_single_state_returns_scalar():
     assert out.shape == ()
 
 
-def test_param_count_in_expected_range():
-    """Architecture is 144 → 5000 → 1000 → 4×res(1000,1000) → 1; ~13.8M params."""
-    net = ValueNet(CUBE_2X2)
-    n_params = sum(p.numel() for p in net.parameters())
-    # Allow ±5% drift if BN/architecture details shift in future M7 sweep.
-    assert 13_000_000 < n_params < 15_000_000
-
-
 def test_gradient_flow_to_all_params():
     net = ValueNet(CUBE_2X2)
     states = CUBE_2X2.solved_state.unsqueeze(0).expand(8, -1).clone()
@@ -79,11 +71,13 @@ def test_accepts_int8_input():
 
 
 def test_body_widths_parameterizable():
-    """M7 hparam sweep needs to vary widths without architectural changes."""
+    """Width and depth must be parametric so any caller can pick its own size."""
     net = ValueNet(CUBE_2X2, body_widths=(512, 128), n_residual_blocks=2).eval()
     states = CUBE_2X2.solved_state.unsqueeze(0).expand(4, -1).clone()
     out = net(states)
     assert out.shape == (4,)
-    n_params = sum(p.numel() for p in net.parameters())
-    # Much smaller than default
-    assert n_params < 1_000_000
+    # Sanity: a bigger network has more params than the placeholder default.
+    placeholder = ValueNet(CUBE_2X2)
+    assert sum(p.numel() for p in net.parameters()) > sum(
+        p.numel() for p in placeholder.parameters()
+    )

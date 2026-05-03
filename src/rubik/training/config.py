@@ -2,20 +2,12 @@
 
 Frozen dataclass; YAML-serialized for ``experiments/davi-2x2/...``.
 
-**Every field is required.** No defaults. Two reasons:
-
-1. *Forces every YAML explicit.* You cannot accidentally inherit a
-   hyperparameter from DeepCubeA (or anywhere else) — the YAML carries
-   exactly the values the run actually used. The "story" we tell about
-   any run reads off the YAML, not off code defaults that may have
-   shifted under us.
-
-2. *Honest comparison.* M5's tiered-experimentation methodology earns
-   its configuration from tier 0 calibration → tier 1 sanity → tier 2
-   sweeps → tier 3 champion. Borrowing DeepCubeA values would skip the
-   methodology. DeepCubeA's published defaults live as a *baseline* in
-   ``experiments/davi-2x2/baselines/deepcubea_defaults.yaml`` for
-   comparison, never as the constructor default.
+**Every field is required. No defaults.** The reason: the right values
+are an empirical question — pick them by running tier 1+ experiments
+yourself, not by inheriting from anywhere. With no defaults, every YAML
+on disk carries the exact hyperparameters that produced its run, and
+the "story" of any run reads off the YAML alone. There is no implicit
+fallback to drift behind your back.
 
 If a yaml file is missing any field, ``from_yaml`` will raise
 ``TypeError`` from the dataclass constructor — the "missing key" surfaces
