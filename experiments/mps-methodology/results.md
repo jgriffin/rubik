@@ -208,9 +208,11 @@ if oob.item():    # one sync, not two
 Or skip the check entirely on internal hot paths — bounds-check in
 upstream callers, not on every dispatch.
 
-**Status.** Documented; fix tracked as a follow-up block. M4 measures,
-doesn't fix — by design, so the verifier doubles as a regression
-detector for the future PR.
+**Status.** ✅ **Resolved 2026-05-02** by the cleanup-loop block (see §7
+for the worked example). Fix: relocate the bounds check before the
+`.to(states.device)` migration so it runs on whatever device the caller
+built `move_idxs` on (CPU in the realistic call pattern). Verifier
+baseline dropped to 0 GPU sync stalls.
 
 ### Finding #2 — perm table migrates to device on EVERY call
 
@@ -238,9 +240,12 @@ for a 12 × 24 = 288-byte transfer. Tiny payload, mostly overhead.
 pair, e.g. via a `dict[tuple[str, torch.device], torch.Tensor]` keyed
 lookup, or eagerly migrate at module import for the expected device.
 
-**Status.** Flagged in `plans/m4-perf-1.md` "Out" scope as a follow-up.
-Verifier counts `aten::_to_copy` for context but does not assert on it
-yet; that gates on the fix landing.
+**Status.** ✅ **Resolved 2026-05-02** by the cleanup-loop block (see §7
+for the worked example). Fix: per-`(spec.name, device)` cache for the
+device-resident perm; first call materializes, subsequent calls hit
+the cache. `aten::_to_copy` events for the perm dropped from 5 to 0
+across 5 active iterations. Locked in by
+`tests/cube/test_env.py::test_perm_cache_returns_same_tensor_per_device`.
 
 ### Finding #3 — gather and bounds dispatch ratio is 1:2
 
@@ -608,8 +613,165 @@ can be cheap or expensive depending on context). Documented for reuse.
 
 ### 7.3 Fix #2 — per-(spec, device) perm cache
 
-*To be filled in after the fix lands.*
+**Change.** Add `_DEVICE_PERM_CACHE: dict[tuple[str, torch.device],
+torch.Tensor]` and `_perm_for_device(spec, device)` in `env.py`. First
+call per (spec, device) materializes the device-resident perm; every
+subsequent call hits the cache. At most ~4 entries total over the
+project's lifetime (2x2/3x3 × CPU/MPS). Locked in by
+`test_perm_cache_returns_same_tensor_per_device`.
 
-### 7.4 Analysis
+**Bench (post fix #2, both fixes applied).**
 
-*To be filled in after both fixes have measurements.*
+| B | fix1 (μs) | fix2 (μs) | Δ vs fix1 | Δ vs baseline (μs / %) |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 455.2 | 324.7 | −130.5 | **−359.9 / −52.6%** |
+| 64 | 359.4 | 292.2 | −67.2 | **−327.8 / −52.9%** |
+| 8192 | 418.3 | 377.5 | −40.8 | **−250.8 / −39.9%** |
+| 2,097,152 | 8,142.3 | 7,837.4 | −304.9 | −66.5 / −0.9% (within noise) |
+
+**Verifier (post fix #2).** PASS at 0 GPU sync stalls. `_to_copy`
+events drop from 10 to 5 — exactly as predicted (5 × perm migration
+eliminated). The remaining 5 are the per-call move_idxs CPU→MPS
+migration (lesson 2 from §7.2; not addressable by this cache).
+
+**Headline finding: fix #2 healed the fix #1 regression at B=2M.**
+After fix #1 alone, B=2M was 4.8% slower than baseline. After fix #2,
+B=2M is 0.9% slower than baseline (within run-to-run variance). **The
+two fixes interact** — they are not independently positive at all
+batch sizes. Hypothesis (loose): in the M2 baseline, the per-call perm
+migration created enough dispatch latency to mask whatever ordering
+effect fix #1 introduced. With the perm cached, the dispatch pipeline
+is leaner and the ordering effect normalizes out.
+
+**Per-batch variance in fix #2 savings.** The methodology doc estimated
+each `_to_copy` removal at 125–310 μs CPU dispatch. Measured per-call
+savings: 130 / 67 / 41 / 305 μs at B=1 / 64 / 8192 / 2M. The 2x
+variation across small batches (130 → 41) is bigger than the bench CIs
+explain (typical CI ±10 μs). Possible mechanism: at smaller B, the perm
+`_to_copy` overlaps with the gather kernel dispatch (both are short-lived
+on CPU dispatch); removing it saves only the dispatch wall-time, not
+the on-GPU latency. At B=2M, the gather kernel itself takes 7+ ms, so
+the dispatch pipeline matters less and the saved cycles surface as
+wall-time. **Open question logged in §7.4** — would require a finer-
+grained profiler study to confirm.
+
+### 7.4 Analysis — what the iteration loop revealed
+
+**Predictions vs. data, scorecard.**
+
+| Prediction | Outcome |
+| --- | --- |
+| Shape: small B → big relative win, large B → small | ✓ Confirmed |
+| Absolute savings stay roughly constant per call | ✗ Falsified — savings range 41–360 μs per call |
+| Combined relative win at small B: 70–93% | ✗ Falsified — actual 53% |
+| Combined wall-time at small B: 50–200 μs | ✗ Falsified — actual ~290–325 μs |
+| Combined relative win at B=2M: 7–13% | ✗ Falsified — actual 0.9% (within noise) |
+| Verifier baseline drops to 0 | ✓ Confirmed (after methodology fix to verifier) |
+
+**Five things this loop taught us that we wouldn't have learned by
+applying both fixes at once:**
+
+1. **The bounds-check sync cost was about half what we estimated.** The
+   "0.5–0.7 ms per call" figure in finding #1 was a per-event ceiling
+   summed naively; the actual savings show the events overlap or
+   absorb each other.
+2. **There is a third per-call CPU→MPS cost we hadn't bookmarked.** With
+   probe_profiler aligned to production, the trace surfaces a
+   `move_idxs` migration of ~150-180 μs per call that the M4 measurement
+   never observed (because probe_profiler pre-migrated `move_idxs`).
+   Carry-forward for a future fix.
+3. **Fix #1 alone is a regression at B=2M.** The bounds-check syncs
+   were inadvertently masking dispatch-ordering effects on large
+   batches. Fix #1 + fix #2 together heal it.
+4. **The verifier was too crude.** Counting trace event names by
+   pattern conflated CPU dispatch with GPU sync stalls. Switching to
+   duration-thresholding (50 μs split, three orders of magnitude
+   between cheap and expensive operations) is a methodology
+   improvement worth the side-fix. Future verifiers should prefer
+   physics-grounded thresholds where possible.
+5. **Per-batch fix #2 savings vary 8x (41 to 305 μs).** A fixed-cost
+   removal that varies that much by batch size is a clue about
+   dispatch-pipeline overlap; we have a hypothesis but no
+   measurement. Logged as an open question.
+
+**Net throughput impact (the headline numbers).**
+
+| B | baseline (μs) | post-both-fixes (μs) | speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 684.5 | 324.7 | **2.11×** |
+| 64 | 620.0 | 292.2 | **2.12×** |
+| 8192 | 628.3 | 377.5 | **1.66×** |
+| 2,097,152 | 7,770.9 | 7,837.4 | 0.99× (no change) |
+
+`apply_moves` is now ~2× faster on small/medium batches, which is
+where DAVI training and beam-search inference will spend their inner
+loops. Large-batch throughput (the M4 batch-sweep regime) is unchanged.
+
+**Open questions surfaced.**
+
+- **OQ1.** Why does fix #2's savings vary so much across batch sizes
+  (41 μs at B=8192, 305 μs at B=2M)? Hypothesis: dispatch-pipeline
+  overlap. Verification: profile both branches at a fixed B with
+  fine-grained event ordering. Out of scope for this block.
+- **OQ2.** The per-call `move_idxs` CPU→MPS migration (~150-180 μs)
+  surfaced at lesson 2 — is it worth pre-migrating `move_idxs` in
+  `random_scrambles` and beam search instead of in `apply_moves`?
+  Trade-off: tighter coupling between caller and callee. Defer until
+  a profiling pass on `random_scrambles`/beam search shows it as a
+  bottleneck.
+- **OQ3.** Did the bench-bracket sync overhead change with the new
+  apply_moves dispatch sequence? The methodology doc's macmon
+  correlation at B=8192 (gpu_busy=0.952) was measured pre-fix; if
+  the new dispatch is leaner, the steady-state pipelined throughput
+  should also improve. A re-run of `probe_macmon.sh` would confirm.
+  Logged for the next perf-investigation block.
+
+## 8. Iteration loop pattern (the abstracted methodology)
+
+The §7 cleanup-loop is the worked example. The pattern itself:
+
+1. **Hypothesis up front.** Predict the savings from each change in
+   absolute and relative terms, with a *falsifiable shape* — e.g.,
+   "fixed-cost removal → relative savings shrink with batch size."
+   Write the prediction *before* running anything. The point is to
+   give the data permission to surprise you.
+2. **Baseline.** Measure the thing you're about to change with a
+   focused script that captures the regime you care about. For
+   `apply_moves`, that's `bench_apply_moves.py` at four batch sizes
+   (B=1, 64, 8192, 2M — spans dispatch-bound to GPU-bound). Lock the
+   baseline in a labeled JSON file.
+3. **One change at a time.** Apply changes in isolation when their
+   contributions can plausibly be attributed (e.g., two perf fixes
+   touching the same function). Re-measure between changes. The
+   §7.3 finding that fix #2 healed fix #1's B=2M regression would
+   have been invisible if both fixes were applied at once — we'd
+   know we were faster overall but not why.
+4. **Compare to the prediction.** Walk through each predicted claim
+   and mark confirmed / falsified. Falsified predictions are the
+   high-information events. Don't paper over them with "the savings
+   are still good" — capture *why* the prediction was wrong, even
+   if the fix worked.
+5. **Document surprises as open questions.** Anything unexplained
+   gets a one-line entry with a verification plan. Future-you (or
+   a future agent) needs a foothold for the next investigation.
+6. **Sometimes the methodology itself is the deliverable.** §7.2.1
+   was an unplanned verifier rewrite. The cleanup-loop revealed
+   that the original verifier conflated trace event names with GPU
+   syncs; fixing the verifier was a methodology contribution worth
+   shipping in this block, not a separate one.
+
+**When the loop is "of one" vs. "of N variants."** This was a loop
+of one — we knew which fixes to apply, just had to attribute their
+contributions. The next-level use case is testing N variants of an
+optimization (e.g., M7 hyperparam sweeps, alternate kernel
+implementations). Same loop shape, more iterations, with a `--label`
+arg in the bench script tagging each variant. `bench_apply_moves.py`
+already supports that — pass `--label variant-A`, `--label variant-B`,
+collect labeled JSONs, compare.
+
+**Streaming-output policy applies.** Each measurement step writes a
+labeled JSON file under `runs/cleanup-loop/<label>.json`. The
+results.md rolls the numbers up by hand. No streaming output during
+benches — methodology lock-in from M4 (§5: "every long-running tool
+writes structured output to a file; a one-line digest script reads
+it"). Sweep variant-N? Same pattern, more files.

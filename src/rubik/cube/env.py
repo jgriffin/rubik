@@ -42,7 +42,7 @@ MOVE_PERM_2X2 = torch.tensor(
 # fmt: on
 
 
-# Keyed by spec.name so 3x3 drops in alongside 2x2 in M5 with no code-path change.
+# Keyed by spec.name so 3x3 drops in alongside 2x2 at M8 with no code-path change.
 _MOVE_PERM: dict[str, torch.Tensor] = {"2x2": MOVE_PERM_2X2}
 
 
@@ -51,6 +51,24 @@ def _perm_for(spec: CubeSpec) -> torch.Tensor:
     if perm is None:
         raise ValueError(f"no move-permutation table for spec {spec.name!r}")
     return perm
+
+
+# Cache device-resident perm tables. Without this, apply_moves migrates
+# the static (n_moves, n_stickers) int64 table from CPU to states.device
+# on every call (an aten::_to_copy event of ~125-310 μs CPU dispatch for
+# a 288-byte payload — pure overhead). At most ~4 entries total over the
+# project's lifetime (2x2/3x3 × CPU/MPS). Entries are immutable from the
+# caller's perspective (only read via gather), so no invalidation path.
+_DEVICE_PERM_CACHE: dict[tuple[str, torch.device], torch.Tensor] = {}
+
+
+def _perm_for_device(spec: CubeSpec, device: torch.device) -> torch.Tensor:
+    key = (spec.name, device)
+    cached = _DEVICE_PERM_CACHE.get(key)
+    if cached is None:
+        cached = _perm_for(spec).to(device)
+        _DEVICE_PERM_CACHE[key] = cached
+    return cached
 
 
 def apply_moves(
@@ -67,7 +85,7 @@ def apply_moves(
             f"states last dim {states.shape[-1]} does not match"
             f" spec.n_stickers ({spec.n_stickers})"
         )
-    perm = _perm_for(spec).to(states.device)
+    perm = _perm_for_device(spec, states.device)
 
     move_idxs_t = (
         move_idxs

@@ -193,3 +193,15 @@ def test_dtype_preservation():
     assert state.dtype == torch.int8
     out = apply_moves(state, torch.tensor(6), CUBE_2X2)
     assert out.dtype == torch.int8
+
+
+def test_perm_cache_returns_same_tensor_per_device():
+    # Locks in the per-(spec, device) cache: repeat lookups must return the
+    # exact same tensor object, not allocate a fresh device-resident copy.
+    # Regression detector for fix #2 from the 2026-05-02 cleanup-loop block.
+    from rubik.cube.env import _perm_for_device
+
+    cpu = torch.device("cpu")
+    a = _perm_for_device(CUBE_2X2, cpu)
+    b = _perm_for_device(CUBE_2X2, cpu)
+    assert a is b
