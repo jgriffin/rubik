@@ -291,7 +291,10 @@ no CPU round-trips in the hot path (verified via profiler trace).
 
 **Acceptance (2x2):** loss decreases monotonically over 100k steps; mean
 absolute error vs BFS-optimal `V*` < 1.0 across all reachable states;
-greedy solve rate ≥ 99% on depth ≤ 11 (2x2 God's Number is 11 QTM).
+greedy solve rate ≥ 99% on depth ≤ 14 (2x2 QTM diameter is 14, verified
+empirically by the M5 V\* enumerator). Note: "11" is the 2x2 *HTM* God's
+Number — the often-quoted figure — but our move set is QTM-only, so the
+relevant diameter for this acceptance gate is 14.
 
 ### M6 — Beam search (2x2)
 
@@ -302,8 +305,9 @@ greedy solve rate ≥ 99% on depth ≤ 11 (2x2 God's Number is 11 QTM).
   of 1000 random scrambles — 2x2 gives us this ground truth. 3x3
   validation happens at M8.
 
-**Acceptance (2x2):** 100% solve rate on 1000 depth ≤ 11 scrambles at
-beam_width=256; mean solution length within 1 move of BFS-optimal.
+**Acceptance (2x2):** 100% solve rate on 1000 depth ≤ 14 scrambles at
+beam_width=256 (full 2x2 QTM coverage); mean solution length within 1
+move of BFS-optimal.
 
 ### M7 — Perf-2 / hyperparam experiment loop (2x2 training)
 
