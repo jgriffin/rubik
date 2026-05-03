@@ -515,7 +515,96 @@ PASS at the M2 ceiling.
 
 ### 7.2 Fix #1 — bounds-check relocation
 
-*To be filled in after the fix lands.*
+**Change.** In `apply_moves`, the bounds check moves from after the
+`.to(states.device)` migration to before it. Realistic callers
+(`random_scrambles`, future beam search) build `move_idxs` on CPU; the
+check now runs on CPU. MPS-pre-migrated callers see the same cost as
+pre-fix (no regression).
+
+**Bench (post fix #1).**
+
+| B | baseline (μs) | fix1 (μs) | absolute Δ | relative Δ |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 684.5 | 455.2 | −229 | **−33.5%** |
+| 64 | 620.0 | 359.4 | −261 | **−42.0%** |
+| 8192 | 628.3 | 418.3 | −210 | **−33.4%** |
+| 2,097,152 | 7,770.9 | 7,953.5† | +182 | **+2.4%** |
+
+† B=2M re-run with 200 trials (CI [7,937.7, 7,961.0]) to disambiguate from
+noise. The CIs don't overlap baseline's [7,751.8, 7,798.8] — the
+slowdown is real, not run-to-run variance.
+
+**Verifier (post fix #1).** PASS at 0 GPU sync stalls (events with dur >
+50 μs); 30 total scalar-event names remain in the trace, all sub-μs
+(CPU `__bool__()` overhead, harmless). The verifier semantics changed
+from name-counting to duration-thresholding — see §7.2.1.
+
+**Hypothesis vs. data.**
+
+| Claim | Predicted | Measured | Verdict |
+| --- | --- | --- | --- |
+| Shape: relative win shrinks with B | yes | yes (small B 33–42%, B=2M near 0) | **confirmed** |
+| Absolute savings roughly constant per call | ~600–1000 μs | ~210–260 μs at small B | **falsified — magnitude off by ~2-3×** |
+| Relative win at small B | 70–92% | 33–42% | **falsified** |
+| Relative win at B=2M | 7–13% improvement | 2.4% **regression** | **falsified — direction wrong** |
+
+The shape was right. The magnitudes were wrong, and the B=2M direction
+flipped. Three lessons from the gap:
+
+**Lesson 1: We over-estimated the bounds-check sync cost.** The
+methodology doc said "0.5–0.7 ms of pure host-GPU sync overhead" based
+on individual `is_nonzero` durations of ~150–325 μs × 2 sides. The
+actual savings of ~210–260 μs imply the sync stalls overlapped or were
+absorbed by other work — perhaps the second `.any()`'s queue drain
+already had less to wait for after the first one cleared. The
+methodology numbers were a per-event ceiling, not a per-call sum.
+
+**Lesson 2: A new cost surfaced.** With probe_profiler's CPU
+`move_idxs` (matching production), the trace now shows **10**
+`aten::_to_copy` events for 5 calls — 5 for the perm migration (gotcha
+#2, still present until fix #2) and 5 for the per-call CPU→MPS migration
+of `move_idxs`. The pre-fix probe_profiler had pre-migrated `move_idxs`
+to MPS, hiding this cost. **The cleanup-loop revealed an unbookmarked
+finding.** We're now paying ~150-180 μs/call for `move_idxs` migration
+that the M4 trace never documented. Carry this forward.
+
+**Lesson 3: B=2M regressed by ~2.4%.** Hypothesis: pre-fix, the bounds
+check's GPU sync stalls (after `.to(device)`) gave the `move_idxs`
+migration time to complete before the gather. Post-fix, the migration
+happens later in the call sequence and the gather has less queue time
+to start. At B=2M the gather operates on a much larger states tensor;
+small dispatch-pipeline timing differences can matter. **Verification
+plan**: re-bench B=2M after fix #2 (perm cache) lands. If the
+regression persists, isolate via a third variant that pre-migrates
+`move_idxs` on the call site to test the dispatch-ordering hypothesis.
+
+#### 7.2.1 Verifier evolution (a methodology side-fix)
+
+The original verifier counted occurrences of `aten::item` and
+`aten::_local_scalar_dense`. The cleanup-loop revealed a flaw: those
+events appear in the trace whenever Python `__bool__` is invoked on a
+0-d tensor — even if the tensor is CPU-resident, in which case the
+call costs sub-μs and does NOT stall the GPU. After fix #1, the trace
+has 30 such events (CPU-side, all sub-μs); the original verifier flagged
+all of them as syncs and FAILed.
+
+**Resolution.** Switch from name-counting to **duration-thresholding**:
+count only events whose `dur > 50 μs`. Justification:
+
+- CPU `aten::item`: 0.166 – 0.666 μs (memory read)
+- CPU `aten::is_nonzero`: 0.250 – 1.166 μs (predicate check)
+- MPS `aten::is_nonzero` waiting on a queued `.any()` (M2 baseline):
+  150 – 325 μs (queue drain)
+
+Three orders of magnitude separation. Threshold at 50 μs catches every
+real GPU sync and ignores every CPU dispatch. Verifier renamed from
+`EXPECTED_BOUNDS_CHECK_ITEMS_PER_CALL` to `EXPECTED_GPU_SYNCS_PER_CALL`
+to reflect the corrected semantics.
+
+**Methodology contribution.** Future verifiers in this project should
+prefer **physics-grounded thresholds** (cost differs by orders of
+magnitude → easy split) over **name-based heuristics** (the same name
+can be cheap or expensive depending on context). Documented for reuse.
 
 ### 7.3 Fix #2 — per-(spec, device) perm cache
 

@@ -59,7 +59,15 @@ def main() -> int:
     states = spec.solved_state.to(device=device, dtype=torch.int8)
     states = states.unsqueeze(0).expand(BATCH_SIZE, -1).contiguous()
     g = torch.Generator(device="cpu").manual_seed(0)
-    move_idxs = torch.randint(0, spec.n_moves, (BATCH_SIZE,), generator=g).to(device)
+    # CPU move_idxs — matches production reality. random_scrambles' inner
+    # loop and the future beam-search expansion both build move tags on
+    # CPU and let apply_moves migrate. The 2026-05-02 cleanup-loop block
+    # aligned this with bench_apply_moves.py so the trace honestly shows
+    # "no syncs in the realistic call pattern" after the bounds-check
+    # relocation. If a future caller pre-migrates to MPS, it pays the
+    # same sync cost as the pre-fix code (verifier won't catch that path
+    # — by design, since it's not the production pattern).
+    move_idxs = torch.randint(0, spec.n_moves, (BATCH_SIZE,), generator=g)
 
     # Pre-profiler warmup — beat the kernel-compile cache.
     for _ in range(PRE_PROFILER_WARMUP):

@@ -74,11 +74,15 @@ def apply_moves(
         if isinstance(move_idxs, torch.Tensor)
         else torch.tensor(move_idxs, dtype=torch.int64)
     )
-    move_idxs_t = move_idxs_t.to(states.device)
     if move_idxs_t.dtype != torch.int64:
         move_idxs_t = move_idxs_t.to(torch.int64)
+    # Bounds check before device migration: stays on whatever device the
+    # caller built move_idxs on. Realistic callers (random_scrambles inner
+    # loop, beam-search children expansion) build on CPU — zero MPS sync.
+    # MPS-pre-migrated input costs the same as before (no regression).
     if (move_idxs_t < 0).any() or (move_idxs_t >= spec.n_moves).any():
         raise ValueError(f"move index out of range [0, {spec.n_moves})")
+    move_idxs_t = move_idxs_t.to(states.device)
 
     if move_idxs_t.dim() == 0:
         gathered = perm[move_idxs_t]  # (S,)
