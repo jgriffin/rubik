@@ -437,3 +437,90 @@ All `runs/<ts>/` artifacts are gitignored — only the writeup files
 and probe scripts are versioned. Re-running any probe writes a fresh
 timestamped directory; `correlate_macmon.py` and
 `verify_no_cpu_sync.py` auto-pick the newest.
+
+## 7. Cleanup validation (M4 follow-up, 2026-05-02)
+
+This section is the worked example for the **measure → fix → measure →
+analyze** loop. M4 documented two CPU-sync gotchas (findings #1 and #2)
+but deferred fixes — by design, so the verifier could double as a
+regression detector once the fix landed. This section logs the fix
+loop. The methodology pattern that comes out of this is in §8.
+
+### 7.1 Hypothesis and baseline
+
+**The two fixes.**
+
+1. **Bounds-check relocation.** Move the bounds check at `env.py:80`
+   to *before* the `move_idxs.to(states.device)` migration. When the
+   caller passes a CPU `move_idxs` (the realistic pattern: built on
+   CPU inside `random_scrambles`'s inner loop and the future beam-
+   search children expansion), the bounds check now runs on CPU — no
+   GPU sync. When a caller pre-migrates to MPS (the bench-convenience
+   pattern in `batch-sensitivity-2x2/run.py`), the check still runs on
+   MPS and pays the same sync cost as today (no regression).
+2. **Per-(spec, device) perm cache.** Cache the device-resident perm
+   table the first time a `(spec.name, device)` pair is requested.
+   Subsequent calls do a dict lookup instead of a tensor `_to_copy`.
+
+**Predicted savings.** Both fixes remove fixed-cost-per-call overhead.
+That predicts a specific shape: **absolute time savings stay roughly
+constant per call across batch sizes, but relative savings shrink as
+batch size grows** (because GPU work scales with batch but the fixes
+don't touch GPU work).
+
+- Fix #1: removes ~0.5–0.7 ms of bounds-check sync per call (4 sync
+  pairs × ~125–325 μs each, observed at B=8192 in finding #1).
+- Fix #2: removes ~125–310 μs of perm-migration overhead per call
+  (one `_to_copy` event for a 288-byte payload).
+- **Combined**: ~0.6–1.0 ms reduction per call, *regardless of batch
+  size*.
+
+**Predicted post-fix wall-times** (combining both fixes):
+
+| B | Baseline median (μs) | Predicted post-fix | Predicted relative win |
+| ---: | ---: | ---: | ---: |
+| 1 | 684.5 | ~50–200 | **70–93%** |
+| 64 | 620.0 | ~50–200 | **68–92%** |
+| 8192 | 628.3 | ~50–200 | **68–92%** |
+| 2,097,152 | 7,770.9 | ~6,800–7,200 | **7–13%** |
+
+The dispatch+bracket-sync floor (everything left after we strip the
+bounds-check sync and the perm copy) is what determines the post-fix
+small-B numbers. We don't know that floor a priori — it's a discovery,
+not a prediction. **The hypothesis is the *shape*: small B → big
+relative win, large B → small relative win, absolute win roughly
+constant.** If the data shows otherwise, our model of the cost is
+wrong.
+
+**Baseline (pre-fix) — bench, 2026-05-02 17:31, branch `env-cpu-sync-cleanups`.**
+
+`uv run python experiments/mps-methodology/bench_apply_moves.py --label baseline --out-dir experiments/mps-methodology/runs/cleanup-loop`
+
+| B | median (μs) | 95% CI (μs) | throughput |
+| ---: | ---: | ---: | ---: |
+| 1 | 684.54 | [652.77, 694.38] | 1.46 K st/s |
+| 64 | 620.00 | [612.75, 625.79] | 103.23 K st/s |
+| 8192 | 628.33 | [627.33, 631.21] | 13.04 M st/s |
+| 2,097,152 | 7,770.92 | [7,751.79, 7,798.75] | 269.87 M st/s |
+
+Realistic call pattern: `move_idxs` built on CPU; `states` on MPS;
+each call does a `.to(states.device)` migration of move_idxs inside
+`apply_moves` followed by a perm-table migration and the bounds check
+(currently on MPS, post-migration). Trials = 100, warmup = 10.
+
+**Baseline trace.** `probe_profiler.py` confirms 40 scalar extractions
+total = 8 per call × 5 active iterations (current verifier baseline);
+5 `aten::_to_copy` events for the per-call perm migration. Verifier
+PASS at the M2 ceiling.
+
+### 7.2 Fix #1 — bounds-check relocation
+
+*To be filled in after the fix lands.*
+
+### 7.3 Fix #2 — per-(spec, device) perm cache
+
+*To be filled in after the fix lands.*
+
+### 7.4 Analysis
+
+*To be filled in after both fixes have measurements.*

@@ -66,7 +66,7 @@ by swapping a `CubeSpec` — same code path, parameterized.
   utilization on this machine.
 - **Experiment-loop pattern.** Each perf-sensitive milestone gets an
   `experiments/<name>/` directory with reproducible scripts and a
-  `results.md`. Established in M4, reused in M8 for hyperparams.
+  `results.md`. Established in M4, reused in M7 for hyperparams.
 - **Experiment results.md format.** Every experiment dir's `results.md`
   ends with an `## Intuition` section in epistemically honest format:
   **Observations** (mechanical, from this run's data) → **Hypotheses**
