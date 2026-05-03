@@ -129,20 +129,38 @@ def test_davi_step_returns_scalar_float():
     assert loss >= 0
 
 
-def test_davi_config_defaults_match_spec():
-    """Defaults are DeepCubeA's published values; ValueNet defaults align."""
-    cfg = DAVIConfig()
-    assert cfg.batch_size == 1000
-    assert cfg.n_steps == 100_000
-    assert cfg.learning_rate == 1e-4
-    assert cfg.target_sync_interval == 5000
-    assert cfg.max_scramble_depth == 14
-    assert cfg.body_widths == (5000, 1000)
-    assert cfg.n_residual_blocks == 4
+def _full_davi_config_kwargs() -> dict:
+    """Every field DAVIConfig requires. Values are illustrative — the test
+    suite asserts shape + round-trip + frozen, not value semantics."""
+    return dict(
+        max_scramble_depth=14,
+        batch_size=512,
+        n_steps=10_000,
+        learning_rate=1e-4,
+        target_sync_interval=5_000,
+        body_widths=(2048, 512),
+        n_residual_blocks=4,
+        log_every=100,
+        eval_every=5_000,
+        checkpoint_every=10_000,
+        seed=42,
+        device="cpu",
+    )
+
+
+def test_davi_config_requires_all_fields_explicit():
+    """No defaults — calling DAVIConfig() must fail loudly.
+
+    The contract: every YAML must specify every field; you cannot
+    accidentally inherit a hyperparameter from a code-default. Missing
+    fields surface as TypeError at construction.
+    """
+    with pytest.raises(TypeError):
+        DAVIConfig()  # type: ignore[call-arg]
 
 
 def test_davi_config_yaml_roundtrip(tmp_path):
-    cfg = DAVIConfig(batch_size=512, n_steps=10_000, body_widths=(2048, 512), seed=42)
+    cfg = DAVIConfig(**_full_davi_config_kwargs())
     path = tmp_path / "cfg.yaml"
     cfg.to_yaml(path)
     assert path.exists()
@@ -152,8 +170,23 @@ def test_davi_config_yaml_roundtrip(tmp_path):
     assert isinstance(loaded.body_widths, tuple)
 
 
+def test_davi_config_from_yaml_missing_field_raises(tmp_path):
+    """Missing keys in the YAML → loud TypeError, not silent default."""
+    cfg = DAVIConfig(**_full_davi_config_kwargs())
+    path = tmp_path / "incomplete.yaml"
+    cfg.to_yaml(path)
+    # Strip a field from the on-disk yaml.
+    import yaml as _yaml
+
+    d = _yaml.safe_load(path.read_text())
+    d.pop("learning_rate")
+    path.write_text(_yaml.safe_dump(d))
+    with pytest.raises(TypeError):
+        DAVIConfig.from_yaml(path)
+
+
 def test_davi_config_frozen():
     """Frozen dataclass — accidental mutation should raise."""
-    cfg = DAVIConfig()
+    cfg = DAVIConfig(**_full_davi_config_kwargs())
     with pytest.raises(FrozenInstanceError):
         cfg.batch_size = 200  # type: ignore[misc]

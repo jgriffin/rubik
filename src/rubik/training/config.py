@@ -1,9 +1,25 @@
 """DAVI training configuration.
 
-Frozen dataclass; YAML-serialized for `experiments/davi-2x2/config.yaml`.
-Hyperparameter defaults are DeepCubeA's published values (the M7 sweep
-retunes for 2x2). Body widths and residual count match `ValueNet`'s
-defaults so a fresh `DAVIConfig()` reproduces the SPEC baseline.
+Frozen dataclass; YAML-serialized for ``experiments/davi-2x2/...``.
+
+**Every field is required.** No defaults. Two reasons:
+
+1. *Forces every YAML explicit.* You cannot accidentally inherit a
+   hyperparameter from DeepCubeA (or anywhere else) — the YAML carries
+   exactly the values the run actually used. The "story" we tell about
+   any run reads off the YAML, not off code defaults that may have
+   shifted under us.
+
+2. *Honest comparison.* M5's tiered-experimentation methodology earns
+   its configuration from tier 0 calibration → tier 1 sanity → tier 2
+   sweeps → tier 3 champion. Borrowing DeepCubeA values would skip the
+   methodology. DeepCubeA's published defaults live as a *baseline* in
+   ``experiments/davi-2x2/baselines/deepcubea_defaults.yaml`` for
+   comparison, never as the constructor default.
+
+If a yaml file is missing any field, ``from_yaml`` will raise
+``TypeError`` from the dataclass constructor — the "missing key" surfaces
+loudly rather than silently defaulting.
 """
 
 from __future__ import annotations
@@ -17,27 +33,26 @@ import yaml
 @dataclass(frozen=True)
 class DAVIConfig:
     # Curriculum
-    max_scramble_depth: int = 14
+    max_scramble_depth: int
 
     # Optimizer
-    batch_size: int = 1000
-    n_steps: int = 100_000
-    learning_rate: float = 1e-4
-    target_sync_interval: int = 5000
+    batch_size: int
+    n_steps: int
+    learning_rate: float
+    target_sync_interval: int
 
-    # Network architecture (mirrors ValueNet defaults — kept here so
-    # config files can override without touching code).
-    body_widths: tuple[int, int] = (5000, 1000)
-    n_residual_blocks: int = 4
+    # Network architecture
+    body_widths: tuple[int, int]
+    n_residual_blocks: int
 
-    # Logging / checkpointing
-    log_every: int = 100
-    eval_every: int = 5000
-    checkpoint_every: int = 10_000
+    # Logging / checkpointing (use 0 to disable any of these)
+    log_every: int
+    eval_every: int
+    checkpoint_every: int
 
     # Reproducibility / device
-    seed: int = 0
-    device: str = "mps"
+    seed: int
+    device: str
 
     def to_dict(self) -> dict:
         d = asdict(self)
