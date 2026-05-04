@@ -140,6 +140,7 @@ def _full_davi_config_kwargs() -> dict:
         target_sync_interval=5_000,
         body_widths=(2048, 512),
         n_residual_blocks=4,
+        normalization="bn",
         log_every=100,
         eval_every=5_000,
         checkpoint_every=10_000,

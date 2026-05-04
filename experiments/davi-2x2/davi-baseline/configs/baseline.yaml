@@ -1,0 +1,15 @@
+max_scramble_depth: 7
+batch_size: 1024
+n_steps: 30000
+learning_rate: 0.001
+target_sync_interval: 200
+body_widths:
+  - 4096
+  - 1024
+n_residual_blocks: 2
+normalization: bn
+log_every: 100
+eval_every: 1000
+checkpoint_every: 5000
+seed: 0
+device: mps

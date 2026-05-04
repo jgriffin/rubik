@@ -21,6 +21,8 @@ from pathlib import Path
 
 import yaml
 
+_VALID_NORMALIZATIONS = ("bn", "none", "ln")
+
 
 @dataclass(frozen=True)
 class DAVIConfig:
@@ -36,6 +38,7 @@ class DAVIConfig:
     # Network architecture
     body_widths: tuple[int, int]
     n_residual_blocks: int
+    normalization: str  # "bn" | "none" | "ln"; chosen at config time, no default
 
     # Logging / checkpointing (use 0 to disable any of these)
     log_every: int
@@ -45,6 +48,13 @@ class DAVIConfig:
     # Reproducibility / device
     seed: int
     device: str
+
+    def __post_init__(self) -> None:
+        if self.normalization not in _VALID_NORMALIZATIONS:
+            raise ValueError(
+                f"normalization must be one of {_VALID_NORMALIZATIONS!r}, "
+                f"got {self.normalization!r}"
+            )
 
     def to_dict(self) -> dict:
         d = asdict(self)
