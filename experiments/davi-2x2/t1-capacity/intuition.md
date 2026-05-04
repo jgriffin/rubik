@@ -342,3 +342,228 @@ confirmed.
   much-larger gap from the MSE plateau and from each loss's
   constant-predictor floor.
 
+## BN ablation + autonomous investigation (2026-05-04)
+
+Charged with: build a normalization toggle on `ValueNet`, run the
+(BN/no-BN)×(small/big) primary contrast, then adapt based on what the
+data says. Hour-budget.
+
+Built `normalization: "bn" | "none" | "ln"` toggle on `ValueNet`
+(commit `6337396`) and ran the 4 primary cells. Findings forced a
+reframe to a sampling probe; depth-balanced sampling was added
+(commit `301e429`) and run on the larger network with both
+normalizations. Phase A's 7k-budget pred_std was finally measured under
+matched conditions and is *much* tighter than the 30k+lr3e3 figure
+implied — Phase A's pred_std at 7k is ~0.35, not ~0.79.
+
+### Observations *(mechanical)*
+
+All cells: 2x2 V\*, 80/20 split (split_seed 42), batch 1024, 7k steps,
+MSE, seed 0, MPS. Final values reported.
+
+| cell | norm | sampler | lr | n_params | val_mae | pred_mean | pred_std |
+|------|------|---------|----|---------:|--------:|----------:|---------:|
+| `bn_2048x512_n0_baseline` | bn | uniform | 1e-3 | 1.35M | 0.9023 | 10.62 | **0.350** |
+| `nobn_2048x512_n0` | none | uniform | 1e-3 | 1.35M | 0.8928 | 10.73 | 0.316 |
+| `bn_4096x1024_n2` | bn | uniform | 1e-3 | 9.01M | **0.8577** | 10.67 | 0.461 |
+| `nobn_4096x1024_n2` | none | uniform | 1e-3 | 8.99M | 0.8923 | 10.70 | 0.321 |
+| `bn_4096x1024_n2_lr3e3` | bn | uniform | 3e-3 | 9.01M | 0.8567 | 10.66 | 0.478 |
+| `dbal_2048x512_n0` | bn | depth_balanced | 1e-3 | 1.35M | 1.1285 | 10.30 | **1.151** |
+| `dbal_4096x1024_n2` | bn | depth_balanced | 1e-3 | 9.01M | 0.9545 | 10.60 | **1.125** |
+| `dbal_nobn_4096x1024_n2` | none | depth_balanced | 1e-3 | 8.99M | 1.0806 | 10.40 | 1.073 |
+
+**Per-depth predictions on 10k val states:**
+
+| depth | uniform `bn_4k_n2` pred_mu | dbal `bn_4k_n2` pred_mu | truth |
+|------:|---------------------------:|------------------------:|------:|
+| 3 | 5.69 | 4.06 | 3 |
+| 5 | 9.48 | 6.26 | 5 |
+| 7 | 9.72 | 8.11 | 7 |
+| 9 | 10.48 | 9.92 | 9 |
+| 11 | 10.74 | 10.81 | 11 |
+| 13 | 10.78 | 11.32 | 13 |
+
+**Key mechanical observations:**
+
+1. **No-BN does NOT break the plateau.** At small (2048,512) n=0,
+   no-BN is 0.8928 vs BN's 0.9023 — basically identical. At big
+   (4096,1024) n=2, BN is *better* than no-BN (0.8577 vs 0.8923).
+2. **Phase A's pred_std at matched 7k budget is ~0.35** (not 0.79
+   from the 30k+lr3e3 large diagnostic). The "compression" is even
+   tighter than previously thought at the matched budget.
+3. **Adding 2 residual blocks at 4096×1024 BN gives -0.04 val_mae
+   over phaseA_1's n=0 result** (0.8577 vs 0.8979) — depth helps
+   under uniform sampling but doesn't break the plateau.
+4. **Depth-balanced sampling makes pred_std jump from ~0.35 to
+   ~1.15** (target std 1.16) — within 0.01 of the target. Per-depth
+   predictions track ground-truth across the full 0–14 range, not
+   collapsed to ~10.7. The trade-off: val_mae *goes up* (0.95–1.13)
+   because val is uniform-distributed and depth-balanced
+   under-weights the bulk that uniform was already nearly-optimal on.
+5. **Depth-balanced + no-BN works almost as well as depth-balanced +
+   BN** (pred_std 1.07 vs 1.13; train loss 1.11 vs 0.72 at step 7k).
+   The dominant factor is the sampler, not the normalization. BN is
+   slightly *helpful* when sampling is fixed, not harmful.
+6. **LR=3e-3 at the BN big cell gives val_mae 0.8567** vs 0.8577 at
+   1e-3 — within seed noise. LR is not the bottleneck at this size.
+7. **Train loss curves under depth-balanced are still falling
+   sharply at step 7000** (1.71→0.72 for the big BN cell). The
+   plateau is gone; this regime has not converged in 7k steps.
+
+### Hypotheses
+
+**H4 (HIGH confidence): The val_mae plateau under uniform sampling is
+a *gradient-coverage* bug, not a *capacity* or *normalization* bug.**
+The V\* depth distribution is severely peaked (83% of states at
+depths 10–12, only 0.05% at depths 0–4). With uniform-with-replacement
+sampling, gradient signal toward the tails is proportional to their
+frequency — a 1024-batch step sees 0.4 expected samples at depth 4
+combined and ~600 at depth 11. Under MSE, total tail contribution to
+loss is tiny, so the optimization landscape rewards "predict the
+modal class" — the model collapses to ~10.7 across all inputs. Once
+sampling is rebalanced so each depth contributes equally to per-step
+gradient, the model immediately learns to predict across the full
+depth range (pred_std 0.35 → 1.15 in the same budget).
+
+*Supporting evidence:* (a) under uniform sampling, **NO** axis tested
+(capacity 23×, normalization {bn,none,ln-untested-here}, depth
+{n=0,n=2}, lr {1e-3,3e-3}, loss {mse,l1}, training set size {1k
+memorize, 2.94M full}) breaks the ~0.90 plateau. (b) Under
+depth-balanced sampling with **all other things equal**, pred_std
+jumps to within 0.01 of target std and per-depth predictions track
+truth across the entire 0–14 range. (c) BN/no-BN are
+near-equivalent under depth-balanced sampling (1.07 vs 1.13 std),
+falsifying the BN-clamps-output-magnitude story (H2 from prior
+section). (d) Under depth-balanced, the train-loss curve is still
+falling fast at step 7k — the previous "plateau" was a stable point
+of the optimization, not a capacity ceiling.
+
+*Verification plan:* re-run `dbal_4096x1024_n2` for 30k steps. If
+val_mae falls below 0.5 (uniformly weighted, against bulk-favored
+val) the H4 story locks: depth-balanced sampling provides usable
+gradient signal across all depths and the network can fit V\* given
+enough compute. If it plateaus around 1.0 then there's a residual
+distributional mismatch (depth-balanced loss favors tails which val
+under-weights) and the *evaluation* methodology may also need
+attention. Either outcome is informative.
+
+*Falsification:* if a 30k-step run on `dbal_4096x1024_n2` *also*
+plateaus at val_mae > 0.7 with pred_std stuck near 1.1, then there
+**is** a remaining bottleneck below sampling — probably in the
+depth-balanced loss formulation interacting with squared-error on the
+rare tail buckets (each tail bucket of ~70 samples contains tons of
+duplicates from depth 0/1/2/14 due to with-replacement sampling).
+
+**H1 (FALSIFIED earlier, still falsified):** L1 vs MSE was a
+red-herring. Both losses collapse under uniform sampling.
+
+**H2 (now FALSIFIED):** BN-before-head was *not* the source of output
+compression. BN and no-BN produce the same plateau under uniform
+sampling. Under depth-balanced, BN is slightly *helpful* in
+optimization speed (train loss 0.72 vs 1.11 at step 7k for the same
+cell). The previous "compression" interpretation was a symptom of
+the sampling-induced gradient distribution, not a normalization
+artifact.
+
+**H3 (still open, lower priority):** Residual depth helps modestly
+under uniform sampling (~0.04 absolute val_mae gain at the same
+widths), but not nearly enough to break the plateau. The mechanism is
+likely "more depth = more capacity to learn the bulk-vs-tail
+distinction" — but under depth-balanced sampling, the gradient signal
+already rewards that distinction directly, so depth's marginal value
+under depth-balanced is the relevant question. Unmeasured.
+
+### What this means for T1's framing
+
+T1's tier-by-tier methodology assumed gradient signal would be
+present and that capacity was the right first-question. H4 says the
+methodology has a hidden zeroth tier that needs to land before
+capacity becomes a measurable axis: **sampling**.
+
+The new T1 should be:
+
+- **T1a — Sampling (yes/no).** Does depth-balanced sampling produce
+  per-depth predictions that track truth? (Answered: YES at 4096×1024
+  n=2 with pred_std 1.13 vs target 1.16.)
+- **T1b — Sampling × evaluation.** Once tail predictions are real,
+  what's the right evaluation metric? Uniformly-weighted val_mae
+  rewards the bulk-collapse strategy that depth-balanced sampling
+  intentionally walks away from — so the "did we improve" question
+  needs a depth-aware aggregation. Likely candidates: per-depth MAE
+  table; depth-weighted val_mae; "macro-MAE" averaging per-depth MAEs
+  uniformly. **Not free** — picking the metric is itself a methodology
+  decision.
+- **T1c — Capacity floor under fixed sampling+metric.** Now run the
+  width × depth ablations the original T1 was meant to run, with
+  depth-balanced sampling and macro-MAE, with budgets long enough to
+  see the still-falling loss curve converge.
+
+The two-phase widths-then-residuals plan from the previous methodology
+correction is still right shape, but it sits *under* T1a/T1b — they
+have to land first.
+
+### Open questions
+
+1. **30k-step `dbal_4096x1024_n2`.** Does the still-falling loss
+   curve actually hit a useful val performance? Predicted answer per
+   H4: macro-MAE drops well below 1.0 by step 30k, uniform-weighted
+   val_mae stays elevated (~0.9–1.0) because the val set is
+   bulk-dominated.
+2. **Macro-MAE evaluation.** Recompute Phase A and the new cells
+   under macro-MAE to get a comparison that isn't biased by val's
+   bulk-dominance. Cheap — just an analysis script, no retraining.
+3. **Depth-weighted MSE loss.** Instead of (or in addition to) a
+   depth-balanced sampler, try MSE weighted by `1/freq[depth]` per
+   sample with uniform sampling. Mathematically related but lets the
+   model see the bulk distribution it'll be evaluated on. May
+   converge to a different point than depth-balanced sampling.
+4. **Depth-balanced sampling + smaller capacity.** Does
+   `dbal_512x256_n0` (207K params) also escape the plateau? Tests
+   whether the original capacity-floor question is meaningful once
+   sampling is fixed. Probably the right next experiment after the
+   metric question is answered.
+5. **DAVI implications.** The DAVI training distribution is
+   *generated by random scrambles* of varying depths, not by
+   sampling V\*. The sampler-vs-gradient story above is specific to
+   supervised regression on V\*. Whether DAVI's natural curriculum
+   (uniform-over-scramble-depth?) sees this same pathology is a
+   separate question, but the answer informs whether the
+   T1→T2→T3→… methodology even maps to the DAVI we'll eventually
+   train.
+
+### What we haven't verified
+
+- The H4 "30k steps converges below 0.5 macro-MAE" prediction is
+  literally a prediction — it has not been run. The hour budget
+  ended after the 7k-step ablations finished. The 30k-step
+  verification is the highest-priority follow-up.
+- We did not test LayerNorm (`normalization: ln`). The toggle is
+  built and tested in unit tests, but no training run used it. If
+  the team wants the BN-vs-LN story for completeness, that's a
+  no-code-needed two-cell run.
+- The depth-balanced sampler over-samples the very-rare tail buckets
+  (depth 0 has 1 train state, sampled with replacement ~68 times
+  per batch — every step the model sees 68 copies of the same
+  depth-0 state). At 7k steps that's 480k gradient updates against
+  one state. We did not check whether this causes the head to
+  *overfit* the tail — the trained model's depth-0/1 predictions
+  look directionally correct (4.06 for depth 3, where d=3 has 102
+  samples and is sampled ~68/step) but a held-out tail-bucket test
+  (e.g. predict for the held-out depth-3 *val* states, which is
+  exactly what was reported above) is the cleanest probe — and we
+  have it: per-depth predictions on val show no obvious overfit, just
+  appropriate generalization. Still, with-replacement sampling on
+  buckets of size 1 is unusual; if the 30k-step run shows
+  weirdness on the tails, this is the suspect to investigate.
+- Single seed throughout. The val_mae numbers under depth-balanced
+  could shift ~0.05 with a different seed, especially given the
+  small bucket sizes. The qualitative finding (pred_std jumps from
+  0.35 to ~1.15) is robust to seed; the absolute val_mae values are
+  not.
+- We measured per-depth predictions on a 10k-state val subset only
+  for the BN big cells. We did not run per-depth probes on the
+  no-BN cells under depth-balanced — confidence that "depth-balanced
+  fixes the per-depth picture" rests on pred_std as a proxy plus the
+  one detailed table; a no-BN per-depth probe is a cheap follow-up
+  if challenged.
+
