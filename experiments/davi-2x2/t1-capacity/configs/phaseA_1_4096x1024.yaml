@@ -2,6 +2,7 @@ body_widths:
 - 4096
 - 1024
 n_residual_blocks: 0
+normalization: bn
 batch_size: 1024
 n_steps: 7000
 learning_rate: 0.001

@@ -47,6 +47,7 @@ DEFAULT_RUNS_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "runs"
 
 
 _VALID_LOSSES = ("mse", "l1")
+_VALID_NORMALIZATIONS = ("bn", "none", "ln")
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class MemorizeConfig:
     # Network architecture
     body_widths: tuple[int, int]
     n_residual_blocks: int
+    normalization: str  # "bn" | "none" | "ln"; chosen at config time, no default
 
     # Optimizer / training
     batch_size: int  # set equal to subset_size for full-batch
@@ -84,6 +86,11 @@ class MemorizeConfig:
         if self.loss not in _VALID_LOSSES:
             raise ValueError(
                 f"loss must be one of {_VALID_LOSSES!r}, got {self.loss!r}"
+            )
+        if self.normalization not in _VALID_NORMALIZATIONS:
+            raise ValueError(
+                f"normalization must be one of {_VALID_NORMALIZATIONS!r}, "
+                f"got {self.normalization!r}"
             )
 
     def to_dict(self) -> dict:
@@ -241,6 +248,7 @@ def main() -> None:
         spec,
         body_widths=config.body_widths,
         n_residual_blocks=config.n_residual_blocks,
+        normalization=config.normalization,
     ).to(device)
     optimizer = Adam(net.parameters(), lr=config.learning_rate)
 
@@ -260,6 +268,7 @@ def main() -> None:
     print(f"device:     {device}")
     print(f"n_params:   {n_params / 1e6:.2f}M")
     print(f"body:       {config.body_widths}, n_res={config.n_residual_blocks}")
+    print(f"norm:       {config.normalization}")
     print(f"loss:       {config.loss}")
     print(f"subset:     {config.subset_size} states, seed {config.subset_seed}")
     print(f"  quotas:   {quota_str}")
@@ -284,6 +293,7 @@ def main() -> None:
             learning_rate=config.learning_rate,
             body_widths=list(config.body_widths),
             n_residual_blocks=config.n_residual_blocks,
+            normalization=config.normalization,
             loss=config.loss,
             pass_train_mse=config.pass_train_mse,
         )
