@@ -202,3 +202,42 @@ focused experiment, not an axis of expansion:
   reveal anything we missed in the JSONL post-hoc. That tooling is
   deferred per the methodology — but if the debug cycle drags, it may
   be worth pulling forward.
+
+## Memorize-1k sanity check (2026-05-04)
+
+Verification 4 from the open-questions list: train on a fixed 1k-state
+depth-stratified subset, full-batch, MSE, same architecture/loss/optim
+machinery as Phase A. Pass criterion: `train_mse <= 1e-3` within 10k
+steps.
+
+**Cell:** `(2048, 512)`, `n_residual_blocks=2`, batch=1000 (full-batch),
+lr=1e-3, seed=0, subset_seed=7, MPS. 2.41M params.
+
+**Observations.**
+
+| step | train_mse | train_mae |
+|-----:|----------:|----------:|
+| 0 | 111.904091 | 10.4994 |
+| 100 | 0.000233 | 0.01446 |
+| 1000 | 0.000000 | 0.00000 |
+| 5000 | 0.000000 | 0.00000 |
+| 10000 | 1.2e-9 | 0.00003 |
+
+**PASS at step 63** (`train_mse=9.78e-4`). Train MSE drives to numerical
+zero by step 1000 and stays there. Wall time ~32s for 10k steps.
+
+Courtesy val-MAE on a 2000-state held-out slice (excluded from the 1k
+subset) hovers around 0.99–1.07 throughout — i.e., the model memorizes
+the 1k subset perfectly while remaining ~at the predict-the-mean
+baseline on unseen states. That's the expected memorization signature
+(no mysterious generalization, no machinery weirdness).
+
+**Verdict: machinery is clean.** Training loop, data path, model,
+optimizer, MPS backend are all functioning as designed. Phase A's
+~0.90 val_mae plateau is **not** a bug — it is the genuine behavior of
+MSE + this depth distribution + this architecture on the full 2.94M
+training set. H1 (MSE × peaked V\* depth distribution × BN-everywhere
+mean-collapse trap) remains the leading hypothesis and the L1-loss
+verification (open question 1) is the right next experiment.
+
+**Open questions** unchanged — go run the L1 loss experiment next.

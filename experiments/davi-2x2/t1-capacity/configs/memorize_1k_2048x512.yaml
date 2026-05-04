@@ -1,0 +1,16 @@
+body_widths:
+- 2048
+- 512
+n_residual_blocks: 2
+batch_size: 1000
+n_steps: 10000
+learning_rate: 0.001
+subset_size: 1000
+subset_seed: 7
+seed: 0
+device: mps
+log_every: 100
+val_eval_every: 1000
+val_eval_n_states: 2000
+val_eval_seed: 99
+pass_train_mse: 0.001
