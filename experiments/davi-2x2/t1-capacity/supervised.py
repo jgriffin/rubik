@@ -47,6 +47,7 @@ DEFAULT_RUNS_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "runs"
 
 _VALID_LOSSES = ("mse", "l1")
 _VALID_NORMALIZATIONS = ("bn", "none", "ln")
+_VALID_SAMPLERS = ("uniform", "depth_balanced")
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class SupervisedConfig:
     n_steps: int
     learning_rate: float
     loss: str  # "mse" or "l1"; chosen at config time, no default
+    sampler: str  # "uniform" or "depth_balanced"; chosen at config time
 
     # Reproducibility / device
     seed: int
@@ -83,6 +85,10 @@ class SupervisedConfig:
             raise ValueError(
                 f"normalization must be one of {_VALID_NORMALIZATIONS!r}, "
                 f"got {self.normalization!r}"
+            )
+        if self.sampler not in _VALID_SAMPLERS:
+            raise ValueError(
+                f"sampler must be one of {_VALID_SAMPLERS!r}, got {self.sampler!r}"
             )
 
     def to_dict(self) -> dict:
@@ -201,6 +207,37 @@ def main() -> None:
     val_states = states_dev[val_eval_idx]
     val_depths = depths_dev[val_eval_idx]
 
+    # If using depth-balanced sampling, pre-bucket the train indices by depth
+    # so per-step batch construction can sample equally from each bucket.
+    train_depth_buckets: list[torch.Tensor] | None = None
+    bucket_take: int = 0
+    bucket_extras: int = 0
+    if config.sampler == "depth_balanced":
+        train_depths_np = depths_np[train_idx]
+        unique_depths = np.unique(train_depths_np)
+        train_depth_buckets = []
+        for d in unique_depths:
+            in_bucket = np.flatnonzero(train_depths_np == d)
+            # store as device-side LongTensor of train_idx values for the bucket
+            bucket_train_idx = train_idx[in_bucket].astype(np.int64)
+            train_depth_buckets.append(torch.from_numpy(bucket_train_idx).to(device))
+        n_buckets = len(train_depth_buckets)
+        # batch_size split equally per bucket (with replacement) — extras
+        # distributed to the first `extras` buckets so total == batch_size.
+        bucket_take = config.batch_size // n_buckets
+        bucket_extras = config.batch_size - bucket_take * n_buckets
+        bucket_counts = [int(b.numel()) for b in train_depth_buckets]
+        print(
+            f"sampler:    depth_balanced, {n_buckets} buckets, "
+            f"~{bucket_take}/bucket (+{bucket_extras} extras)"
+        )
+        bucket_summary = ", ".join(
+            f"d{int(d)}={c}" for d, c in zip(unique_depths, bucket_counts, strict=True)
+        )
+        print(f"  bucket sizes: {bucket_summary}")
+    else:
+        print(f"sampler:    {config.sampler}")
+
     # Build net
     net = ValueNet(
         spec,
@@ -245,17 +282,34 @@ def main() -> None:
             n_residual_blocks=config.n_residual_blocks,
             normalization=config.normalization,
             loss=config.loss,
+            sampler=config.sampler,
         )
 
         for step in range(1, config.n_steps + 1):
             t0 = time.perf_counter()
 
-            # Sample batch_size training indices uniformly with replacement.
-            # CPU sampling -> device gather; matches DAVI's batch-build pattern.
-            sample_offsets = torch.randint(
-                0, train_idx.size, (config.batch_size,), generator=sample_gen
-            )
-            batch_idx = train_idx_dev[sample_offsets.to(device)]
+            if config.sampler == "uniform":
+                # Sample batch_size training indices uniformly with replacement.
+                # CPU sampling -> device gather; matches DAVI's batch-build pattern.
+                sample_offsets = torch.randint(
+                    0, train_idx.size, (config.batch_size,), generator=sample_gen
+                )
+                batch_idx = train_idx_dev[sample_offsets.to(device)]
+            else:
+                # depth_balanced: ~bucket_take per depth (with replacement so
+                # tiny buckets like depth 0 can still contribute), distribute
+                # `bucket_extras` to the first buckets to total batch_size.
+                assert train_depth_buckets is not None
+                pieces: list[torch.Tensor] = []
+                for i, bucket in enumerate(train_depth_buckets):
+                    take = bucket_take + (1 if i < bucket_extras else 0)
+                    if take == 0:
+                        continue
+                    offsets_cpu = torch.randint(
+                        0, int(bucket.numel()), (take,), generator=sample_gen
+                    )
+                    pieces.append(bucket[offsets_cpu.to(device)])
+                batch_idx = torch.cat(pieces)
             batch_states = states_dev[batch_idx]
             batch_targets = depths_dev[batch_idx]
 

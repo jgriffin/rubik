@@ -1,13 +1,13 @@
 body_widths:
-- 2048
-- 512
-n_residual_blocks: 0
-normalization: none
+- 4096
+- 1024
+n_residual_blocks: 2
+normalization: bn
 batch_size: 1024
 n_steps: 7000
 learning_rate: 0.001
 loss: mse
-sampler: uniform
+sampler: depth_balanced
 seed: 0
 split_seed: 42
 device: mps
