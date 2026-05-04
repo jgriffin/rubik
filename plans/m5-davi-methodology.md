@@ -34,30 +34,52 @@ Output: `experiments/davi-2x2/calibrate_step_time.py` + a step-time grid in `res
 
 ### T1 — capacity floor (supervised V* regression)
 
-**Question.** What's the minimum (`body_widths`, `n_residual_blocks`) that can fit V* on the 2x2 to MAE < 0.5 with direct supervised regression?
+**Question.** What's the minimum `(h1, h2)` body width — and how many (if any) residual blocks at that width — needed to fit V* on the 2x2 to val-MAE < 0.5 with direct supervised regression?
 
 **Why.** Decouples capacity from training dynamics. If the smallest sufficient network is known, then any failure of DAVI with that network is a *training-dynamics* problem, not a *capacity* problem — that separation is leverage for every later tier.
 
-**Method.**
-- New thin trainer `experiments/davi-2x2/t1-capacity/supervised.py`. Inputs `(state, V*(state))`, MSE loss, Adam, no DAVI. Reuses `ValueNet` unchanged.
-- Sample training data uniformly from the 3.67M canonical states (seed-pinned 80/20 train/val split — held-out val ≠ the depth-stratified eval set, since this tier is asking a capacity question and depth-stratification could mask it).
-- LR pinned to a placeholder (e.g. 1e-3) — T2 refines it on real DAVI; T1 just needs *some* LR that lets us read capacity.
-- Lattice over `body_widths × n_residual_blocks`. Initial proposal:
+**Two phases — widths first, residuals second.** Bundling width and residual-block count into one grid confounds two questions: "is the network wide enough to fit V*?" and "do residual blocks earn their keep at sufficient width?" These are separable; we keep them separate.
 
-  | h1 × h2  | residual blocks |
-  |----------|-----------------|
-  | 32 × 32  | 0               |
-  | 64 × 32  | 0               |
-  | 64 × 32  | 1               |
-  | 128 × 64 | 1               |
-  | 128 × 64 | 2               |
-  | 256 × 128| 2               |
+#### Phase A — width sweep (fix `n_residual_blocks=0`, vary widths)
 
-- Each cell: 5–10k steps, fixed seed, batch 1024. Plot val-MAE vs steps per cell.
+Walk down from "embarrassingly large" to "near input dim." All cells use plain MLP body — no residuals. The only first-principles floor on `h1` is `h1 ≥ input_dim = 144` (otherwise the first projection compresses information). Cells:
 
-**Closing condition.** A pareto frontier of (parameter count, achievable val-MAE). Pick the smallest network that hits val-MAE < 0.5 — call this the **T1 capacity floor**. Cache the next size up too as the **T1 comfortable** for use in tiers that need headroom.
+| h1 × h2     | h1/input | role |
+|-------------|---------:|------|
+| 8192 × 2048 |     56.9× | "should clearly succeed" — anchor from above |
+| 4096 × 1024 |     28.4× | half the anchor |
+| 2048 × 1024 |     14.2× | quarter, h2 unchanged from previous |
+| 2048 × 512  |     14.2× | h1 fixed, half h2 — does h2 matter at fixed h1? |
+| 1024 × 512  |      7.1× | smaller still |
+| 512 × 256   |      3.6× | smallest "meaningfully wider than input" |
 
-**Output.** `t1-capacity/results.md` with the lattice table + frontier plot; `intuition.md` answering: did capacity scale how we expected? Was depth or width more important? Any cell where MAE plateaued mid-training (an architecture pathology, not a capacity ceiling)?
+All at `n_residual_blocks=0`, batch 1024, fixed seed, 7000 steps, LR 1e-3 (placeholder — T1 isn't tuning LR, just reading capacity). Top-end widths verified against T0 calibration data before commit (extrapolation from T0's `(5000, 1000) × 4 blocks` measured grid).
+
+**Phase A closing condition.** Pick the smallest cell with `val_mae < 0.5`. Call it `(h1*, h2*)`. If multiple cells succeed, smallest one is the answer. If only the top cell succeeds, that's the answer (and Phase B operates there). If nothing succeeds at `(8192, 2048)`, the failure isn't capacity — it's optimization, batch-norm, eval-loop, or data — and we stop and debug instead of going to Phase B.
+
+#### Phase B — residual sweep (fix widths at `(h1*, h2*)`, vary residual count)
+
+Only runs if Phase A found a passing cell. The question: *do residual blocks at the chosen width buy us anything for plain supervised V* regression?* Cells:
+
+| h1* × h2* | n_residual_blocks | role |
+|-----------|-------------------|------|
+| h1* × h2* | 0 | already done in Phase A — reused |
+| h1* × h2* | 1 | one block |
+| h1* × h2* | 2 | two blocks |
+| h1* × h2* | 4 | four blocks (geometric spread, not because anyone published this) |
+
+All same batch/seed/steps/LR as Phase A. Three new runs.
+
+**Phase B closing condition.** If `val_mae` flat across all four `n` values, residual blocks do nothing for this problem and **we ship `n=0`** — the simplest model that works. If `val_mae` improves with `n`, ship the smallest `n` that captures most of the gain (knee-of-curve). Either way, the answer to T1 is now a specific `(h1*, h2*, n*)` tuple.
+
+#### T1 outputs
+
+- `experiments/davi-2x2/t1-capacity/supervised.py` — thin trainer (no DAVI, MSE loss, Adam). Reuses `ValueNet` unchanged.
+- Training data sampled uniformly from the 3.67M canonical V* keys, seed-pinned 80/20 train/val split — held-out val ≠ the depth-stratified eval set, since this tier is asking a capacity question and depth-stratification could mask it.
+- Per-cell `runs/<cell>/log.jsonl` via `MetricLogger`.
+- `results.md` with both phases' tables + a Pareto-style frontier plot.
+- `_picks.json` with the chosen `(h1*, h2*, n*)` tuple — call this the **T1 architecture**. Cache the next size up too as the **T1 comfortable** for tiers that need headroom.
+- `intuition.md`: did widths scale how we expected? Did residuals help (Phase B)? Where exactly is the floor?
 
 ### T2 — LR range test
 
