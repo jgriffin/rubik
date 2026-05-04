@@ -1,0 +1,73 @@
+{
+  "status": "halt_and_debug",
+  "reason": "No Phase A cell met val_mae < 0.5; 3 diagnostic variants (more steps, more residuals, higher LR) confirm failure is not capacity-shaped. Per methodology, Phase B not opened. See results.md and intuition.md for diagnosis and next-cycle proposals.",
+  "phase_a_pick": null,
+  "t1_architecture": null,
+  "t1_comfortable": null,
+  "pass_threshold": 0.5,
+  "phase_a_results": [
+    {
+      "config_stem": "phaseA_5_512x256",
+      "body_widths": [512, 256],
+      "n_residual_blocks": 0,
+      "n_params": 207361,
+      "final_val_mae": 0.9016730041503906
+    },
+    {
+      "config_stem": "phaseA_4_1024x512",
+      "body_widths": [1024, 512],
+      "n_residual_blocks": 0,
+      "n_params": 676865,
+      "final_val_mae": 0.9036975769042969
+    },
+    {
+      "config_stem": "phaseA_3_2048x512",
+      "body_widths": [2048, 512],
+      "n_residual_blocks": 0,
+      "n_params": 1351681,
+      "final_val_mae": 0.9022599426269531
+    },
+    {
+      "config_stem": "phaseA_2_2048x1024",
+      "body_widths": [2048, 1024],
+      "n_residual_blocks": 0,
+      "n_params": 2402305,
+      "final_val_mae": 0.8998359802246094
+    },
+    {
+      "config_stem": "phaseA_1_4096x1024",
+      "body_widths": [4096, 1024],
+      "n_residual_blocks": 0,
+      "n_params": 4800513,
+      "final_val_mae": 0.8978865356445312
+    }
+  ],
+  "phase_b_results": [],
+  "diagnostic_runs": [
+    {
+      "label": "diag_4096x1024_n0_30k_lr3e-3",
+      "body_widths": [4096, 1024],
+      "n_residual_blocks": 0,
+      "n_steps": 30000,
+      "learning_rate": 0.003,
+      "final_val_mae": 0.8456
+    },
+    {
+      "label": "diag_1024x512_n2_7k_lr1e-3",
+      "body_widths": [1024, 512],
+      "n_residual_blocks": 2,
+      "n_steps": 7000,
+      "learning_rate": 0.001,
+      "final_val_mae": 0.8652
+    },
+    {
+      "label": "diag_2048x512_n4_30k_lr3e-3",
+      "body_widths": [2048, 512],
+      "n_residual_blocks": 4,
+      "n_steps": 30000,
+      "learning_rate": 0.003,
+      "final_val_mae": 0.7968
+    }
+  ],
+  "predict_mean_mae_baseline": 0.9286
+}

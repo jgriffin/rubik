@@ -1,0 +1,272 @@
+"""T1 supervised V* regression trainer.
+
+Tier 1 asks a capacity question: what's the smallest network that can
+fit V* on the 2x2 to val-MAE < 0.5? It does **not** ask about DAVI
+dynamics. So this trainer bypasses DAVI entirely — it loads the cached
+V* table (`data/v_star_2x2.npz`, 3.67M canonical states with their
+optimal cost-to-go), seed-deterministically splits 80/20 into train/val,
+and trains a `ValueNet` with plain MSE against the V* labels.
+
+If a config can't fit V* with direct supervision, capacity is the
+bottleneck — no training-dynamics fix would help. That separation is
+the whole point of T1.
+
+Usage::
+
+    uv run python experiments/davi-2x2/t1-capacity/supervised.py \\
+        --config experiments/davi-2x2/t1-capacity/configs/<name>.yaml \\
+        [--out-dir experiments/davi-2x2/runs/<custom>]
+
+Per-cell variants share the same train/val split (split_seed pinned in
+the config) so val MAE numbers are directly comparable across cells.
+"""
+
+from __future__ import annotations
+
+import argparse
+import time
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+import yaml
+from torch.optim import Adam
+
+from rubik.cube.spec import CUBE_2X2
+from rubik.model.network import ValueNet
+from rubik.training.metric_logger import MetricLogger
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+V_STAR_CACHE = REPO_ROOT / "data" / "v_star_2x2.npz"
+DEFAULT_RUNS_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "runs"
+
+
+@dataclass(frozen=True)
+class SupervisedConfig:
+    """Config for T1 supervised V* regression. Every field required."""
+
+    # Network architecture (parameterized on CubeSpec at runtime)
+    body_widths: tuple[int, int]
+    n_residual_blocks: int
+
+    # Optimizer
+    batch_size: int
+    n_steps: int
+    learning_rate: float
+
+    # Reproducibility / device
+    seed: int
+    split_seed: int  # pins the 80/20 train/val partition across cells
+    device: str
+
+    # Eval
+    eval_every: int  # eval val MAE every N steps (0 = end only)
+    eval_n_states: int  # cap val eval set to this many states (random subset)
+    log_every: int
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["body_widths"] = list(self.body_widths)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> SupervisedConfig:
+        d = dict(d)
+        if "body_widths" in d:
+            d["body_widths"] = tuple(d["body_widths"])
+        return cls(**d)
+
+    def to_yaml(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(self.to_dict(), sort_keys=False))
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> SupervisedConfig:
+        return cls.from_dict(yaml.safe_load(path.read_text()))
+
+
+def _load_v_star() -> tuple[np.ndarray, np.ndarray]:
+    """Load V* cache as (states, depths) numpy arrays."""
+    if not V_STAR_CACHE.exists():
+        raise FileNotFoundError(
+            f"V* cache not found at {V_STAR_CACHE}. Run "
+            "`uv run python -m rubik.oracle.v_star_2x2` first."
+        )
+    with np.load(V_STAR_CACHE) as data:
+        return data["states"].copy(), data["depths"].copy()
+
+
+def _split_train_val(
+    n: int, split_seed: int, val_frac: float = 0.2
+) -> tuple[np.ndarray, np.ndarray]:
+    """Seed-deterministic 80/20 index split."""
+    rng = np.random.default_rng(split_seed)
+    perm = rng.permutation(n)
+    n_val = int(round(n * val_frac))
+    val_idx = perm[:n_val]
+    train_idx = perm[n_val:]
+    return train_idx, val_idx
+
+
+def _resolve_out_dir(arg: Path | None, config_stem: str) -> Path:
+    if arg is not None:
+        return arg
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return DEFAULT_RUNS_DIR / f"{ts}_{config_stem}"
+
+
+def _eval_val_mae(
+    net: torch.nn.Module,
+    val_states: torch.Tensor,
+    val_depths: torch.Tensor,
+    batch_size: int,
+) -> float:
+    """Compute mean absolute error of net predictions vs V* on the val set."""
+    net.eval()
+    total_abs = 0.0
+    n = val_states.shape[0]
+    with torch.no_grad():
+        for start in range(0, n, batch_size):
+            end = min(start + batch_size, n)
+            preds = net(val_states[start:end])
+            total_abs += (preds - val_depths[start:end]).abs().sum().item()
+    net.train()
+    return total_abs / n
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--out-dir", type=Path, default=None)
+    args = parser.parse_args()
+
+    config = SupervisedConfig.from_yaml(args.config)
+    out_dir = _resolve_out_dir(args.out_dir, args.config.stem)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    config.to_yaml(out_dir / "config.yaml")
+
+    device = torch.device(config.device)
+    spec = CUBE_2X2
+
+    torch.manual_seed(config.seed)
+
+    # Load V* cache + split
+    states_np, depths_np = _load_v_star()
+    n_total = states_np.shape[0]
+    train_idx, val_idx = _split_train_val(n_total, config.split_seed)
+
+    # Subsample val for eval speed (fixed by split_seed for comparability)
+    val_rng = np.random.default_rng(config.split_seed + 1)
+    if val_idx.size > config.eval_n_states:
+        val_eval_idx = val_rng.choice(val_idx, size=config.eval_n_states, replace=False)
+    else:
+        val_eval_idx = val_idx
+
+    # Move data to device (3.67M × 24 int8 = 88MB; depths int8 = 3.67MB; trivial)
+    states_dev = torch.from_numpy(states_np).to(device)
+    depths_dev = torch.from_numpy(depths_np).to(device).float()
+    train_idx_dev = torch.from_numpy(train_idx.astype(np.int64)).to(device)
+
+    val_states = states_dev[val_eval_idx]
+    val_depths = depths_dev[val_eval_idx]
+
+    # Build net
+    net = ValueNet(
+        spec,
+        body_widths=config.body_widths,
+        n_residual_blocks=config.n_residual_blocks,
+    ).to(device)
+    optimizer = Adam(net.parameters(), lr=config.learning_rate)
+
+    n_params = sum(p.numel() for p in net.parameters())
+    try:
+        run_dir_display = out_dir.relative_to(REPO_ROOT)
+    except ValueError:
+        run_dir_display = out_dir
+    print(f"run dir:    {run_dir_display}")
+    print(f"device:     {device}")
+    print(f"n_params:   {n_params / 1e6:.2f}M")
+    print(f"body:       {config.body_widths}, n_res={config.n_residual_blocks}")
+    print(
+        f"train/val:  {train_idx.size:,} / {val_idx.size:,}  "
+        f"(val eval: {val_eval_idx.size:,})"
+    )
+    print(f"steps:      {config.n_steps}")
+    print()
+
+    # Sampler RNG — seed pinned by config.seed (independent of split_seed)
+    sample_gen = torch.Generator(device="cpu").manual_seed(config.seed)
+
+    with MetricLogger(out_dir / "metrics.jsonl") as logger:
+        logger.log(
+            event="run_start",
+            n_params=n_params,
+            device=str(device),
+            n_train=int(train_idx.size),
+            n_val=int(val_idx.size),
+            n_val_eval=int(val_eval_idx.size),
+            body_widths=list(config.body_widths),
+            n_residual_blocks=config.n_residual_blocks,
+        )
+
+        for step in range(1, config.n_steps + 1):
+            t0 = time.perf_counter()
+
+            # Sample batch_size training indices uniformly with replacement.
+            # CPU sampling -> device gather; matches DAVI's batch-build pattern.
+            sample_offsets = torch.randint(
+                0, train_idx.size, (config.batch_size,), generator=sample_gen
+            )
+            batch_idx = train_idx_dev[sample_offsets.to(device)]
+            batch_states = states_dev[batch_idx]
+            batch_targets = depths_dev[batch_idx]
+
+            preds = net(batch_states)
+            loss = F.mse_loss(preds, batch_targets)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            step_seconds = time.perf_counter() - t0
+
+            if config.log_every and step % config.log_every == 0:
+                logger.log(
+                    event="step",
+                    step=step,
+                    loss=loss.item(),
+                    step_seconds=step_seconds,
+                )
+
+            if config.eval_every and step % config.eval_every == 0:
+                val_mae = _eval_val_mae(net, val_states, val_depths, config.batch_size)
+                logger.log(event="eval", step=step, val_mae=val_mae)
+                print(
+                    f"step {step:>5d}/{config.n_steps}  "
+                    f"loss {loss.item():.4f}  "
+                    f"val_mae {val_mae:.4f}  "
+                    f"step_ms {step_seconds * 1000:.1f}",
+                    flush=True,
+                )
+
+        # Final eval (always, even if eval_every is 0 or doesn't divide evenly)
+        final_val_mae = _eval_val_mae(net, val_states, val_depths, config.batch_size)
+        logger.log(event="eval", step=config.n_steps, val_mae=final_val_mae, final=True)
+        torch.save(net.state_dict(), out_dir / "net_final.pt")
+        logger.log(event="run_end", step=config.n_steps, final_val_mae=final_val_mae)
+
+    print()
+    print(f"final val_mae: {final_val_mae:.4f}")
+    metrics_path = out_dir / "metrics.jsonl"
+    try:
+        metrics_display = metrics_path.relative_to(REPO_ROOT)
+    except ValueError:
+        metrics_display = metrics_path
+    print(f"metrics:       {metrics_display}")
+
+
+if __name__ == "__main__":
+    main()
