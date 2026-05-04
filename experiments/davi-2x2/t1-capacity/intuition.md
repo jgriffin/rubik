@@ -567,3 +567,185 @@ have to land first.
   one detailed table; a no-BN per-depth probe is a cheap follow-up
   if challenged.
 
+## T1c verification — 30k dbal_4096x1024_n2 (2026-05-04)
+
+**Set up.** Same cell as `bn_4096x1024_n2_dbal` (4096×1024 BN n=2, batch
+1024, lr 1e-3, MSE, sampler=depth_balanced, seed 0, split_seed 42)
+extended from 7k → 30k steps. Eval logger now reports `macro_mae`
+(uniform mean across per-depth MAEs — the T1b metric) and
+`per_depth_mae` (dict[int, float]) at every 1000-step eval. Uniform
+val_mae retained for backward comparability.
+
+Methodology doc (`plans/m5-davi-methodology.md` §T1) was rewritten to
+the T1a/T1b/T1c structure first, then this run was launched as the
+T1c **pre-requisite** (gate for the widths sweep).
+
+### Observations *(mechanical)*
+
+**Headline numbers** at step 30k vs step 1k:
+
+| step | train_loss | val_mae | macro_mae | pred_mean | pred_std |
+|-----:|-----------:|--------:|----------:|----------:|---------:|
+|  1000 | 1.71 | 1.148 | 1.437 | 10.072 | 0.995 |
+|  7000 | 0.72 | 0.955 | 1.131 | 10.604 | 1.125 |
+| 15000 | 0.52 | 0.938 | 1.085 | 10.713 | 1.160 |
+| 30000 | 0.31 | 0.889 | 1.170 | 10.593 | 1.091 |
+
+**macro_mae trajectory (eval-every-1000 noise visible).** From step 7k
+through 30k, macro_mae oscillates in [1.02, 1.17] with **no descent**
+— the final value (1.17) is *higher* than the 7k value (1.13). Train
+loss in the same window falls 0.72 → 0.31 (2.3× reduction). This is
+a classic train-val gap: model is fitting train-distribution structure
+the val set doesn't share.
+
+**Per-depth MAE trajectory** (val subset has depths 3–13 only — see
+"What we haven't verified"):
+
+| depth | step 1k | step 7k | step 15k | step 30k | pattern |
+|------:|--------:|--------:|---------:|---------:|---------|
+| 3 | 0.43 | 1.06 | 1.40 | **2.04** | ✗ getting worse 4.7× over training |
+| 4 | 0.56 | 0.59 | 0.60 | 0.69 | drift up, mild |
+| 5 | 1.92 | 1.47 | 1.06 | 1.68 | improves then regresses |
+| 6 | 2.03 | 0.95 | 0.98 | 1.01 | improves then plateau |
+| 7 | 1.92 | 1.33 | 1.37 | 1.14 | slow improve |
+| 8 | 1.54 | 1.32 | 1.15 | 1.12 | slow improve |
+| 9 | 1.13 | 1.32 | 1.24 | 1.14 | flat |
+| 10 | 0.72 | 0.98 | 0.99 | 0.85 | volatile, no clear trend |
+| 11 (modal) | 0.92 | 0.72 | 0.76 | 0.70 | best; slow improve |
+| 12 | 1.78 | 1.02 | 0.93 | 1.04 | improves then plateau |
+| 13 | 2.87 | 1.69 | 1.46 | 1.47 | improves then plateau |
+
+**Depth 3 is the smoking gun.** 0.43 at step 1k → 2.04 at step 30k
+— the model gets *worse* at depth 3 over training. Depth 3 has 102
+train states; under depth-balanced sampling with batch 1024 and 15
+buckets, each step draws ~68 with-replacement samples from those 102
+states. Over 30k steps that's ~2M gradient examples against 102
+unique inputs.
+
+**Bulk depths (10, 11) show modest improvement.** Modal depth 11
+goes from 0.92 → 0.70. Depth 10 drifts but ends marginally better.
+
+**Pred std drifted slightly down** (1.16 at step 7k → 1.09 at step
+30k) — model is *narrowing* its prediction range slightly, opposite
+to what's needed.
+
+**Train loss kept falling**: 1.71 → 0.72 → 0.31. Continued descent
+through all 30k steps suggests the model has more capacity to fit
+the training distribution; what it's fitting just doesn't transfer.
+
+### Hypotheses
+
+**H4 (FALSIFIED at this sampler implementation).** The earlier H4
+predicted macro_mae < 0.5 at 30k. Empirically macro_mae **plateaus
+around 1.10** with no descent; depth 3 *worsens* over training; train
+loss keeps falling. Depth-balanced sampling is necessary (it broke
+the uniform-sampling collapse — pred_std jumped from 0.35 to 1.15)
+but **not sufficient** at the current with-replacement-from-bucket
+implementation.
+
+*Confidence:* HIGH. Single-cell, single-seed, but the falsification
+mechanism (per-depth MAE for depth 3 going 0.43 → 2.04 while train
+loss continues falling) is unambiguous overfitting and explains the
+plateau directly.
+
+**H5 (NEW, HIGH confidence): The with-replacement sampler causes
+tail-bucket overfit.** Sampling ~68 examples per step from 102 unique
+states (depth 3) means the model trains to memorize those 102 states.
+By step 30k it has seen ~2M gradient updates on them. The
+depth-balanced sampler intended "give equal gradient signal per
+depth"; what it actually gives is "memorize each tail bucket
+independently." Depth 11 has 1.08M train states (modal) so it's still
+seeing fresh examples per batch — that's why the modal depth keeps
+improving while tails regress.
+
+*Supporting evidence:* (a) depth 3 (102 train states) regresses 4.7×
+over training while depth 11 (1.08M train states) improves; (b)
+train loss keeps falling while val plateaus — train fits the
+oversampled tails, val tests on held-out tail states; (c) all the
+"easy" tail depths (3, 4, 5) have either flat or upward trajectories
+in their per-depth MAE.
+
+*Verification:* the next experiment (sampler design fix) should
+either resolve the depth-3 regression *or* falsify H5 if the
+regression persists.
+
+### What this means for T1c's pre-requisite
+
+T1c was gated on this run hitting macro_mae < 0.5. **Gate fails.**
+The widths-then-residuals Phase A/B sweep is *not* the right next
+move — sweeping cells with a sampler that overfits tails just
+characterizes the overfit at multiple capacities. The sampler design
+needs to be fixed first.
+
+### Open questions (proposed next experiments)
+
+The methodology says "T1 is yes/no, don't expand" — so T1c stays one
+question with a single sampler-design test. The cleanest single
+alternative to with-replacement-from-bucket is:
+
+1. **Frequency-weighted MSE under uniform sampling.** Sample uniformly
+   from the train set (so every state is seen at its natural rate —
+   no artificial repetition), but weight each sample's loss by
+   `w(d) = N / (n_buckets · freq[d])` so each depth's expected
+   gradient contribution is equalized. Mathematically related to
+   depth-balanced sampling but no with-replacement pathology — the
+   model sees the diversity of the training distribution directly.
+   `w(d=3) ≈ 1920` (huge weight, but only 102 states ever get it),
+   `w(d=11) ≈ 0.18` (tiny weight, but 1.08M states get it). Net
+   gradient per depth bucket is still equal in expectation but the
+   set of states contributing is the *full* bucket each batch, not
+   ~68 with-replacement copies.
+
+2. **Without-replacement sampling up to bucket size, with-replacement
+   past it.** Each batch draws `min(take, bucket_size)` unique
+   samples per bucket; if `take > bucket_size`, fills extras with
+   replacement. Tail buckets still see repetition (depth 3 sees each
+   state at most once per batch, then 0–1 extras), but the
+   per-batch gradient diversity is maximized. Probably less clean
+   than option 1 because depth 0 (1 state) still gets repeated.
+
+3. **Bigger train set for tail depths via data augmentation.** The
+   2x2 has 24 cube-rotation symmetries; depth 3 has 102 canonical
+   states ⇒ ~2448 raw states. Currently we deduplicate to canonical
+   form. Re-expanding to symmetric variants would 24× the depth-3
+   bucket. Adds engineering surface (data path); probably overkill
+   for what option 1 buys cheaply.
+
+**Recommendation.** Option 1 is the cleanest single-axis test of H5.
+Same cell (4096×1024 BN n=2, lr 1e-3, MSE, batch 1024), 30k steps,
+seed 0. If macro_mae descends below 0.5 (or even just below 1.0),
+H5 confirmed and T1c's widths sweep can proceed under the new
+sampler. If it plateaus near current numbers, the limit is somewhere
+deeper than sampler design — back to the drawing board.
+
+4. **Subsidiary question (cheap):** re-evaluate the existing 7k cells
+   using the new `_eval_val` function (loads checkpoint, recomputes
+   macro_mae + per_depth_mae). Don't need to retrain — just need an
+   analyze-existing-runs script. Adds the macro-MAE column to the
+   prior comparison table. This is essentially free and worth doing
+   in parallel with experiment 1.
+
+### What we haven't verified
+
+- **Val eval set contains only depths 3–13.** The 10k-state random
+  subset of val (which is itself a random 20% of V*) ended up with
+  zero examples of depths 0, 1, 2, 14 — they're rare enough that the
+  random sample missed them. Macro-MAE is averaged over the 11
+  depths actually present, not all 15. Future T1c runs should
+  switch to a depth-stratified val subset (the methodology's
+  long-flagged `eval_set.npz` from the pre-tier deliverable section)
+  so macro-MAE is computed over a fixed, depth-complete set. Listed
+  as the methodology pre-tier deliverable but never landed; this is
+  an open methodology debt.
+- Single seed (seed 0). The depth-3 regression is strong enough that
+  seed-noise won't reverse it, but the *exact* trajectory shape
+  could shift.
+- We did not run the val-set checkpoint reload to compare against
+  Phase A's val_mae plateau under the new metric — the
+  retroactive-comparison follow-up (open question 4) hasn't run
+  yet.
+- We did not check whether depth 3's regression is also visible in
+  *train* per-depth MAE (would tell us "model fits train depth-3
+  perfectly but val depth-3 is held-out" vs "model can't fit train
+  depth-3 either"). Cheap follow-up if challenged.
+

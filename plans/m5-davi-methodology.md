@@ -32,54 +32,67 @@ Question: *what's the per-step wall-time at various (batch_size, network_shape) 
 
 Output: `experiments/davi-2x2/calibrate_step_time.py` + a step-time grid in `results.md`. Sets the wall-time budget for sizing later tiers.
 
-### T1 — capacity floor (supervised V* regression)
+### T1 — what does the network need to fit V*?
 
-**Question.** What's the minimum `(h1, h2)` body width — and how many (if any) residual blocks at that width — needed to fit V* on the 2x2 to val-MAE < 0.5 with direct supervised regression?
+**Original framing assumed gradient signal would exist and capacity was the first question.** The autonomous investigation (`experiments/davi-2x2/t1-capacity/intuition.md`, commits `6337396` → `72ce969`) showed gradient signal *itself* is the upstream blocker: V\*'s peaked depth distribution (83% of states at depths 10–12, 0.05% at 0–4) under uniform-with-replacement sampling collapses every cell tested (capacity 23×, normalization {bn,none}, residual depth, LR, loss formulation, training-set size 1k→2.94M) to predict-the-mean. Depth-balanced sampling escapes the trap immediately. So T1 splits into three questions that must land in order:
 
-**Why.** Decouples capacity from training dynamics. If the smallest sufficient network is known, then any failure of DAVI with that network is a *training-dynamics* problem, not a *capacity* problem — that separation is leverage for every later tier.
+#### T1a — sampling [DONE]
 
-**Two phases — widths first, residuals second.** Bundling width and residual-block count into one grid confounds two questions: "is the network wide enough to fit V*?" and "do residual blocks earn their keep at sufficient width?" These are separable; we keep them separate.
+**Q.** Does depth-balanced sampling (with-replacement, ~equal samples per depth bucket per batch) produce per-depth predictions that track ground truth across 0–14?
 
-#### Phase A — width sweep (fix `n_residual_blocks=0`, vary widths)
+**A.** Yes — at `(4096, 1024)` n=2 BN, batch 1024, 7k steps, pred_std jumped 0.35 → 1.13 (target 1.16). Per-depth predictions track truth (depth 3 → 4.06, depth 13 → 11.32). BN/no-BN are near-equivalent under this sampler; LR and loss-formulation are not bottlenecks. Logged in `t1-capacity/intuition.md` §"BN ablation + autonomous investigation".
+
+**Caveat carried into T1c.** With-replacement sampling on tiny tail buckets (depth 0 has 1 train state, depth 1 has 9) means the model sees ~68 repeats of the same 1–9 states per batch. Whether this overfits the tails at longer budgets is the first thing to verify (next experiment: 30k step `dbal_4096x1024_n2`).
+
+#### T1b — evaluation metric [DONE]
+
+**Q.** Under depth-balanced sampling, uniformly-weighted val-MAE rewards the bulk-collapse strategy T1a deliberately walks away from (val is bulk-dominated by construction — same V\* distribution as train). What's the right metric?
+
+**A.** **Macro-MAE = uniform mean across per-depth MAEs.** Treats each depth equally regardless of frequency in val. A model that predicts 11 for everything gets macro-MAE ~3.7 (penalized for the tails it's wrong on) where uniform val-MAE is ~0.93 (rewarded by bulk overlap). Implemented additively in `supervised.py`'s `_eval_val_mae` — uniform val-MAE stays in metrics for backward comparability; per-depth-MAE table also logged so the per-depth picture isn't reduced to one number.
+
+**Cross-experiment retroactive comparison.** macro-MAE is a function of `(preds, val_depths)`, not of training. Phase A and earlier cells can be re-evaluated by reloading checkpoints and recomputing on the same val set. Cheap follow-up; not load-bearing for T1c.
+
+#### T1c — capacity floor under fixed sampling + metric [OPEN]
+
+**Q.** Now that gradient signal flows uniformly across depths and the metric isn't gameable by bulk-collapse, what's the smallest network that hits **macro-MAE < 0.5**?
+
+**Pre-requisite.** The 30k-step `dbal_4096x1024_n2` run must drive macro-MAE below 0.5. H4 predicts this. If macro-MAE plateaus above 0.5 instead, the with-replacement-on-tiny-buckets caveat from T1a needs investigation (likely candidates: floor-cap on bucket repetition; weighted loss instead of resampling; oversample-without-replacement up to bucket size, then with-replacement past it) before sweeping cells.
+
+**Method (assumes pre-requisite holds).** The original widths-then-residuals two-phase plan moves here verbatim — only the closing metric (macro-MAE < 0.5 vs val-MAE < 0.5) and the sampler (`depth_balanced` not `uniform`) change. Bundling width and residual-block count would confound two separable questions ("is the body wide enough?" and "do residuals earn their keep at sufficient width?"); we keep them separate.
+
+##### Phase A — width sweep (fix `n_residual_blocks=0`, vary widths)
 
 Walk down from "embarrassingly large" to "near input dim." All cells use plain MLP body — no residuals. The only first-principles floor on `h1` is `h1 ≥ input_dim = 144` (otherwise the first projection compresses information). Cells:
 
 | h1 × h2     | h1/input | role |
 |-------------|---------:|------|
 | 8192 × 2048 |     56.9× | "should clearly succeed" — anchor from above |
-| 4096 × 1024 |     28.4× | half the anchor |
+| 4096 × 1024 |     28.4× | half the anchor (T1a verified at n=2) |
 | 2048 × 1024 |     14.2× | quarter, h2 unchanged from previous |
 | 2048 × 512  |     14.2× | h1 fixed, half h2 — does h2 matter at fixed h1? |
 | 1024 × 512  |      7.1× | smaller still |
 | 512 × 256   |      3.6× | smallest "meaningfully wider than input" |
 
-All at `n_residual_blocks=0`, batch 1024, fixed seed, 7000 steps, LR 1e-3 (placeholder — T1 isn't tuning LR, just reading capacity). Top-end widths verified against T0 calibration data before commit (extrapolation from T0's `(5000, 1000) × 4 blocks` measured grid).
+All at `n_residual_blocks=0`, `sampler: depth_balanced`, `normalization: bn` (T1a result: BN slightly helpful under this sampler), batch 1024, fixed seed, step count = whatever the 30k pre-requisite established as "sufficient for convergence at the anchor" (likely 30k unless the 30k run still shows a falling curve at the end). LR 1e-3 (T1a result: not a bottleneck). Top-end widths verified against T0 step-time data before commit.
 
-**Phase A closing condition.** Pick the smallest cell with `val_mae < 0.5`. Call it `(h1*, h2*)`. If multiple cells succeed, smallest one is the answer. If only the top cell succeeds, that's the answer (and Phase B operates there). If nothing succeeds at `(8192, 2048)`, the failure isn't capacity — it's optimization, batch-norm, eval-loop, or data — and we stop and debug instead of going to Phase B.
+**Phase A closing condition.** Pick the smallest cell with `macro_mae < 0.5`. Call it `(h1*, h2*)`. If multiple cells succeed, smallest one is the answer. If only the top cell succeeds, that's the answer (and Phase B operates there). If nothing succeeds at `(8192, 2048)`, the failure isn't capacity — and the methodology has *another* upstream miss to find (it would mean T1a's sampler buys depth-coverage but not enough fitting power; investigate before extending Phase B).
 
-#### Phase B — residual sweep (fix widths at `(h1*, h2*)`, vary residual count)
+##### Phase B — residual sweep (fix widths at `(h1*, h2*)`, vary residual count)
 
-Only runs if Phase A found a passing cell. The question: *do residual blocks at the chosen width buy us anything for plain supervised V* regression?* Cells:
+Only runs if Phase A found a passing cell. The question: *do residual blocks at the chosen width buy us anything for supervised V\* regression under depth-balanced sampling?* Cells: `n_residual_blocks ∈ {0 (reused from Phase A), 1, 2, 4}`. Three new runs at same batch/seed/steps/LR/sampler/normalization as Phase A.
 
-| h1* × h2* | n_residual_blocks | role |
-|-----------|-------------------|------|
-| h1* × h2* | 0 | already done in Phase A — reused |
-| h1* × h2* | 1 | one block |
-| h1* × h2* | 2 | two blocks |
-| h1* × h2* | 4 | four blocks (geometric spread, not because anyone published this) |
-
-All same batch/seed/steps/LR as Phase A. Three new runs.
-
-**Phase B closing condition.** If `val_mae` flat across all four `n` values, residual blocks do nothing for this problem and **we ship `n=0`** — the simplest model that works. If `val_mae` improves with `n`, ship the smallest `n` that captures most of the gain (knee-of-curve). Either way, the answer to T1 is now a specific `(h1*, h2*, n*)` tuple.
+**Phase B closing condition.** If macro-MAE flat across all four `n`, residual blocks do nothing here and **we ship `n=0`** — the simplest model that works. If macro-MAE improves with `n`, ship the smallest `n` capturing most of the gain. The answer to T1 is now `(h1*, h2*, n*)` plus the closed-form choices `sampler*=depth_balanced`, `normalization*=bn`.
 
 #### T1 outputs
 
-- `experiments/davi-2x2/t1-capacity/supervised.py` — thin trainer (no DAVI, MSE loss, Adam). Reuses `ValueNet` unchanged.
-- Training data sampled uniformly from the 3.67M canonical V* keys, seed-pinned 80/20 train/val split — held-out val ≠ the depth-stratified eval set, since this tier is asking a capacity question and depth-stratification could mask it.
-- Per-cell `runs/<cell>/log.jsonl` via `MetricLogger`.
-- `results.md` with both phases' tables + a Pareto-style frontier plot.
-- `_picks.json` with the chosen `(h1*, h2*, n*)` tuple — call this the **T1 architecture**. Cache the next size up too as the **T1 comfortable** for tiers that need headroom.
-- `intuition.md`: did widths scale how we expected? Did residuals help (Phase B)? Where exactly is the floor?
+- T1a closed: `experiments/davi-2x2/t1-capacity/intuition.md` §"BN ablation + autonomous investigation". Sampler toggle in `src/rubik/training/...` and `supervised.py`.
+- T1b closed: macro-MAE + per-depth-MAE in `supervised.py`'s `_eval_val_mae`. `metrics.jsonl` schema gains `macro_mae` (float) and `per_depth_mae` (dict-of-float keyed by depth) on `event:"eval"`. Uniform val-MAE retained.
+- T1c outputs (pending verification + sweep):
+  - `experiments/davi-2x2/t1-capacity/supervised.py` — thin trainer (no DAVI, configurable loss/sampler/normalization, Adam). Reuses `ValueNet` unchanged.
+  - Per-cell `runs/<cell>/metrics.jsonl` via `MetricLogger`.
+  - `results.md` with both phases' tables (macro-MAE) + a Pareto-style frontier plot.
+  - `_picks.json` with `(h1*, h2*, n*, sampler*, normalization*)` tuple — the **T1 architecture**. Cache the next size up too as **T1 comfortable** for downstream tiers.
+  - `intuition.md`: did widths scale how we expected under depth-balanced? Did residuals help (Phase B)? Where exactly is the floor?
 
 ### T2 — LR range test
 

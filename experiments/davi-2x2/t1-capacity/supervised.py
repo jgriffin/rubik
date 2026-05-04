@@ -142,33 +142,55 @@ def _resolve_out_dir(arg: Path | None, config_stem: str) -> Path:
     return DEFAULT_RUNS_DIR / f"{ts}_{config_stem}"
 
 
-def _eval_val_mae(
+def _eval_val(
     net: torch.nn.Module,
     val_states: torch.Tensor,
     val_depths: torch.Tensor,
     batch_size: int,
-) -> tuple[float, float, float]:
-    """Compute val MAE plus prediction mean/std on the val set.
+) -> dict:
+    """Eval on the val set: val MAE, macro-MAE, per-depth MAE, pred mean/std.
 
-    Returns ``(val_mae, pred_mean, pred_std)``. Prediction-distribution
-    stats let us see mean-collapse compression (Phase A: pred_std ≈ 0.79
-    against target std 1.16) directly from metrics.jsonl.
+    Returns a dict with keys ``val_mae`` (uniform mean over states),
+    ``macro_mae`` (uniform mean across per-depth MAEs — depth-distribution
+    invariant), ``per_depth_mae`` (dict[int, float]), ``pred_mean``,
+    ``pred_std``. macro-MAE is the metric T1b chose: under depth-balanced
+    sampling the val set is still bulk-dominated (V*'s peaked depth
+    distribution), so uniform val_mae rewards predict-the-mean — macro-MAE
+    treats each depth equally and can't be gamed that way.
     """
     net.eval()
-    total_abs = 0.0
     pred_chunks: list[torch.Tensor] = []
     n = val_states.shape[0]
     with torch.no_grad():
         for start in range(0, n, batch_size):
             end = min(start + batch_size, n)
             preds = net(val_states[start:end])
-            total_abs += (preds - val_depths[start:end]).abs().sum().item()
             pred_chunks.append(preds.detach().cpu())
     net.train()
+
     all_preds = torch.cat(pred_chunks)
+    val_depths_cpu = val_depths.detach().cpu()
+    abs_errors = (all_preds - val_depths_cpu).abs()
+
+    val_mae = float(abs_errors.mean().item())
     pred_mean = float(all_preds.mean().item())
     pred_std = float(all_preds.std(unbiased=False).item())
-    return total_abs / n, pred_mean, pred_std
+
+    # Per-depth MAE — group abs errors by depth label, then average.
+    depth_ints = val_depths_cpu.to(torch.int64)
+    per_depth_mae: dict[int, float] = {}
+    for d in torch.unique(depth_ints).tolist():
+        mask = depth_ints == d
+        per_depth_mae[int(d)] = float(abs_errors[mask].mean().item())
+    macro_mae = float(sum(per_depth_mae.values()) / len(per_depth_mae))
+
+    return {
+        "val_mae": val_mae,
+        "macro_mae": macro_mae,
+        "per_depth_mae": per_depth_mae,
+        "pred_mean": pred_mean,
+        "pred_std": pred_std,
+    }
 
 
 def main() -> None:
@@ -331,50 +353,43 @@ def main() -> None:
                 )
 
             if config.eval_every and step % config.eval_every == 0:
-                val_mae, pred_mean, pred_std = _eval_val_mae(
+                metrics = _eval_val(
                     net, val_states, val_depths, config.batch_size
                 )
-                logger.log(
-                    event="eval",
-                    step=step,
-                    val_mae=val_mae,
-                    pred_mean=pred_mean,
-                    pred_std=pred_std,
-                )
+                logger.log(event="eval", step=step, **metrics)
                 print(
                     f"step {step:>5d}/{config.n_steps}  "
                     f"loss {loss.item():.4f}  "
-                    f"val_mae {val_mae:.4f}  "
-                    f"pred_mean {pred_mean:.3f}  pred_std {pred_std:.3f}  "
+                    f"val_mae {metrics['val_mae']:.4f}  "
+                    f"macro_mae {metrics['macro_mae']:.4f}  "
+                    f"pred_mean {metrics['pred_mean']:.3f}  "
+                    f"pred_std {metrics['pred_std']:.3f}  "
                     f"step_ms {step_seconds * 1000:.1f}",
                     flush=True,
                 )
 
         # Final eval (always, even if eval_every is 0 or doesn't divide evenly)
-        final_val_mae, final_pred_mean, final_pred_std = _eval_val_mae(
+        final_metrics = _eval_val(
             net, val_states, val_depths, config.batch_size
         )
         logger.log(
-            event="eval",
-            step=config.n_steps,
-            val_mae=final_val_mae,
-            pred_mean=final_pred_mean,
-            pred_std=final_pred_std,
-            final=True,
+            event="eval", step=config.n_steps, final=True, **final_metrics
         )
         torch.save(net.state_dict(), out_dir / "net_final.pt")
         logger.log(
             event="run_end",
             step=config.n_steps,
-            final_val_mae=final_val_mae,
-            final_pred_mean=final_pred_mean,
-            final_pred_std=final_pred_std,
+            final_val_mae=final_metrics["val_mae"],
+            final_macro_mae=final_metrics["macro_mae"],
+            final_pred_mean=final_metrics["pred_mean"],
+            final_pred_std=final_metrics["pred_std"],
         )
 
     print()
-    print(f"final val_mae:   {final_val_mae:.4f}")
-    print(f"final pred_mean: {final_pred_mean:.4f}")
-    print(f"final pred_std:  {final_pred_std:.4f}")
+    print(f"final val_mae:   {final_metrics['val_mae']:.4f}")
+    print(f"final macro_mae: {final_metrics['macro_mae']:.4f}")
+    print(f"final pred_mean: {final_metrics['pred_mean']:.4f}")
+    print(f"final pred_std:  {final_metrics['pred_std']:.4f}")
     metrics_path = out_dir / "metrics.jsonl"
     try:
         metrics_display = metrics_path.relative_to(REPO_ROOT)
