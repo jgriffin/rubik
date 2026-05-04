@@ -46,6 +46,9 @@ V_STAR_CACHE = REPO_ROOT / "data" / "v_star_2x2.npz"
 DEFAULT_RUNS_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "runs"
 
 
+_VALID_LOSSES = ("mse", "l1")
+
+
 @dataclass(frozen=True)
 class MemorizeConfig:
     """Config for the memorize-1k sanity check. Every field required."""
@@ -58,6 +61,7 @@ class MemorizeConfig:
     batch_size: int  # set equal to subset_size for full-batch
     n_steps: int
     learning_rate: float
+    loss: str  # "mse" or "l1"; chosen at config time, no default
 
     # Subset construction
     subset_size: int  # how many states to memorize (default 1000)
@@ -75,6 +79,12 @@ class MemorizeConfig:
 
     # Pass criterion
     pass_train_mse: float  # train MSE at or below this counts as memorized
+
+    def __post_init__(self) -> None:
+        if self.loss not in _VALID_LOSSES:
+            raise ValueError(
+                f"loss must be one of {_VALID_LOSSES!r}, got {self.loss!r}"
+            )
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -250,11 +260,14 @@ def main() -> None:
     print(f"device:     {device}")
     print(f"n_params:   {n_params / 1e6:.2f}M")
     print(f"body:       {config.body_widths}, n_res={config.n_residual_blocks}")
+    print(f"loss:       {config.loss}")
     print(f"subset:     {config.subset_size} states, seed {config.subset_seed}")
     print(f"  quotas:   {quota_str}")
     print(f"steps:      {config.n_steps}, lr {config.learning_rate}, full-batch")
     print(f"pass when:  train_mse <= {config.pass_train_mse}")
     print()
+
+    loss_fn = F.mse_loss if config.loss == "mse" else F.l1_loss
 
     pass_step: int | None = None
     final_train_mse = float("nan")
@@ -271,6 +284,7 @@ def main() -> None:
             learning_rate=config.learning_rate,
             body_widths=list(config.body_widths),
             n_residual_blocks=config.n_residual_blocks,
+            loss=config.loss,
             pass_train_mse=config.pass_train_mse,
         )
 
@@ -296,8 +310,13 @@ def main() -> None:
             t0 = time.perf_counter()
 
             preds = net(subset_states)
-            loss = F.mse_loss(preds, subset_targets)
-            mae = (preds - subset_targets).abs().mean()
+            loss = loss_fn(preds, subset_targets)
+            # Always compute MSE for the pass criterion, regardless of which
+            # loss the gradient followed.
+            with torch.no_grad():
+                err = preds - subset_targets
+                train_mse_t = (err * err).mean()
+                train_mae_t = err.abs().mean()
 
             optimizer.zero_grad()
             loss.backward()
@@ -305,8 +324,8 @@ def main() -> None:
 
             step_seconds = time.perf_counter() - t0
 
-            train_mse = loss.item()
-            train_mae = mae.item()
+            train_mse = train_mse_t.item()
+            train_mae = train_mae_t.item()
 
             if pass_step is None and train_mse <= config.pass_train_mse:
                 pass_step = step

@@ -5,7 +5,8 @@ fit V* on the 2x2 to val-MAE < 0.5? It does **not** ask about DAVI
 dynamics. So this trainer bypasses DAVI entirely — it loads the cached
 V* table (`data/v_star_2x2.npz`, 3.67M canonical states with their
 optimal cost-to-go), seed-deterministically splits 80/20 into train/val,
-and trains a `ValueNet` with plain MSE against the V* labels.
+and trains a `ValueNet` against the V* labels with the loss configured
+in YAML (``loss: mse`` or ``loss: l1``).
 
 If a config can't fit V* with direct supervision, capacity is the
 bottleneck — no training-dynamics fix would help. That separation is
@@ -44,6 +45,9 @@ V_STAR_CACHE = REPO_ROOT / "data" / "v_star_2x2.npz"
 DEFAULT_RUNS_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "runs"
 
 
+_VALID_LOSSES = ("mse", "l1")
+
+
 @dataclass(frozen=True)
 class SupervisedConfig:
     """Config for T1 supervised V* regression. Every field required."""
@@ -56,6 +60,7 @@ class SupervisedConfig:
     batch_size: int
     n_steps: int
     learning_rate: float
+    loss: str  # "mse" or "l1"; chosen at config time, no default
 
     # Reproducibility / device
     seed: int
@@ -66,6 +71,12 @@ class SupervisedConfig:
     eval_every: int  # eval val MAE every N steps (0 = end only)
     eval_n_states: int  # cap val eval set to this many states (random subset)
     log_every: int
+
+    def __post_init__(self) -> None:
+        if self.loss not in _VALID_LOSSES:
+            raise ValueError(
+                f"loss must be one of {_VALID_LOSSES!r}, got {self.loss!r}"
+            )
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -123,18 +134,28 @@ def _eval_val_mae(
     val_states: torch.Tensor,
     val_depths: torch.Tensor,
     batch_size: int,
-) -> float:
-    """Compute mean absolute error of net predictions vs V* on the val set."""
+) -> tuple[float, float, float]:
+    """Compute val MAE plus prediction mean/std on the val set.
+
+    Returns ``(val_mae, pred_mean, pred_std)``. Prediction-distribution
+    stats let us see mean-collapse compression (Phase A: pred_std ≈ 0.79
+    against target std 1.16) directly from metrics.jsonl.
+    """
     net.eval()
     total_abs = 0.0
+    pred_chunks: list[torch.Tensor] = []
     n = val_states.shape[0]
     with torch.no_grad():
         for start in range(0, n, batch_size):
             end = min(start + batch_size, n)
             preds = net(val_states[start:end])
             total_abs += (preds - val_depths[start:end]).abs().sum().item()
+            pred_chunks.append(preds.detach().cpu())
     net.train()
-    return total_abs / n
+    all_preds = torch.cat(pred_chunks)
+    pred_mean = float(all_preds.mean().item())
+    pred_std = float(all_preds.std(unbiased=False).item())
+    return total_abs / n, pred_mean, pred_std
 
 
 def main() -> None:
@@ -190,12 +211,15 @@ def main() -> None:
     print(f"device:     {device}")
     print(f"n_params:   {n_params / 1e6:.2f}M")
     print(f"body:       {config.body_widths}, n_res={config.n_residual_blocks}")
+    print(f"loss:       {config.loss}")
     print(
         f"train/val:  {train_idx.size:,} / {val_idx.size:,}  "
         f"(val eval: {val_eval_idx.size:,})"
     )
     print(f"steps:      {config.n_steps}")
     print()
+
+    loss_fn = F.mse_loss if config.loss == "mse" else F.l1_loss
 
     # Sampler RNG — seed pinned by config.seed (independent of split_seed)
     sample_gen = torch.Generator(device="cpu").manual_seed(config.seed)
@@ -210,6 +234,7 @@ def main() -> None:
             n_val_eval=int(val_eval_idx.size),
             body_widths=list(config.body_widths),
             n_residual_blocks=config.n_residual_blocks,
+            loss=config.loss,
         )
 
         for step in range(1, config.n_steps + 1):
@@ -225,7 +250,7 @@ def main() -> None:
             batch_targets = depths_dev[batch_idx]
 
             preds = net(batch_states)
-            loss = F.mse_loss(preds, batch_targets)
+            loss = loss_fn(preds, batch_targets)
 
             optimizer.zero_grad()
             loss.backward()
@@ -242,24 +267,50 @@ def main() -> None:
                 )
 
             if config.eval_every and step % config.eval_every == 0:
-                val_mae = _eval_val_mae(net, val_states, val_depths, config.batch_size)
-                logger.log(event="eval", step=step, val_mae=val_mae)
+                val_mae, pred_mean, pred_std = _eval_val_mae(
+                    net, val_states, val_depths, config.batch_size
+                )
+                logger.log(
+                    event="eval",
+                    step=step,
+                    val_mae=val_mae,
+                    pred_mean=pred_mean,
+                    pred_std=pred_std,
+                )
                 print(
                     f"step {step:>5d}/{config.n_steps}  "
                     f"loss {loss.item():.4f}  "
                     f"val_mae {val_mae:.4f}  "
+                    f"pred_mean {pred_mean:.3f}  pred_std {pred_std:.3f}  "
                     f"step_ms {step_seconds * 1000:.1f}",
                     flush=True,
                 )
 
         # Final eval (always, even if eval_every is 0 or doesn't divide evenly)
-        final_val_mae = _eval_val_mae(net, val_states, val_depths, config.batch_size)
-        logger.log(event="eval", step=config.n_steps, val_mae=final_val_mae, final=True)
+        final_val_mae, final_pred_mean, final_pred_std = _eval_val_mae(
+            net, val_states, val_depths, config.batch_size
+        )
+        logger.log(
+            event="eval",
+            step=config.n_steps,
+            val_mae=final_val_mae,
+            pred_mean=final_pred_mean,
+            pred_std=final_pred_std,
+            final=True,
+        )
         torch.save(net.state_dict(), out_dir / "net_final.pt")
-        logger.log(event="run_end", step=config.n_steps, final_val_mae=final_val_mae)
+        logger.log(
+            event="run_end",
+            step=config.n_steps,
+            final_val_mae=final_val_mae,
+            final_pred_mean=final_pred_mean,
+            final_pred_std=final_pred_std,
+        )
 
     print()
-    print(f"final val_mae: {final_val_mae:.4f}")
+    print(f"final val_mae:   {final_val_mae:.4f}")
+    print(f"final pred_mean: {final_pred_mean:.4f}")
+    print(f"final pred_std:  {final_pred_std:.4f}")
     metrics_path = out_dir / "metrics.jsonl"
     try:
         metrics_display = metrics_path.relative_to(REPO_ROOT)

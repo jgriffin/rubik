@@ -241,3 +241,104 @@ mean-collapse trap) remains the leading hypothesis and the L1-loss
 verification (open question 1) is the right next experiment.
 
 **Open questions** unchanged — go run the L1 loss experiment next.
+
+## L1-loss diagnostic (2026-05-04)
+
+Open question 1 from above: does swapping MSE → L1 break out of the
+~0.90 plateau? Two cells, matched-everything-else against
+`phaseA_3_2048x512` and the cold-handoff n=2 cell:
+
+| cell | loss | n_res | val_mae | pred_mean | pred_std |
+|------|------|------:|--------:|----------:|---------:|
+| `phaseA_3_2048x512` (MSE baseline) | mse | 0 | 0.8979 | (~10.66) | 0.79 (probe) |
+| `l1_2048x512_n0` | l1 | 0 | **0.8819** | 10.82 | 0.19 |
+| `l1_2048x512_n2` | l1 | 2 | **0.8667** | 10.86 | 0.25 |
+
+**Constant-predictor baselines on V\*:**
+- predict-the-mean MAE = 0.9286 (MSE-optimal constant)
+- **predict-the-median MAE = 0.8583** (L1-optimal constant; median = 11)
+
+**Observations.**
+
+- L1 cells land at 0.88 and 0.87 — barely above predict-the-median's
+  0.8583. They are **0.026 / 0.008** above L1's no-information floor.
+  Compare: MSE Phase A's `phaseA_3` was 0.030 above MSE's
+  predict-the-mean floor (0.8979 vs 0.9286). Both losses sit a similar
+  small distance above their respective constant-predictor baseline.
+- Prediction std collapsed **further** under L1 (0.19, 0.25) than under
+  MSE (Phase A diagnostic 3 measured 0.79 on the 30k+3e-3 large run; the
+  matched-budget MSE n=0 wasn't probed for std but train-loss curves
+  imply similar compression). pred_mean sits at 10.82–10.86 — within
+  0.15 of the median (11), not the mean (10.67). The model is
+  **collapsing toward the L1-optimal constant**, just as MSE collapsed
+  toward the mean.
+- Residuals (n=0 → n=2) move val_mae from 0.8819 to 0.8667 (-0.015),
+  similar in size to the MSE-side residuals delta (Phase A n=0 0.90 →
+  n=2 0.87 in diagnostic 2, ~-0.03). Adding depth helps a little under
+  both losses; it is not loss-dominated.
+
+**Hypotheses.**
+
+**H1 (HIGH → FALSIFIED): MSE × peaked V\* depth × BN-everywhere
+mean-collapse trap.** L1 was supposed to break the plateau if MSE was
+the bottleneck. It did not. Both losses collapse to the
+loss-appropriate constant predictor and sit ~0.01-0.03 above that
+floor. The bottleneck is not "MSE is the wrong loss for this
+distribution" — it is **something more architectural**, likely the
+combination flagged in H2 (BN compresses output range) plus the
+optimization landscape near any constant-predictor baseline being
+locally flat under either loss.
+
+*Confidence on falsification: HIGH.* Same widths, n_res, lr, steps,
+seed, split — only the loss differs. Outcomes are nearly symmetric
+relative to each loss's own constant-predictor floor, with L1 if
+anything compressing predictions *more* (0.19–0.25 vs MSE's 0.79).
+
+**H2 (medium → promoted to leading): BatchNorm-before-head compresses
+output range.** With H1 falsified, H2 inherits the plateau-cause role.
+The pred_std numbers under L1 (0.19, 0.25) are dramatically smaller
+than under MSE (0.79 in the large diagnostic 3 run). That is
+loss-asymmetric in a direction H2 predicts: L1's `sign()` gradient
+gives the head no magnitude signal scaled to the residual size, so
+absent normalization-undoing layers the head cannot learn to widen
+output range. MSE at least gives the head error-magnitude signal, but
+BN before the head still bounds the body's representation magnitude.
+
+*Updated verification plan:* drop BN immediately before the projection
+layer (or replace BN with LayerNorm body-wide), keep MSE for clean
+comparison against `phaseA_3_2048x512`. Same widths/lr/steps/seed.
+If pred_std climbs significantly and val_mae drops below 0.7, H2 is
+confirmed.
+
+## Open questions (revised post-L1)
+
+1. **Does removing BN before the head fix output compression?** Now
+   the highest-leverage single experiment. `(2048, 512)` n=0, MSE,
+   matched budget, BN-stripped projection. Compare pred_std.
+2. **Is BN itself the issue, or BN-on-this-distribution?** If (1)
+   helps a lot, follow up: replace BN with LayerNorm body-wide, same
+   cell. If LN keeps the win, the issue was BN-statistics on a peaked
+   target distribution, not normalization in general.
+3. **Should T1's framing change?** Even more strongly than before —
+   T1's "capacity question" framing assumed gradient signal would let
+   capacity matter. With the loss swap not unblocking, the
+   loss/normalization choice is upstream of capacity in a way the
+   methodology didn't anticipate.
+4. **Carryover, deferred:** the LR-warmup question and the
+   median-aware sampling question remain open but lower-priority than
+   the BN-removal experiment.
+
+## What we haven't verified
+
+- We did **not** measure pred_std on `phaseA_3_2048x512` directly under
+  matched 7k-step budget — the 0.79 figure is from the *larger*
+  30k-step diagnostic 3 run. The MSE-side compressed-pred-std story
+  could be tighter (smaller std) at 7k steps; the L1 vs MSE pred_std
+  comparison should ideally rerun MSE Phase A with the std logging in
+  place. Cheap follow-up if needed.
+- The L1 runs were single-seed. The 0.015 n_res delta could be
+  seed-noise — replicate at seeds {1, 2} before treating it as signal.
+  Not load-bearing for the H1-falsified verdict, which rests on the
+  much-larger gap from the MSE plateau and from each loss's
+  constant-predictor floor.
+
