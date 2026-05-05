@@ -172,3 +172,147 @@ the single next experiment to run.
 
 This run is preserved as the baseline against which to compare H1
 (sync=100) and H2 (K_max=14).
+
+---
+
+### Cycle 2 (2026-05-05): sync rate is not the lever — plateau is structural
+
+Three follow-up runs, each warm-started from `baseline-30k/net_final.pt`
+(weights-only resume; Adam moments restart; target_net synced from net
+at init). Same architecture, same batch, same K_max, same LR, same
+sampler. The only varied axis: `target_sync_interval`.
+
+**Run summary (eval at step 7000, except sync100 which was killed at
+step ~13800 with last full eval at 13000):**
+
+| run | sync | macro_mae | pred_std | d7 | d11 | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| baseline-30k (origin) | 500 | 3.13 | 1.44 | 0.78 | 0.40 | plateau |
+| sync100-13k (killed) | 100 | 3.83 | 0.96 | 0.50 | 0.12 | regressed |
+| sync500-7k (control) | 500 | 3.16 | 1.36 | 0.84 | 0.28 | flat |
+| sync2000-7k | 2000 | 3.30 | 1.33 | 0.78 | 0.26 | flat / mild drift |
+
+**Per-step macro_mae trajectories (warm-start runs, every 1000 steps):**
+
+```
+step    1k    2k    3k    4k    5k    6k    7k
+sync100 3.16  3.13  3.48  3.50  3.55  3.54  3.72   monotone regression
+sync500 3.16  3.27  3.31  3.21  3.23  3.22  3.16   flat — round trip
+sync2000 3.14 3.14  3.18  3.17  3.22  3.21  3.30   flat with mild drift
+```
+
+#### Key observations
+
+1. **Sync rate is not the lever.** Faster sync (100) is destabilizing.
+   Same sync (500) holds steady. Slower sync (2000) is essentially
+   identical to same sync. None of the three advance the wavefront past
+   depth ~5. The hypothesis from cycle 1 — "sync_interval=500 is too
+   long, the inner-window optimizer converges fast and the gradient
+   signal drops" — is falsified across the bracket.
+
+2. **The plateau is genuine, not "needed more steps."** sync500-7k is
+   the cleanest possible control: identical config to baseline-30k,
+   warm-started from its converged state. After 7k more steps,
+   macro_mae returns to 3.16 (within noise of the warm-start origin
+   3.13), pred_std oscillates 1.30–1.50, deep-depth solve rates wobble
+   within sample variance. The model has converged to a stable
+   fixed-point distribution where additional optimization at the same
+   config produces no new structure.
+
+3. **sync100 actively regresses, doesn't just plateau.** macro_mae
+   drifted 3.13 → 3.83 over 13k steps; pred_std collapsed
+   1.44 → 0.96 (predictions compressing back toward the mean);
+   solve rates fell across the board. Faster sync from a *converged*
+   warm-start state destabilizes — V_target chases V_θ before V_θ has
+   stabilized, V_θ then overshoots back toward V_target's new
+   position, the inner-window gradient is noise-dominated, dynamic
+   range collapses. (Confounded with the Adam-fresh handoff at warm-start
+   init, but the regression continues monotonically across 13k steps —
+   well past where Adam moments would have re-warmed up.)
+
+4. **GPU saturation answer (from macmon probe during sync100-13k at
+   step 5000):** B=4096 sustains **96% GPU busy / 47W / 76°C**. M4's
+   `apply_moves` saturation onset was located between B=4096 and
+   B=32768. We're already past the knee. **Wider batch is not a
+   throughput lever** — at most ~4% headroom, likely less in practice.
+
+#### Why the plateau is structural
+
+The wavefront stalls because of a self-reinforcing fixed-point in the
+data distribution × bootstrap dynamics:
+
+- Random walks of depth ∈ [1, K_max=18] generate the training batch.
+  The state distribution is heavily skewed toward deeper (BFS frontier
+  grows ~7× per depth on the 2x2; depths 11–14 dominate the corpus).
+  Deep-depth states get most of the gradient updates per batch.
+- For a state at true depth 11, the Bellman target is
+  `min_a (1 + V_target(child))`. The child is at true depth 10, 12, or
+  back-tracking. V_target(child) is whatever V_θ predicts there — and
+  V_θ at depth 11 is currently ~5. So the target for a depth-11 state
+  is ~6. Optimizer moves V_θ(depth-11) toward 6.
+- Same logic for depth-10 children: target is ~6 from V_θ(depth-9)
+  which is ~5 → target 6, V_θ(depth-10) moves toward 6.
+- Result: V_θ(d) → ~5 for all d ≥ 5, regardless of true depth. The
+  net is *self-consistently wrong* in the bulk. Train loss is low
+  (V_θ ≈ V_target ≈ 1 + V_target(child) on the optimal child path
+  — locally consistent) but macro-MAE is flat at ~3 (globally wrong).
+- Sync rate doesn't break this fixed-point — only the data
+  distribution or the curriculum can. A faster sync just chases the
+  same fixed-point faster; a slower sync leaves it equally stable.
+
+#### Recommendations (ordered by predicted info gain)
+
+The lever is on the **data side**, not the optimizer side.
+
+**1. Audit the actual training-batch state distribution (cheap, ~10 min).**
+What does `generate_adi_batch` actually produce? Are depths 1–14 evenly
+sampled (per-depth slice in scrambles.py implies yes), or does the
+random-walk-revisits-shallow effect collapse the effective depth
+distribution? Instrument `generate_adi_batch` to log a depth histogram
+on a few sample batches before designing the next training run. If
+deep depths are under-represented in *trained* batches (vs the *target*
+slicing), depth-balance sampling is the obvious next axis. If deep
+depths are over-represented but the V_target signal there is junk,
+curriculum is the obvious next axis.
+
+**2. K_max=14 (warm-start, 7k steps, ~25 min).** Trim training distribution
+to ≤ QTM diameter. States past depth 14 don't exist (the cube has 14
+QTM diameter; depth-15 random walks visit some depth ≤ 14 state with a
+detour). Currently 22% of each batch is at K_max ∈ [15, 18] and
+bootstraps through inflated shallow V_target. Cleaning this up tests
+whether the past-diameter pollution matters — H2 from cycle 1, never
+verified. Falsifiable in either direction.
+
+**3. Curriculum scheduling (fresh-start, ~2 hours).** Start K_max=2
+for first 5k steps (only depths 1–2; net learns V*(d=1)=1 and
+V*(d=2)=2 accurately), then ramp K_max=4, 8, 14 in stages. This
+follows DAVI dynamics — V_target(d=1) needs to be accurate before
+V_θ(d=2) can converge to 2. Standard ADI / DeepCubeA technique
+(generic, not borrowed numbers — the schedule is the question to
+explore). Costs a fresh run, but the lessons from cycles 1+2 about
+"sync rate doesn't matter" carry forward.
+
+**4. Network size: not the next move.** V*-supervised work in cycle 0
+showed (1024, 256) n=2 = ~2M params learning V* to macro_mae ~0.85
+under depth-balanced supervised regression. Capacity isn't the
+bottleneck — bootstrap dynamics are. Defer size sweep until the
+plateau breaks (then re-examine: maybe smaller works fine, maybe
+bigger gives faster convergence; either way, only meaningful once
+we know we *can* learn past depth 5).
+
+**5. More-full-training-from-scratch: not yet.** Running 100k steps
+of a config that doesn't learn past depth 5 burns compute without
+information gain. Must first find a config that breaks the plateau,
+then long-train.
+
+#### Direct answers to the asked questions
+
+- **"Should we try different sized networks?"** Not first. The
+  V*-supervised work already located the capacity floor; we're well
+  above it. The bottleneck is bootstrap fixed-point, not capacity.
+  Revisit size after a config beats the plateau.
+
+- **"Should we do more full training?"** Not at this config. The
+  sync500 control run is direct evidence — 7k extra steps from
+  converged state produces zero learning. 30k more would be 30k more
+  of the same. Need to change something other than step count first.
