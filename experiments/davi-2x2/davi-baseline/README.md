@@ -1,28 +1,98 @@
-> **PARKED 2026-05-04:** pivoted back to V*-supervised with per-depth loss weighting. DAVI infrastructure (eval.py, eval_set.npz, run.py, DAVIConfig with normalization field) retained as method-agnostic; reviving DAVI is a future M7+ phase. See `experiments/davi-2x2/v-star-weighted/`.
+# davi-baseline — first DAVI run
 
-# davi-baseline — first DAVI run after the V*-supervised pivot
+## Context
+
+This is the first end-to-end DAVI training run on the 2x2. The
+V*-supervised detour (everything that lived under `t1-capacity/` and
+`v-star-weighted/`) has been archived to branch
+`m5-davi-vstar-supervised-archived`; this directory restarts fresh on
+the actual DAVI loop. V* is the eval oracle here, never the training
+signal.
 
 ## Question
 
-Does DAVI training on the pragmatic-pick `(4096, 1024)` BN n=2 network reach M5 acceptance — `macro-MAE < 1.0` AND `greedy-solve > 99% at d ≤ 14` — in 30k steps with placeholder dynamics hyperparameters?
+Does DAVI on a comfortable network with first-try-defensible
+hyperparameters reach M5 acceptance — `macro_mae < 1.0` AND
+`greedy_solve > 99% at d ≤ 14` — in 30k steps?
+
+If yes, we have a concrete config to do the M5 close on. If no, the
+failure shape (loss diverges / wavefront stalls at low depth / value
+collapses to mean / etc.) tells us which axis to sweep first.
 
 ## What's an informed pick vs. a placeholder
 
-- **Architecture** `(4096, 1024)` BN `n_residual_blocks=2` — the comfortable network the supervised T1 ablations landed on (all uniform-sampling cells plateaued, but this size + BN had the best behaviour under depth-balanced sampling). Informed pick.
-- **`max_scramble_depth: 7`** — placeholder. Half the QTM diameter, neither trivial nor saturating. The methodology's deferred T3 was meant to sweep this. Not yet earned.
-- **`target_sync_interval: 200`** — placeholder. T3 in the methodology was supposed to sweep this jointly with curriculum depth. Not yet earned.
-- **`learning_rate: 1e-3`** — supervised T1 ablations showed `1e-3` and `3e-3` within seed noise on the matched architecture under uniform sampling. Best informed value we have for this architecture, but it has not been swept under the DAVI regime; treat as a defensible carry-over.
+- **`max_scramble_depth: 18`** — user-directed. QTM God's number on the
+  2x2 is 14 (verified empirically by the M5 V\* enumerator across all
+  3,674,160 reachable states); sampling out to 18 means the curriculum
+  reaches every depth bucket plus four extra buckets where the random
+  walk wanders past optimality. The state distribution past depth 14 is
+  drawn from the same 3.6M states as depths ≤ 14 (just via longer
+  walks), so this is harmless surplus, not extension.
+- **`body_widths: [4096, 1024]`, `n_residual_blocks: 4`,
+  `normalization: bn`** — comfortable-by-construction. Per the user's
+  steer of "I just hate to spend time on a network that's too small
+  while we're still proving things out," this lands at ~17M params
+  (input 144 → 4096 → 1024 → 4 × residual(1024,1024) → 1, body depth ~12
+  layers). The V\*-supervised work showed BN was innocent at fixed
+  sampler, even slightly helpful, so BN stays. Going wider/deeper than
+  the prior placeholder `(4096, 1024) n=2` (~9M params) is intentional
+  spare capacity for a first-pass run.
+- **`batch_size: 4096`** — first-try-defensible. User flagged 1024 felt
+  narrow. M4's batch sensitivity sweep found `apply_moves` saturation
+  onset at B=4096–32768; at B=4096 we're at the start of the saturation
+  knee, well into pipelined-throughput territory. 4× the prior
+  placeholder. Not yet earned by DAVI-side measurement; if step time
+  gates progress we revisit.
+- **`learning_rate: 0.001`** — Adam framework default. Not a
+  cube-literature value. Adam's default is robust across MLP regression
+  problems out of the box; we keep the framework default rather than
+  tune blind.
+- **`target_sync_interval: 500`** — first-try-defensible. The DAVI
+  recursion hardens a few steps' optimizer drift into a new target;
+  smaller intervals chase a moving target, larger intervals work
+  against stale targets. 500 is between the prior placeholder (200) and
+  the loosest reasonable carry-over (1000). Not earned. Will be the
+  natural first axis to sweep if the wavefront stalls.
+- **`n_steps: 30000`** — wall-clock budget. Long enough to see a
+  wavefront propagate from solved outward (30k optimizer steps with
+  target sync every 500 means ~60 target generations). Short enough to
+  fit in a few hours. Not earned; if the run is converging at 30k we
+  extend, if it's plateaued well before then we shorten future runs.
+- **`seed: 0`, `device: mps`, `log_every: 100`, `eval_every: 1000`,
+  `checkpoint_every: 5000`** — bookkeeping defaults.
 
-When this run lands and we see what DAVI's actual training dynamics look like, the placeholders become the natural next sweep.
+The earned values are: `max_scramble_depth` (user-directed, justified
+by 2x2 QTM diameter); `normalization: bn` (V\*-supervised work
+established as innocent → keep). Everything else is a defensible first
+try, with the understanding that the post-run intuition section calls
+out which knob the data points to next.
 
 ## Acceptance + plan
 
-- **Pass:** `macro_mae < 1.0` AND every `solve_rate_d{d} > 0.99` at the final eval (greedy depths {1,3,5,7,9,11,13}).
-- **Probable-fail informative outcomes worth writing up:** macro-MAE plateau (curriculum or sync-interval is the bottleneck); solve rate stalls at low depths (greedy is fine but value approximation fails on hard states); train loss diverges.
-- **Writeup:** intuition + observations land in `intuition.md` (hand-written, per project convention); `analyze.py` regenerates `results.md` with curves + tables.
+- **Pass:** final-eval `macro_mae < 1.0` AND every
+  `solve_rate_d{d} > 0.99` at the test depth grid {1,3,5,7,9,11,13}.
+  Per M5 SPEC.
+- **Informative-fail shapes worth writing up** (each is a well-shaped
+  next experiment):
+  - macro-MAE plateaus while train loss keeps falling → target_sync or
+    curriculum is the bottleneck.
+  - Greedy solve flat at small depths only → wavefront propagated from
+    solved but didn't reach the bulk; curriculum cap or depth
+    weighting needs attention.
+  - Train loss diverges → LR / batch / sync interval combination
+    unstable for DAVI; tighten one.
+  - Per-depth MAE follows the depth distribution (high MAE at modal
+    depths, low at tails) → predict-the-mean collapse, this time
+    inside DAVI.
+- **Writeup:** `intuition.md` is hand-written per project convention
+  (Observations → Hypotheses with confidence + verification plan →
+  Open questions). `analyze.py` regenerates `results.md` with curves
+  + tables and appends the intuition section verbatim.
 
 ## Files
 
 - `configs/baseline.yaml` — DAVIConfig YAML with the values above.
-- `run.sh` — one-line wrapper.
-- `analyze.py` — reads `runs/baseline-30k/metrics.jsonl` and writes a `results.md` skeleton.
+- `run.sh` — one-line wrapper invoking the parent `run.py`.
+- `analyze.py` — reads `runs/baseline-30k/metrics.jsonl`, writes
+  `results.md` with train-loss / macro-MAE / per-depth / solve-rate
+  tables, and appends `intuition.md`.
