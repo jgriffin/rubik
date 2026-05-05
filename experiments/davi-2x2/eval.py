@@ -96,7 +96,7 @@ def greedy_solve(
     *,
     depth_budget_factor: int = 2,
     n_per_depth: int = 50,
-    depths: tuple[int, ...] = (1, 3, 5, 7, 9, 11, 13),
+    depths: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13),
     generator: torch.Generator | None = None,
 ) -> dict:
     """Per-depth wrapper around ``rubik.solve.greedy_solve_batch``.
