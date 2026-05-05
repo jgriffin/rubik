@@ -88,10 +88,66 @@ def _format_solve_rates(metrics: dict) -> str:
     return " ".join(parts)
 
 
+def _load_checkpoint(
+    path: Path,
+    net: torch.nn.Module,
+    target_net: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+) -> tuple[str, int]:
+    """Load a checkpoint into net / target_net / optimizer in place.
+
+    Returns ``(mode, prior_step)`` where ``mode`` is ``"full"`` if the
+    checkpoint carries optimizer + target_net state (new dict format) or
+    ``"weights-only"`` if it's a bare ``state_dict`` (legacy — pre-resume
+    format from M5 baseline-30k). In weights-only mode, ``target_net`` is
+    synced from ``net`` and ``optimizer`` is left in its freshly-constructed
+    state (Adam moments not restored).
+    """
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    if isinstance(ckpt, dict) and "net_state" in ckpt:
+        net.load_state_dict(ckpt["net_state"])
+        target_net.load_state_dict(ckpt["target_net_state"])
+        optimizer.load_state_dict(ckpt["optimizer_state"])
+        return "full", int(ckpt.get("step", 0))
+    net.load_state_dict(ckpt)
+    sync_target(net, target_net)
+    return "weights-only", 0
+
+
+def _save_checkpoint(
+    path: Path,
+    net: torch.nn.Module,
+    target_net: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    step: int,
+) -> None:
+    torch.save(
+        {
+            "net_state": net.state_dict(),
+            "target_net_state": target_net.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "step": step,
+        },
+        path,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a prior checkpoint to warm-start from. Accepts both the "
+            "new dict format ({net_state, target_net_state, optimizer_state, "
+            "step}) and the legacy bare state_dict format. In the legacy "
+            "case, target_net is synced from net and Adam moments restart."
+        ),
+    )
     args = parser.parse_args()
 
     config = DAVIConfig.from_yaml(args.config)
@@ -125,6 +181,13 @@ def main() -> None:
     sync_target(net, target_net)
     optimizer = Adam(net.parameters(), lr=config.learning_rate)
 
+    resume_mode: str | None = None
+    resume_prior_step = 0
+    if args.resume is not None:
+        resume_mode, resume_prior_step = _load_checkpoint(
+            args.resume, net, target_net, optimizer, device
+        )
+
     eval_states_dev, eval_depths_cpu = _load_eval_set(device)
 
     n_params = sum(p.numel() for p in net.parameters())
@@ -147,6 +210,15 @@ def main() -> None:
         f"eval_set:               {EVAL_SET_PATH.relative_to(REPO_ROOT)} "
         f"({eval_states_dev.shape[0]} states)"
     )
+    if resume_mode is not None:
+        try:
+            resume_display = args.resume.relative_to(REPO_ROOT)
+        except ValueError:
+            resume_display = args.resume
+        print(
+            f"resumed from:           {resume_display} "
+            f"(mode={resume_mode}, prior_step={resume_prior_step})"
+        )
     print()
 
     with MetricLogger(out_dir / "metrics.jsonl") as logger:
@@ -166,6 +238,14 @@ def main() -> None:
             n_steps=config.n_steps,
             eval_set_size=int(eval_states_dev.shape[0]),
         )
+
+        if resume_mode is not None:
+            logger.log(
+                event="resume",
+                source=str(args.resume),
+                mode=resume_mode,
+                prior_step=resume_prior_step,
+            )
 
         for step in range(1, config.n_steps + 1):
             t0 = time.perf_counter()
@@ -218,7 +298,7 @@ def main() -> None:
 
             if config.checkpoint_every and step % config.checkpoint_every == 0:
                 ckpt_path = out_dir / f"net_step_{step}.pt"
-                torch.save(net.state_dict(), ckpt_path)
+                _save_checkpoint(ckpt_path, net, target_net, optimizer, step)
                 logger.log(event="checkpoint", step=step, path=str(ckpt_path.name))
 
         # Final eval before the last checkpoint, so run_end carries the
@@ -232,7 +312,9 @@ def main() -> None:
             **final_vstar,
             **final_solve,
         )
-        torch.save(net.state_dict(), out_dir / "net_final.pt")
+        _save_checkpoint(
+            out_dir / "net_final.pt", net, target_net, optimizer, config.n_steps
+        )
         logger.log(
             event="run_end",
             step=config.n_steps,
