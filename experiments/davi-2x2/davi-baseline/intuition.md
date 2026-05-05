@@ -316,3 +316,174 @@ then long-train.
   sync500 control run is direct evidence — 7k extra steps from
   converged state produces zero learning. 30k more would be 30k more
   of the same. Need to change something other than step count first.
+
+---
+
+### Cycle 3 (2026-05-05): K_max=20 — sync500 helps, sync1000 doesn't
+
+Two fresh-start 30k-step runs at `max_scramble_depth=20`, identical to
+cycle-1 baseline (`(4096, 1024)` n=4 BN, batch=4096, lr=1e-3, 30k steps)
+except for K_max (18→20) and target_sync_interval (500 vs 1000). N=200
+post-hoc greedy-solve histograms (binomial SE ≈ 0.035 vs N=50's 0.07 —
+tight enough to distinguish ~5% effects).
+
+#### Run summary (final, N=200 post-hoc)
+
+| run | macro_mae | pred_std | d5 | d7 | d9 | d11 | d13 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **cycle-1 baseline-30k** (K=18, sync=500, fresh) | 3.13 | 1.44 | 99.0% | 85.0% | 63.0% | 41.5% | **27.0%** |
+| **cycle-3 sync500_kmax20-30k** (K=20, sync=500, fresh) | 2.93 | 1.51 | **100%** | **89.0%** | **65.0%** | **46.5%** | **32.5%** |
+| **cycle-3 sync1000_kmax20-30k** (K=20, sync=1000, fresh) | 2.90 | 1.56 | 97.5% | 81.5% | 62.5% | 40.5% | 23.0% |
+
+(N=200 post-hoc capture in `solve_histograms.json`. Earlier per-eval
+N=50 numbers in `metrics.jsonl` are too noisy at d11/d13 to
+distinguish the cells reliably — see chart panel "post-hoc solve-length
+histograms" in `error_trajectories.html`.)
+
+#### Observations
+
+1. **sync500_kmax20 strictly dominates cycle-1 baseline at every test
+   depth.** d5: 99.0% → 100% (+1pt). d7: 85.0% → 89.0% (+4). d9: 63.0%
+   → 65.0% (+2). d11: 41.5% → 46.5% (+5). d13: 27.0% → 32.5% (+5.5).
+   Effect size ≈ 5 percentage points absolute at d11/d13, ≈ 1.4σ given
+   binomial SEs — at the edge of statistical confidence per cell, but
+   the consistent direction across 5 depths is hard to attribute to
+   noise.
+
+2. **sync1000_kmax20 is essentially equal to baseline.** d7 81.5% (was
+   85.0%, -3.5). d11 40.5% (was 41.5%, -1). d13 23.0% (was 27.0%, -4).
+   All within ~1σ of the baseline. The macro_mae number (2.90 vs 3.13)
+   suggested improvement at N=50, but solve-rate at N=200 says the
+   improvement is in calibration, not capability. (Cycle 2 already
+   documented that macro_mae and solve_rate measure different things —
+   ordering vs absolute fit. Cycle 3 makes this concrete: sync1000
+   tightens absolute fit, sync500 tightens both.)
+
+3. **K_max=20 alone doesn't help.** Comparing sync1000_kmax20 to
+   baseline (only K_max varies): no real solve-rate gain. Comparing
+   sync500_kmax20 to baseline (only K_max varies, sync held at 500):
+   ~5% gain. The lever is K_max=20 *combined with* fast sync, not
+   K_max=20 in isolation.
+
+4. **Sync rate matters during fresh-start training, even at K_max=20.**
+   This refines (not contradicts) cycle 2: cycle 2 ran warm-starts from
+   a converged-bad checkpoint and found no sync rate could un-stick
+   it. Cycle 3 ran fresh-starts and finds sync500 reaches a slightly
+   better plateau than sync1000. So **sync rate determines which
+   plateau you converge to, but can't break a plateau once stuck**.
+
+5. **The plateau is *shifted*, not *broken*.** All three cells still
+   have d13 < 35% and macro_mae > 2.85. The structural cause from
+   cycle 2 (random walks of length k don't equilibrate to the natural
+   state distribution) survives — K_max=20 lets walks go a bit deeper
+   without the K=18 cycling artifact, and faster sync extracts a bit
+   more signal from each batch, but the fundamental data-distribution
+   asymmetry remains. Each lever buys ~5% absolute capability; the
+   acceptance gate (>99% solve at all depths, macro_mae < 1.0) is
+   still far away.
+
+6. **Step time stable** at 220–222 ms throughout both runs — the
+   sync_interval=500 vs 1000 cost difference is too small to detect.
+   K_max=20 runs are ~1.4% slower per step than K_max=18 (ADI batch
+   generation does 2 more move applications), within noise. M4 Max
+   GPU saturation behavior unchanged.
+
+#### Reconciliation with cycle 2
+
+Cycle 2 concluded: *"Sync rate ∈ [100, 2000] is not the lever — three
+points across 20× span (warm-start) all produce the plateau or worse."*
+
+Cycle 3 finds: *"sync500 reaches a measurably-better plateau than
+sync1000 at K_max=20 (fresh-start)."*
+
+Both are true. The cycle 2 statement is precise: post-convergence
+warm-start doesn't respond to sync rate. The cycle 3 statement is also
+precise: fresh-start dynamics do. The reconciled rule:
+
+> **Sync rate sets the basin-of-attraction during initial training.**
+> Once converged, changing it doesn't escape the basin — it just
+> wobbles inside it.
+
+The cycle-2 finding remains a useful guardrail (don't expect sync rate
+adjustments to fix a stuck network), but the cycle-3 finding refines
+the recommendation: *during* fresh-start, sync=500 is preferable to
+sync=1000 at K_max=20. Future fresh-start runs should use sync=500
+unless there's a specific reason not to.
+
+#### What this rules in / out per the LOG block's decision rule
+
+The block's exit criterion was: *"if neither cycle-3 cell beats baseline-30k
+macro_mae 3.13, the K_max=20 axis is also exhausted."*
+
+Both cells beat 3.13 in macro_mae. But N=200 solve-rate shows only
+sync500 has *capability* improvement; sync1000 has only *calibration*
+improvement. So the K_max axis is **not** exhausted in a strict sense,
+but the gain at K_max=20 with optimal sync is small enough that pushing
+K_max further is unlikely to break the plateau. The cycle-2 sampler
+audit already showed *why*: even at K_max=20, random walks barely
+reach true depth 13 and never reach 14. The fundamental data-side
+constraint survives.
+
+#### Verdict + recommendations
+
+**Best checkpoint going into M6 (beam search):
+`runs/sync500_kmax20-30k/net_final.pt`.** N=200 d11/d13 solve rates
+are the highest we've seen; pred_std is wider than baseline (1.51 vs
+1.44) so the *ordering* signal — what beam search consumes — is also
+sharper. M6 beam at width ≥ 4 will probably solve a much larger
+fraction of d11/d13 scrambles than greedy can.
+
+**Levers in priority order for the next experimental cycle:**
+
+1. **V*-stratified training-batch resampling (2x2-only proof of
+   concept).** Sample training batches with target-V*-depth balanced
+   to the natural state distribution, not walk-length balanced. The
+   sampler audit proves this is the binding constraint; this is the
+   most direct attack on it. Honest caveat: this only works on 2x2
+   (V* oracle exists). The 3x3 transfer at M8 will need a different
+   answer for the same problem.
+
+2. **Curriculum scheduling.** Start K_max=2 for ~5k steps, ramp K_max
+   to 14, 16, 20 in stages. Standard ADI pattern; doesn't depend on
+   V* oracle so this transfers to 3x3. Less mechanically clean than
+   V*-stratification but methodology-portable.
+
+3. **More cells in the (K_max, sync_interval) grid is *not* the next
+   move.** The cycle-3 data already shows the lever is data-side, not
+   optimizer-side. Sweeping sync at K=20 (e.g., sync ∈ {100, 200,
+   300, 500}) might extract another 1–2% but won't change the plateau
+   character.
+
+4. **Keep beam search (M6) on the critical path.** The cycle-3 solve
+   rates suggest ordering quality is good enough that beam will
+   substantially outperform greedy. M6's actual question — "is V_θ
+   useful for search?" — has a more positive answer than greedy's
+   acceptance gate suggests.
+
+#### Open questions
+
+1. **Is the +5% sync500 vs sync1000 advantage replicable?** A
+   different seed at the same config would settle this. ~2 hours of
+   compute for one re-run; defer until other axes have been explored.
+2. **Does even-faster sync at K_max=20 help further?** sync=200 or
+   sync=300 at K_max=20, fresh-start. One run, ~2 hours. Probably not
+   worth doing standalone — bundle with V*-stratified sampling
+   experiment.
+3. **Excess vs V***. The new `compute_excess_vs_v_star` primitive
+   isn't yet plugged into the chart pipeline. A post-hoc script that
+   loads each terminal checkpoint, samples scrambled states, runs
+   greedy, looks up V*, and renders excess-distribution histograms
+   would add a per-attempt suboptimality view — orthogonal information
+   from the binary "did greedy solve?" view we have today. Two
+   ~50-line scripts; deferred but cheap.
+
+#### What's preserved
+
+- `runs/sync500_kmax20-30k/net_final.pt` — best checkpoint to date,
+  feeds M6 beam search.
+- `runs/sync1000_kmax20-30k/net_final.pt` — calibration-better,
+  capability-equal counterpart.
+- Both metrics.jsonl + stdout.log + config.yaml committed (gitignore
+  relaxed in the same cycle).
+- Chart artifact at `error_trajectories.html` shows three trajectories
+  + N=200 histograms side-by-side.

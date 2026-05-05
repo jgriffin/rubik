@@ -39,10 +39,9 @@ OUT_PATH = (
 )
 
 RUNS: list[tuple[str, str]] = [
-    ("baseline-30k (sync=500, fresh)", "baseline-30k"),
-    ("warm sync=100 (killed)", "baseline-continue-sync100-30k"),
-    ("warm sync=500 (control)", "baseline-continue-sync500-7k"),
-    ("warm sync=2000", "baseline-continue-sync2000-7k"),
+    ("cycle-1 baseline-30k  (K=18, sync=500)", "baseline-30k"),
+    ("cycle-3 sync500_kmax20-30k  (K=20)", "sync500_kmax20-30k"),
+    ("cycle-3 sync1000_kmax20-30k  (K=20)", "sync1000_kmax20-30k"),
 ]
 
 # Match the trained net architecture (all four runs share this).

@@ -22,11 +22,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 BASELINE_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "runs"
 
 # (label, run_dir, color, dasharray)
+# Cycle-3 view: cycle-1 baseline + two K_max=20 fresh-start cells.
+# Cycle-2 warm-start runs are documented in intuition.md; not charted here
+# to keep the cycle-3 comparison readable. Re-add via this list to compare.
 RUNS: list[tuple[str, str, str, str]] = [
-    ("baseline-30k (sync=500, fresh)", "baseline-30k", "#1f77b4", ""),
-    ("warm sync=100 (killed)", "baseline-continue-sync100-30k", "#d62728", ""),
-    ("warm sync=500 (control)", "baseline-continue-sync500-7k", "#2ca02c", ""),
-    ("warm sync=2000", "baseline-continue-sync2000-7k", "#ff7f0e", ""),
+    ("cycle-1 baseline-30k  (K=18, sync=500)", "baseline-30k", "#1f77b4", ""),
+    ("cycle-3 sync500_kmax20-30k  (K=20)", "sync500_kmax20-30k", "#2ca02c", ""),
+    ("cycle-3 sync1000_kmax20-30k  (K=20)", "sync1000_kmax20-30k", "#ff7f0e", ""),
 ]
 
 DEPTHS = list(range(1, 15))
