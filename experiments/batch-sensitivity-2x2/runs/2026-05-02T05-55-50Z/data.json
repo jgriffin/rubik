@@ -1,0 +1,39 @@
+{
+  "cells": [
+    {
+      "batch_size": 64,
+      "ci_hi_seconds": 0.0021430409979075193,
+      "ci_lo_seconds": 0.0009802498389035463,
+      "median_seconds": 0.0017488331068307161,
+      "op": "apply_moves",
+      "throughput_per_sec_hi": 65289.47770252825,
+      "throughput_per_sec_lo": 29864.10435567498,
+      "throughput_per_sec_median": 36595.83052838162,
+      "trials": [
+        0.0021430409979075193,
+        0.0017488331068307161,
+        0.0009802498389035463
+      ]
+    }
+  ],
+  "config": {
+    "batch_sizes": [
+      64
+    ],
+    "device": "mps",
+    "ops": [
+      "apply_moves"
+    ],
+    "random_scrambles_depth": 20,
+    "seed": 0,
+    "trials": 3,
+    "warmup": 2
+  },
+  "git_sha": "63242a219fc4e668c4a5d57e405662b4e898121f",
+  "machine": {
+    "platform": "macOS-26.3-arm64-arm-64bit",
+    "torch_version": "2.11.0"
+  },
+  "ran_at": "2026-05-02T05:55:51.076143Z",
+  "schema_version": 1
+}

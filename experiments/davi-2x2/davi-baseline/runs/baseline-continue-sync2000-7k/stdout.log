@@ -1,0 +1,96 @@
+run dir:                experiments/davi-2x2/davi-baseline/runs/baseline-continue-sync2000-7k
+device:                 mps
+params:                 13.21M
+body_widths:            (4096, 1024)
+n_residual_blocks:      4
+normalization:          bn
+batch_size:             4096
+max_scramble_depth:     18
+target_sync_interval:   2000
+learning_rate:          0.001
+n_steps:                7000
+eval_set:               experiments/davi-2x2/eval_set.npz (1400 states)
+resumed from:           experiments/davi-2x2/davi-baseline/runs/baseline-30k/net_final.pt (mode=weights-only, prior_step=0)
+
+step     100/7000  loss 0.0276  step 218.1 ms
+step     200/7000  loss 0.0236  step 218.2 ms
+step     300/7000  loss 0.0255  step 219.3 ms
+step     400/7000  loss 0.0233  step 217.8 ms
+step     500/7000  loss 0.0249  step 218.2 ms
+step     600/7000  loss 0.0230  step 218.0 ms
+step     700/7000  loss 0.0240  step 218.2 ms
+step     800/7000  loss 0.0224  step 218.5 ms
+step     900/7000  loss 0.0224  step 218.3 ms
+step    1000/7000  loss 0.0238  step 218.1 ms
+  eval @ step    1000  macro_mae 3.1435  val_mae 3.1435  pred_std 1.460  solve: d1=1.00 d11=0.46 d13=0.38 d3=1.00 d5=1.00 d7=0.80 d9=0.58
+step    1100/7000  loss 0.0237  step 217.2 ms
+step    1200/7000  loss 0.0235  step 218.0 ms
+step    1300/7000  loss 0.0219  step 217.9 ms
+step    1400/7000  loss 0.0220  step 218.3 ms
+step    1500/7000  loss 0.0224  step 217.8 ms
+step    1600/7000  loss 0.0229  step 220.1 ms
+step    1700/7000  loss 0.0223  step 219.1 ms
+step    1800/7000  loss 0.0208  step 218.5 ms
+step    1900/7000  loss 0.0203  step 217.8 ms
+step    2000/7000  loss 0.0223  step 218.1 ms
+  eval @ step    2000  macro_mae 3.1430  val_mae 3.1430  pred_std 1.480  solve: d1=1.00 d11=0.40 d13=0.20 d3=1.00 d5=0.98 d7=0.88 d9=0.68
+step    2100/7000  loss 0.0311  step 218.7 ms
+step    2200/7000  loss 0.0294  step 217.9 ms
+step    2300/7000  loss 0.0265  step 218.8 ms
+step    2400/7000  loss 0.0279  step 218.4 ms
+step    2500/7000  loss 0.0270  step 217.8 ms
+step    2600/7000  loss 0.0284  step 217.8 ms
+step    2700/7000  loss 0.0248  step 219.1 ms
+step    2800/7000  loss 0.0274  step 217.7 ms
+step    2900/7000  loss 0.0262  step 218.5 ms
+step    3000/7000  loss 0.0260  step 218.2 ms
+  eval @ step    3000  macro_mae 3.1806  val_mae 3.1806  pred_std 1.488  solve: d1=1.00 d11=0.32 d13=0.34 d3=1.00 d5=0.96 d7=0.86 d9=0.60
+step    3100/7000  loss 0.0262  step 218.5 ms
+step    3200/7000  loss 0.0266  step 217.9 ms
+step    3300/7000  loss 0.0252  step 218.3 ms
+step    3400/7000  loss 0.0260  step 218.3 ms
+step    3500/7000  loss 0.0242  step 217.9 ms
+step    3600/7000  loss 0.0268  step 217.7 ms
+step    3700/7000  loss 0.0276  step 218.5 ms
+step    3800/7000  loss 0.0237  step 219.4 ms
+step    3900/7000  loss 0.0232  step 218.5 ms
+step    4000/7000  loss 0.0253  step 217.8 ms
+  eval @ step    4000  macro_mae 3.1686  val_mae 3.1686  pred_std 1.484  solve: d1=1.00 d11=0.36 d13=0.32 d3=1.00 d5=0.94 d7=0.84 d9=0.52
+step    4100/7000  loss 0.0375  step 217.7 ms
+step    4200/7000  loss 0.0287  step 218.7 ms
+step    4300/7000  loss 0.0301  step 218.7 ms
+step    4400/7000  loss 0.0277  step 218.0 ms
+step    4500/7000  loss 0.0259  step 217.5 ms
+step    4600/7000  loss 0.0278  step 219.0 ms
+step    4700/7000  loss 0.0263  step 218.0 ms
+step    4800/7000  loss 0.0243  step 218.2 ms
+step    4900/7000  loss 0.0255  step 218.0 ms
+step    5000/7000  loss 0.0244  step 218.7 ms
+  eval @ step    5000  macro_mae 3.2154  val_mae 3.2154  pred_std 1.436  solve: d1=1.00 d11=0.28 d13=0.20 d3=1.00 d5=0.96 d7=0.78 d9=0.34
+step    5100/7000  loss 0.0259  step 218.5 ms
+step    5200/7000  loss 0.0261  step 218.0 ms
+step    5300/7000  loss 0.0243  step 219.8 ms
+step    5400/7000  loss 0.0243  step 218.0 ms
+step    5500/7000  loss 0.0249  step 218.1 ms
+step    5600/7000  loss 0.0237  step 217.8 ms
+step    5700/7000  loss 0.0231  step 217.9 ms
+step    5800/7000  loss 0.0238  step 218.3 ms
+step    5900/7000  loss 0.0229  step 218.1 ms
+step    6000/7000  loss 0.0235  step 217.8 ms
+  eval @ step    6000  macro_mae 3.2109  val_mae 3.2109  pred_std 1.441  solve: d1=1.00 d11=0.38 d13=0.30 d3=1.00 d5=0.98 d7=0.70 d9=0.64
+step    6100/7000  loss 0.0478  step 217.6 ms
+step    6200/7000  loss 0.0404  step 217.8 ms
+step    6300/7000  loss 0.0410  step 217.8 ms
+step    6400/7000  loss 0.0421  step 218.3 ms
+step    6500/7000  loss 0.0405  step 219.0 ms
+step    6600/7000  loss 0.0389  step 217.7 ms
+step    6700/7000  loss 0.0393  step 218.5 ms
+step    6800/7000  loss 0.0388  step 217.9 ms
+step    6900/7000  loss 0.0397  step 219.1 ms
+step    7000/7000  loss 0.0369  step 217.8 ms
+  eval @ step    7000  macro_mae 3.2998  val_mae 3.2998  pred_std 1.332  solve: d1=1.00 d11=0.26 d13=0.16 d3=1.00 d5=1.00 d7=0.78 d9=0.46
+
+final macro_mae: 3.2998
+final val_mae:   3.2998
+final solve:     d1=1.00 d11=0.30 d13=0.18 d3=1.00 d5=0.98 d7=0.70 d9=0.50
+done. metrics:   experiments/davi-2x2/davi-baseline/runs/baseline-continue-sync2000-7k/metrics.jsonl

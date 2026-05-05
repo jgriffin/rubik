@@ -1,0 +1,47 @@
+{
+  "label": "fix1-bounds",
+  "timestamp_utc": "2026-05-03T00:36:12.923826+00:00",
+  "git_sha": "2234740c164ae4ac50377ea1da1480ab6bd774cb",
+  "torch_version": "2.11.0",
+  "platform": "macOS-26.3-arm64-arm-64bit",
+  "n_trials": 100,
+  "n_warmup": 10,
+  "rows": [
+    {
+      "batch": 1,
+      "median_s": 0.00045514595694839954,
+      "ci_lo_s": 0.0004432923160493374,
+      "ci_hi_s": 0.00046558352187275887,
+      "throughput_states_per_s": 2197.0974030059797,
+      "n_trials": 100,
+      "n_warmup": 10
+    },
+    {
+      "batch": 64,
+      "median_s": 0.00035941670648753643,
+      "ci_lo_s": 0.00035320804454386234,
+      "ci_hi_s": 0.0003938749432563782,
+      "throughput_states_per_s": 178066.2914238221,
+      "n_trials": 100,
+      "n_warmup": 10
+    },
+    {
+      "batch": 8192,
+      "median_s": 0.0004182704724371433,
+      "ci_lo_s": 0.0004085828550159931,
+      "ci_hi_s": 0.00042564584873616695,
+      "throughput_states_per_s": 19585413.123397265,
+      "n_trials": 100,
+      "n_warmup": 10
+    },
+    {
+      "batch": 2097152,
+      "median_s": 0.008142250124365091,
+      "ci_lo_s": 0.00809804117307067,
+      "ci_hi_s": 0.008253687527030706,
+      "throughput_states_per_s": 257564182.86935514,
+      "n_trials": 100,
+      "n_warmup": 10
+    }
+  ]
+}
