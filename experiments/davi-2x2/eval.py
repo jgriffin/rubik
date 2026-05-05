@@ -7,10 +7,11 @@ Two functions, intended to be imported by ``run.py``:
   pred_mean, pred_std}``. macro-MAE is the fixed methodology metric: each
   depth contributes equally regardless of bucket size, so it can't be
   gamed by predicting the modal class.
-- ``greedy_solve`` — for each test depth, generate fresh random scrambles
-  and run the greedy policy ``argmin V_θ(child)`` from each scrambled
-  state until solved or a budget is exhausted. Returns per-depth
-  solve-rate + average solve length.
+- ``greedy_solve`` — per-depth wrapper over ``rubik.solve.greedy_solve_batch``:
+  for each test depth, generate fresh random scrambles, solve under a
+  ``2 * depth`` move budget, and roll up to per-depth ``solve_rate`` /
+  ``avg_solve_len``. The greedy primitive itself lives in ``rubik.solve``
+  so any future net can be eval'd through the same code path.
 
 Both call ``net.eval()`` while running and restore ``net.train()`` on
 exit so BatchNorm running stats are used for inference (matching the
@@ -26,8 +27,9 @@ from __future__ import annotations
 
 import torch
 
-from rubik.cube.env import apply_all_moves, is_solved, random_scrambles
+from rubik.cube.env import random_scrambles
 from rubik.cube.spec import CubeSpec
+from rubik.solve import greedy_solve_batch, summarize_solve_lens
 
 
 @torch.no_grad()
@@ -88,7 +90,6 @@ def eval_against_v_star(
     }
 
 
-@torch.no_grad()
 def greedy_solve(
     net: torch.nn.Module,
     spec: CubeSpec,
@@ -98,21 +99,14 @@ def greedy_solve(
     depths: tuple[int, ...] = (1, 3, 5, 7, 9, 11, 13),
     generator: torch.Generator | None = None,
 ) -> dict:
-    """Greedy policy solve-rate eval: pick ``argmin V_θ(child)`` per step.
+    """Per-depth wrapper around ``rubik.solve.greedy_solve_batch``.
 
     For each test depth ``d``:
-        1. Generate ``n_per_depth`` random scrambles of length ``d`` from
-           solved.
-        2. From each scrambled state, repeatedly expand all 12 children,
-           score them with ``net``, take the move whose child has minimum
-           V_θ. Stop when the chosen child is solved (record the move
-           count, including this last one) or when ``depth_budget_factor *
-           d`` moves have been taken without solving (mark as failure).
-        3. Solve length is the number of moves applied to reach solved.
-
-    The inner loop is vectorized across the ``n_per_depth`` scrambles per
-    test depth — one forward pass per move-step over the unsolved
-    remaining states' children, not per-row.
+        1. Generate ``n_per_depth`` random scrambles of length ``d``.
+        2. Run greedy ``argmin V_θ(child)`` with ``max_steps =
+           depth_budget_factor * d``.
+        3. Roll the per-attempt ``solve_lens`` into ``solve_rate`` and
+           ``avg_solve_len``.
 
     Returns a flat dict::
 
@@ -122,13 +116,8 @@ def greedy_solve(
             ...
         }
     """
-    device = next(net.parameters()).device
-    was_training = net.training
-    net.eval()
-
     out: dict = {}
     for d in depths:
-        budget = depth_budget_factor * d
         states, _ = random_scrambles(
             spec,
             batch_size=n_per_depth,
@@ -136,70 +125,10 @@ def greedy_solve(
             generator=generator,
             prune_same_face=True,
         )
-        states = states.to(device)
-
-        n = n_per_depth
-        # Active mask: True for rows still solving; False once solved
-        # (stops further updates and freezes the recorded length).
-        active = torch.ones(n, dtype=torch.bool, device=device)
-        solve_lens = torch.full((n,), -1, dtype=torch.int64, device=device)
-        # Sanity: a depth-d scramble already at solved would be unusual
-        # (would mean prune_same_face produced a no-op-net sequence at
-        # this depth). Guard anyway so the recorded length is 0 in that
-        # case rather than running the loop on solved states.
-        already_solved = is_solved(states, spec)
-        if already_solved.any():
-            solve_lens[already_solved] = 0
-            active = active & ~already_solved
-
-        for step_idx in range(budget):
-            if not active.any():
-                break
-            active_idx = torch.nonzero(active, as_tuple=False).squeeze(1)
-            active_states = states[active_idx]  # (A, n_stickers)
-
-            children = apply_all_moves(active_states, spec)
-            # children: (A, n_moves, n_stickers)
-            A = active_states.shape[0]
-            children_flat = children.reshape(A * spec.n_moves, spec.n_stickers)
-            child_v = net(children_flat).reshape(A, spec.n_moves)
-            # Solved children should be picked greedily; clamp to -inf in
-            # the wrong direction won't help — instead: prefer-solved by
-            # forcing solved children to a very-low score so argmin picks
-            # them. This matches the "solved == 0" boundary used in DAVI
-            # targets and ensures policy is consistent with the value
-            # estimate when V_θ has noise on small values.
-            solved_children = is_solved(children_flat, spec).reshape(A, spec.n_moves)
-            # Use a value smaller than any plausible V_θ on non-solved
-            # so argmin always picks a solved child when one exists.
-            child_v = torch.where(
-                solved_children, torch.full_like(child_v, -1e9), child_v
-            )
-            best_move = child_v.argmin(dim=1)  # (A,)
-            new_states = children[
-                torch.arange(A, device=device), best_move
-            ]  # (A, n_stickers)
-            states[active_idx] = new_states
-
-            # Detect newly-solved rows.
-            now_solved = is_solved(new_states, spec)
-            if now_solved.any():
-                solved_active_idx = active_idx[now_solved]
-                # +1 because we just applied move (step_idx + 1) total moves.
-                solve_lens[solved_active_idx] = step_idx + 1
-                active[solved_active_idx] = False
-
-        solved_mask_cpu = (solve_lens >= 0).cpu()
-        n_solved = int(solved_mask_cpu.sum().item())
-        solve_rate = n_solved / n
-        if n_solved > 0:
-            avg_len = float(solve_lens[solve_lens >= 0].float().mean().item())
-        else:
-            avg_len = None
-
-        out[f"solve_rate_d{d}"] = solve_rate
-        out[f"avg_solve_len_d{d}"] = avg_len
-
-    if was_training:
-        net.train()
+        solve_lens = greedy_solve_batch(
+            net, spec, states, max_steps=depth_budget_factor * d
+        )
+        s = summarize_solve_lens(solve_lens)
+        out[f"solve_rate_d{d}"] = s["solve_rate"]
+        out[f"avg_solve_len_d{d}"] = s["avg_solve_len"]
     return out

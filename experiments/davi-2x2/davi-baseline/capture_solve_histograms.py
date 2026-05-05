@@ -27,9 +27,10 @@ from pathlib import Path
 
 import torch
 
-from rubik.cube.env import apply_all_moves, is_solved, random_scrambles
+from rubik.cube.env import random_scrambles
 from rubik.cube.spec import CUBE_2X2
 from rubik.model.network import ValueNet
+from rubik.solve import greedy_solve_batch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BASELINE_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "runs"
@@ -85,7 +86,6 @@ def load_net(ckpt_path: Path, device: torch.device) -> ValueNet:
     return net
 
 
-@torch.no_grad()
 def greedy_solve_with_lens(
     net: torch.nn.Module,
     *,
@@ -93,49 +93,19 @@ def greedy_solve_with_lens(
     n: int,
     generator: torch.Generator,
 ) -> list[int]:
-    """Return per-attempt solve_lens (length n). -1 means failed."""
+    """Return per-attempt solve_lens (length n). -1 means failed.
+
+    Thin wrapper over ``rubik.solve.greedy_solve_batch`` that handles the
+    per-depth scramble generation + ``2 * depth`` budget convention used
+    by every histogram-style writeup in this experiment dir.
+    """
     spec = CUBE_2X2
-    device = next(net.parameters()).device
-    budget = DEPTH_BUDGET_FACTOR * depth
-
     states, _ = random_scrambles(
-        spec,
-        batch_size=n,
-        depth=depth,
-        generator=generator,
-        prune_same_face=True,
+        spec, batch_size=n, depth=depth, generator=generator, prune_same_face=True
     )
-    states = states.to(device)
-
-    active = torch.ones(n, dtype=torch.bool, device=device)
-    solve_lens = torch.full((n,), -1, dtype=torch.int64, device=device)
-    already = is_solved(states, spec)
-    if already.any():
-        solve_lens[already] = 0
-        active = active & ~already
-
-    for step_idx in range(budget):
-        if not active.any():
-            break
-        active_idx = torch.nonzero(active, as_tuple=False).squeeze(1)
-        active_states = states[active_idx]
-        children = apply_all_moves(active_states, spec)
-        a = active_states.shape[0]
-        children_flat = children.reshape(a * spec.n_moves, spec.n_stickers)
-        child_v = net(children_flat).reshape(a, spec.n_moves)
-        solved_children = is_solved(children_flat, spec).reshape(a, spec.n_moves)
-        child_v = torch.where(
-            solved_children, torch.full_like(child_v, -1e9), child_v
-        )
-        best_move = child_v.argmin(dim=1)
-        new_states = children[torch.arange(a, device=device), best_move]
-        states[active_idx] = new_states
-        now_solved = is_solved(new_states, spec)
-        if now_solved.any():
-            solved_active_idx = active_idx[now_solved]
-            solve_lens[solved_active_idx] = step_idx + 1
-            active[solved_active_idx] = False
-
+    solve_lens = greedy_solve_batch(
+        net, spec, states, max_steps=DEPTH_BUDGET_FACTOR * depth
+    )
     return solve_lens.cpu().tolist()
 
 
@@ -166,15 +136,13 @@ def main() -> None:
         for d in DEPTHS:
             lens = greedy_solve_with_lens(net, depth=d, n=N_PER_DEPTH, generator=gen)
             n_solved = sum(1 for x in lens if x >= 0)
-            n_failed = N_PER_DEPTH - n_solved
-            avg = (
-                sum(x for x in lens if x >= 0) / n_solved if n_solved > 0 else None
-            )
+            avg = sum(x for x in lens if x >= 0) / n_solved if n_solved > 0 else None
             print(
                 f"  d={d:>2}: solved {n_solved}/{N_PER_DEPTH} "
                 f"({100 * n_solved / N_PER_DEPTH:5.1f}%)  "
-                f"avg_len={avg:.2f}" if avg is not None else
-                f"  d={d:>2}: solved {n_solved}/{N_PER_DEPTH}  avg_len=N/A"
+                f"avg_len={avg:.2f}"
+                if avg is not None
+                else f"  d={d:>2}: solved {n_solved}/{N_PER_DEPTH}  avg_len=N/A"
             )
             per_depth[str(d)] = lens
         out["runs"][run_subdir] = {
