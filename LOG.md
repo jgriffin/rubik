@@ -4,6 +4,19 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-05 — M6 beam search (2x2) 🟡 in-progress
+**Goal:** Land batched beam search using V_θ as scorer with within-beam dedup, parametric on `CubeSpec`. Acceptance per SPEC: 100% solve on 1000 depth-≤14 scrambles at beam_width=256, mean solve length within 1 move of BFS-optimal. Bet: cycle-3's `sync500_kmax20-30k` net has good ordering signal (pred_std=1.51) even though greedy fails the M5 calibration gate — beam should consume that ordering. M5 declared done by user this session despite the gate; M6 either closes the capability gap or surfaces a substantive ordering-quality finding worth retraining for.
+**Milestone:** M6 ([plan](plans/m6-beam-search.md)) — first cycle
+**Approach:** Single branch `m6-beam-search` from `m5-davi` HEAD `14f54e4`. Five atomic commits:
+- **C1** — `src/rubik/search/beam.py` (`beam_solve_batch`, `BeamSearchResult`) + tests in `tests/search/test_beam.py` mirroring `tests/solve/test_greedy.py` style. Sequential per-parent loop; batched inner expansion via `apply_all_moves`; raw-bytes dedup (not canonicalization — see plan §Decisions); back-pointer path reconstruction.
+- **C2** — `experiments/beam-search-2x2/` scaffold + `BeamEvalConfig` dataclass at `src/rubik/search/config.py`.
+- **C3** — First sweep run against `sync500_kmax20-30k/net_final.pt`: beam_widths=(1,4,16,64,256) × depths=1..14 × n_per_depth=200.
+- **C4** — `analyze.py` + `render_beam_curves.py` + `beam_curves.html` + hand-written `intuition.md`.
+- **C5** — Acceptance gate run: width=256, n_per_depth=1000, depths 1..14; pass = solve_rate ≥ 99.9% per depth AND mean V\*-excess ≤ 1.0.
+**Next:** Begin C1 — implement `beam_solve_batch` + `BeamSearchResult` in `src/rubik/search/beam.py` and tests in `tests/search/test_beam.py`.
+**In progress:**
+- Block opened. Branch `m6-beam-search` checked out from `m5-davi` HEAD `14f54e4`. Plan at `plans/m6-beam-search.md` (this commit).
+
 ## 2026-05-05 — M5 DAVI cycle 3: K_max=20 sync sweep + clean solve-eval module ✅ done
 **Goal:** Cycles 1+2 diagnosed the plateau as structural (random-walk depth distribution doesn't reach the QTM diameter; sync rate isn't the lever). Cycle 3 acts on the next two levers: (a) bump `K_max` 18 → 20 to let walks mix slightly further toward the natural state distribution without drifting deep into the cycling regime, (b) sweep `target_sync_interval` on the 500–1000 axis (cycle 2 showed sync=100 destabilizes, sync=2000 marginally drifts; sync=500 was the cycle-1 baseline). Two fresh-start runs, 30k steps each, identical except for sync interval. Co-deliverable: extract a clean `rubik.solve` module (production-quality `greedy_solve_batch` + optional `compute_excess_vs_v_star`) so any future net can be eval'd consistently with histogram + V*-comparison (the latter 2x2-only since 3x3 has no V* oracle).
 **Milestone:** M5 ([plan](plans/m5-davi.md)) — cycle 3 of N

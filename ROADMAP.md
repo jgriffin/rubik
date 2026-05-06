@@ -12,7 +12,7 @@ mode produces them; we don't pre-create stubs).
 - **M2** — Fast tensor cube (2x2), correctness only (oracle equivalence + identities) — ✅ done ([plan](plans/m2-tensor-cube.md))
 - **M3** — Visualization stack: ASCII + HTML/SVG, first human-verifiable checkpoint — ✅ done ([plan](plans/m3-viz.md))
 - **M4** — Perf-1: MPS measurement methodology + batch sensitivity + experiment-loop pattern — ✅ done ([plan](plans/m4-perf-1.md))
-- **M5** — Scramble pipeline + DAVI training (2x2, smoke-tested against BFS V\*) — *not yet planned*
+- **M5** — Scramble pipeline + DAVI training (2x2, smoke-tested against BFS V\*) — ✅ done ([plan](plans/m5-davi.md))
 - **M6** — Beam search (2x2 vs BFS-optimal) — *not yet planned*
 - **M7** — Perf-2 / hyperparam experiment loop on 2x2 training — *not yet planned*
 - **M8** — 3x3 enablement: edge cubies in oracle + 3x3 move-perm + rerun M2–M7 verification on 3x3 — *not yet planned*
