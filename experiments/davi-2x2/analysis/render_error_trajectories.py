@@ -57,6 +57,7 @@ RUNS: list[tuple[str, str, str, str]] = [
     ("cycle-1 baseline-30k  (K=18, sync=500)", "baseline-30k", "#1f77b4", ""),
     ("cycle-3 sync500_kmax20-30k  (K=20)", "sync500_kmax20-30k", "#2ca02c", ""),
     ("cycle-3 sync1000_kmax20-30k  (K=20)", "sync1000_kmax20-30k", "#ff7f0e", ""),
+    ("cycle-4 kmax28_warm-30k  (K=28, warm-start)", "kmax28_warm-30k", "#d62728", ""),
 ]
 
 DEPTHS = list(range(1, 15))
@@ -496,25 +497,33 @@ def _band_chart_with_per_cell_ref(
     return "\n".join(parts)
 
 
-def chart_solve_histograms(hist_data: dict) -> str:
+def chart_solve_histograms(hist_data: dict, strategy: str) -> str:
     """Solve-length histograms grouped Shallow / Mid / Deep (5/5/4).
 
     For each (run, depth), shows the empirical distribution of solve
     lengths over N attempts (typically 200) at the run's terminal
-    checkpoint. Bars dodged side-by-side per length bucket per run.
-    Right strip shows the failed-attempt fraction. Cells without
-    histogram data (depth not captured) render as empty plots —
-    capture_solve_histograms.py's ``DEPTHS`` controls coverage.
+    checkpoint, under the given sampling ``strategy``. Bars dodged
+    side-by-side per length bucket per run. Right strip shows the
+    failed-attempt fraction. Cells without histogram data (depth not
+    captured, or this strategy not run) render as empty plots —
+    capture_solve_histograms.py's ``DEPTHS`` and ``STRATEGIES`` control
+    coverage.
     """
+    label = {
+        "random_walk_depth": "random-walk depth",
+        "v_star_stratified": "V*-stratified",
+    }.get(strategy, strategy)
     bands = [
-        ("Solve-length histograms — depths 1–5", [1, 2, 3, 4, 5]),
-        ("Solve-length histograms — depths 6–10", [6, 7, 8, 9, 10]),
-        ("Solve-length histograms — depths 11–14", [11, 12, 13, 14]),
+        (f"Solve-length histograms ({label}) — depths 1–5", [1, 2, 3, 4, 5]),
+        (f"Solve-length histograms ({label}) — depths 6–10", [6, 7, 8, 9, 10]),
+        (f"Solve-length histograms ({label}) — depths 11–14", [11, 12, 13, 14]),
     ]
-    return "\n".join(_hist_band(hist_data, title, depths) for title, depths in bands)
+    return "\n".join(
+        _hist_band(hist_data, title, depths, strategy) for title, depths in bands
+    )
 
 
-def _hist_band(hist_data: dict, title: str, depths: list[int]) -> str:
+def _hist_band(hist_data: dict, title: str, depths: list[int], strategy: str) -> str:
     # Cell width chosen so 5 cells per row fit in roughly the same visual
     # footprint as the MAE/solve-rate/avg-len bands above. Plot area is
     # tight at d=14 (28 buckets × 3 runs ≈ 2 px per bar) but legible —
@@ -550,7 +559,10 @@ def _hist_band(hist_data: dict, title: str, depths: list[int]) -> str:
             run_data = hist_data["runs"].get(run_subdir)
             if run_data is None:
                 continue
-            lens = run_data["lens"].get(str(depth), [])
+            strategy_data = run_data.get(strategy)
+            if strategy_data is None:
+                continue
+            lens = strategy_data["lens"].get(str(depth), [])
             counts: list[int] = [0] * (budget + 1)  # index 0 not used; 1..budget
             n_failed = 0
             for ln in lens:
@@ -911,7 +923,7 @@ def main() -> None:
   </p>
   {chart_avg_solve_len_banded(runs_data)}
 
-  <h2>5. Solve-length histograms (post-hoc, n=200 per depth per run)</h2>
+  <h2>5. Solve-length histograms (random-walk-depth, n=200 per depth per run)</h2>
   <p class="note">
     For each (depth, run), the empirical distribution of solve lengths
     over 200 attempts at the run's terminal checkpoint. Bars are
@@ -921,12 +933,28 @@ def main() -> None:
     The shape of the histogram is informative even without V* labels —
     a tight peak well below the budget means the model is solving the
     "easy embedded" cubes from random walks, while a flat tail or large
-    failed bar means it's hitting the wall.
+    failed bar means it's hitting the wall. Sampling here is
+    <em>random-walk-depth</em>: scramble = uniform random walk of length
+    <em>d</em>, so true V* is <em>≤ d</em>.
   </p>
-  {chart_solve_histograms(hist_data) if hist_data else
+  {chart_solve_histograms(hist_data, "random_walk_depth") if hist_data else
    '<p style="color:#c00">solve_histograms.json not found — run capture_solve_histograms.py first.</p>'}
 
-  <h2>6. Per-run wavefront heatmap (depth × step → MAE)</h2>
+  <h2>6. V*-stratified solve-length histograms (n=200 per depth per run)</h2>
+  <p class="note">
+    Same banded layout as section 5, but states are drawn from the BFS
+    oracle's <code>{{s : V*(s) == d}}</code> shell — so true V* is
+    <em>exactly</em> <em>d</em>. This is the apples-to-apples view of
+    "solve a cube that is genuinely d moves from solved", uncluttered by
+    the random-walk-depth distribution's heavy bias toward easier states
+    (length-d random walks usually produce states well below true V*=d).
+    A failed bar growing as <em>d</em> increases is the model's true
+    coverage frontier, not a sampling artifact.
+  </p>
+  {chart_solve_histograms(hist_data, "v_star_stratified") if hist_data else
+   '<p style="color:#c00">solve_histograms.json not found — run capture_solve_histograms.py first.</p>'}
+
+  <h2>7. Per-run wavefront heatmap (depth × step → MAE)</h2>
   <p class="note">
     Each row is one run. y-axis is depth 1..14, x-axis is training step,
     color is MAE (blue=low, red≥10). The "wavefront" is the boundary
