@@ -4,6 +4,21 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-05 — M5-followup cycle 4: K_max=28 + curriculum + reusable V*-aware eval 🟡 in-progress
+**Goal:** Address M6 deep-depth gap (d=10..14 misses ≥0.999 gate) by attacking the data-distribution constraint two ways from `sync500_kmax20-30k/net_final.pt`: (a) **K_max=28 warm-start** — flat raise of scramble depth, tests "more deep exposure alone"; (b) **K_max curriculum warm-start** — ramp K_max=14→28 over first 15k of 30k steps, hold at 28 for last 15k — tests "anchor low-end first, then expose deep" against the regression-to-mean concern (when training distribution skews deep, predictions cluster around mean). Co-deliverable: build a **reusable V*-aware eval harness** (`scripts/eval_checkpoint.py`) that takes any checkpoint and runs greedy + beam(width=256) across multiple sampling strategies (random-walk depth, true-V*-stratified) at depths 1..14, charting differences. Make it the project's standard evaluation pattern going forward.
+**Milestone:** M5-followup ([backlog](ROADMAP.md#m5-followup)) — between M5 acceptance gate and M7
+**Approach:** Branch `m5-cycle-4-kmax28-curriculum` from main HEAD `e304837`. Sequential per-stage:
+- **C1** — Implement K_max curriculum support: extend `DAVIConfig` with `max_scramble_depth_initial` + `max_scramble_depth_ramp_steps` (0/0 = flat behavior). `run.py` reads per-step K_max from a small schedule helper. New unit tests.
+- **C2** — V*-stratified sampler in `src/rubik/oracle/v_star_2x2.py` — `sample_states_at_v_star(v_star, target_v_star, n, *, generator, rotate=True)` returns (B, 24) states drawn uniformly from the V*=k orbit (with optional random whole-cube rotation to match training-distribution input shape).
+- **C3** — `scripts/eval_checkpoint.py` — takes `--checkpoint`, `--out-dir`, runs greedy + beam(256) under (i) random-walk depth sampling, (ii) V*-stratified sampling, depths 1..14, n=200 per cell. Writes `eval.jsonl` + `eval_payload.json`; renders `eval.html`. Smoke-tested on `sync500_kmax20-30k/net_final.pt` baseline before cycle-4 runs finish.
+- **C4** — Configs: `configs/kmax28_warm.yaml` (warm-start, K_max=28 fixed, 30k steps); `configs/kmax28_curriculum.yaml` (warm-start, K_max=14→28 ramp over 15k, hold at 28 for 15k, 30k total).
+- **C5** — Launch cell 1 (`kmax28_warm-30k`) in background; watcher detached for cell 2 auto-launch on cell 1 `run_end`.
+- **C6** — During training, build C2/C3, smoke-test on baseline checkpoint.
+- **C7** — Eval all three nets via `scripts/eval_checkpoint.py`. Render unified comparison chart. Write up `results/cycle-4-results.md` + `intuition.md`. Commit, close, merge.
+**Next:** Implement C1 (curriculum support in DAVIConfig + run.py + tests).
+**In progress:**
+- Block opened. Branch `m5-cycle-4-kmax28-curriculum` from main HEAD `e304837`. User out for ~1.5h walk; instructed to run autonomously, not ask questions, expand scope to include reusable V*-aware eval harness as the new common-testing pattern.
+
 ## 2026-05-05 — Restructure experiment dirs ✅ done
 **Goal:** Give every `experiments/<name>/` dir the same shape — `analysis/` for post-hoc scripts (`analyze.py`, `render_*.py`, `audit_*.py`, `capture_*.py`), `results/` for writeups + artifacts (`results.md`, `intuition.md`, `*.html`, derived data files), top-level reserved for entry points (`run*`, `configs/`, `runs/`, `README.md`). Flatten `davi-2x2/davi-baseline/` up — the nested layer was speculative shared-infra ergonomics for a second davi experiment that never materialized.
 **Milestone:** drive-by
