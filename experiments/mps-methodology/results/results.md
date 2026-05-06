@@ -268,7 +268,7 @@ on this machine; nothing is silently CPU-falling-back at this batch size.
 
 ```
 bash experiments/mps-methodology/probe_macmon.sh
-uv run python experiments/mps-methodology/correlate_macmon.py \
+uv run python experiments/mps-methodology/analysis/correlate_macmon.py \
     --expected-busy <bench-predicted>
 ```
 
@@ -345,10 +345,10 @@ workload: 52529 apply_moves calls in 25.000s
 samples: experiments/mps-methodology/runs/2026-05-02T05-46-50Z/macmon/samples.ndjson
 window: experiments/mps-methodology/runs/2026-05-02T05-46-50Z/macmon/window.json
 
-$ uv run python experiments/mps-methodology/correlate_macmon.py
+$ uv run python experiments/mps-methodology/analysis/correlate_macmon.py
 gpu_busy=0.952 gpu_power=3.94W samples=89 window=25.0s
 
-$ uv run python experiments/mps-methodology/correlate_macmon.py --expected-busy 1.000
+$ uv run python experiments/mps-methodology/analysis/correlate_macmon.py --expected-busy 1.000
 AGREE: gpu_busy=0.952 gpu_power=3.94W samples=89 window=25.0s expected=1.000
 ```
 
@@ -422,8 +422,8 @@ uv run pytest tests/perf -q
 
 # Layer 2 — macmon correlation on apply_moves at B=8192.
 bash experiments/mps-methodology/probe_macmon.sh
-uv run python experiments/mps-methodology/correlate_macmon.py
-uv run python experiments/mps-methodology/correlate_macmon.py --expected-busy 1.000
+uv run python experiments/mps-methodology/analysis/correlate_macmon.py
+uv run python experiments/mps-methodology/analysis/correlate_macmon.py --expected-busy 1.000
 
 # Layer 3 — profiler trace + CPU-sync verifier.
 uv run python experiments/mps-methodology/probe_profiler.py
@@ -431,7 +431,7 @@ uv run python experiments/mps-methodology/verify_no_cpu_sync.py
 
 # Batch sensitivity sweep (lands in commit 6).
 uv run python experiments/batch-sensitivity-2x2/run.py
-uv run python experiments/batch-sensitivity-2x2/analyze.py
+uv run python experiments/batch-sensitivity-2x2/analysis/analyze.py
 
 # View the writeups.
 open experiments/mps-methodology/results.md

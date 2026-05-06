@@ -22,8 +22,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-RUNS_DIR = REPO_ROOT / "experiments" / "mps-methodology" / "runs"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
+RUNS_DIR = EXPERIMENT_DIR / "runs"
 
 AGREE_DELTA = 0.10
 

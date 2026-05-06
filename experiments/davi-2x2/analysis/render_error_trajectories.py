@@ -37,7 +37,7 @@ histograms below — and should apply to any future per-depth chart
 added here.
 
 Pure stdlib + inline SVG. Open with
-``open experiments/davi-2x2/davi-baseline/error_trajectories.html``.
+``open experiments/davi-2x2/results/error_trajectories.html``.
 """
 
 from __future__ import annotations
@@ -46,7 +46,8 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-BASELINE_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "runs"
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
+BASELINE_DIR = EXPERIMENT_DIR / "runs"
 
 # (label, run_dir, color, dasharray)
 # Cycle-3 view: cycle-1 baseline + two K_max=20 fresh-start cells.
@@ -835,7 +836,7 @@ def main() -> None:
         print(f"loaded {label}: {len(runs_data[run_dir])} eval records")
 
     # Load post-hoc histograms (captured by capture_solve_histograms.py).
-    hist_path = REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "solve_histograms.json"
+    hist_path = EXPERIMENT_DIR / "results" / "solve_histograms.json"
     hist_data = None
     if hist_path.exists():
         with hist_path.open() as f:
@@ -844,7 +845,7 @@ def main() -> None:
     else:
         print(f"WARN: histogram file not found at {hist_path}")
 
-    out_path = REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "error_trajectories.html"
+    out_path = EXPERIMENT_DIR / "results" / "error_trajectories.html"
 
     html = f"""<!doctype html>
 <html lang="en">

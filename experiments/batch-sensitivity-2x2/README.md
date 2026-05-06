@@ -23,10 +23,10 @@ Full grid in `config.yaml`.
 
 ```bash
 uv run python experiments/batch-sensitivity-2x2/run.py
-uv run python experiments/batch-sensitivity-2x2/analyze.py
-open experiments/batch-sensitivity-2x2/results.md
+uv run python experiments/batch-sensitivity-2x2/analysis/analyze.py
+open experiments/batch-sensitivity-2x2/results/results.md
 ```
 
-`run.py` writes `runs/<ts>/data.json` (gitignored). `analyze.py` reads
-the newest run and rewrites `results.md` with the table + intuition
-observations. Both scripts land in commit 6 of the M4 ladder.
+`run.py` writes `runs/<ts>/data.json` (gitignored). `analysis/analyze.py`
+reads the newest run and rewrites `results/results.md` with the table +
+intuition observations.

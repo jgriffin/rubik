@@ -14,7 +14,7 @@ analyzer.
 
 Usage::
 
-    uv run python experiments/davi-2x2/davi-baseline/analyze.py
+    uv run python experiments/davi-2x2/analysis/analyze.py
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXPERIMENT_DIR = Path(__file__).resolve().parent
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
 RUN_DIR = EXPERIMENT_DIR / "runs" / "baseline-30k"
 METRICS_PATH = RUN_DIR / "metrics.jsonl"
-RESULTS_PATH = EXPERIMENT_DIR / "results.md"
-INTUITION_PATH = EXPERIMENT_DIR / "intuition.md"
+RESULTS_PATH = EXPERIMENT_DIR / "results" / "results.md"
+INTUITION_PATH = EXPERIMENT_DIR / "results" / "intuition.md"
 
 
 def _load_records() -> list[dict]:

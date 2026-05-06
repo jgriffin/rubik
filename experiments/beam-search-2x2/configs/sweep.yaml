@@ -1,4 +1,4 @@
-checkpoint_path: experiments/davi-2x2/davi-baseline/runs/sync500_kmax20-30k/net_final.pt
+checkpoint_path: experiments/davi-2x2/runs/sync500_kmax20-30k/net_final.pt
 body_widths:
   - 4096
   - 1024

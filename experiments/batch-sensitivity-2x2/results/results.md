@@ -4,7 +4,7 @@
 
 Sweeps `apply_moves` and `random_scrambles` throughput across batch sizes on this M4 Max to find the dispatch-overhead floor, the saturation ceiling, and any allocator/memory cliffs. The curve shapes are inputs to M7 (beam search) and M8 (DAVI training) hyperparameter choices, and a deliberate exercise in building GPU-saturation intuition for this hardware.
 
-Sweep grid lives in `config.yaml`. Driver: `run.py`. Steady-state spot-check: `run_steady_state.py`. Renderer: `analyze.py`.
+Sweep grid lives in `config.yaml`. Driver: `run.py`. Steady-state spot-check: `run_steady_state.py`. Renderer: `analysis/analyze.py`.
 
 ## Latest run
 
@@ -71,11 +71,7 @@ Reading these as GPU-saturation intuition for this M4 Max: dispatch overhead dom
 
 ## Bench-bracket vs steady-state regime
 
-The sweep tables above report **bench-bracket** per-call seconds: `mps.synchronize()` before and after each timed call. That bracket pattern is the only reliable wall-time on MPS, but it bakes in pure sync stall on each side that pipelined workloads (training, beam search) don't pay.
-
-At B=8192, a steady-state pipelined loop (sync every 64 calls, 10.0s wall-time, 21075 calls) measured 0.475 ms per call vs the bench-bracket's 0.548 ms — a correction factor of **0.866**. That is, real pipelined throughput is ~1.15x the bench-bracket throughput at this batch size.
-
-**Use the sweep tables for cross-cell comparisons** (the sync stall is a fixed per-call cost, so ratios and curve shapes are honest). **Apply the correction factor** when projecting absolute throughput for pipelined workloads. The macmon correlation in `experiments/mps-methodology/results.md` §5 is the calibration ground truth for this regime difference.
+Calibration pending — run `run_steady_state.py` and rerun `analysis/analyze.py --steady-state-run <path>` to embed the bench-vs-pipelined correction factor here. Until then: the sweep numbers are sync-bracket per-call seconds, which underestimate steady-state pipelined throughput by a regime-dependent factor (see `experiments/mps-methodology/results.md` §5).
 
 ## Intuition
 

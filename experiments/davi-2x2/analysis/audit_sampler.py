@@ -16,7 +16,7 @@ and reports:
   bucket spreads across true depths.
 
 Usage:
-    uv run python experiments/davi-2x2/davi-baseline/audit_sampler.py
+    uv run python experiments/davi-2x2/analysis/audit_sampler.py
 """
 
 from __future__ import annotations
