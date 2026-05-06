@@ -61,7 +61,14 @@ _EXPERIMENT_DIR = Path(__file__).resolve().parent
 if str(_EXPERIMENT_DIR) not in sys.path:
     sys.path.insert(0, str(_EXPERIMENT_DIR))
 
-from eval import eval_against_v_star, greedy_solve  # noqa: E402
+# P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+# The legacy ``eval_against_v_star`` + ``greedy_solve`` were removed from
+# experiments/davi-3x3/eval.py in P1c when the three-function API landed.
+# P2a wires the new ``value_eval`` into the training loop and replaces the
+# call sites below; until then this script is broken end-to-end by design
+# (the eval set was killed) and the imports / call sites are commented out
+# rather than deleted so reviewers can see exactly where wiring slots in.
+# from eval import eval_against_v_star, greedy_solve  # noqa: E402
 
 
 def _resolve_out_dir(arg: Path | None, config_stem: str) -> Path:
@@ -232,7 +239,8 @@ def main() -> None:
 
     torch.manual_seed(config.seed)
     generator = torch.Generator(device="cpu").manual_seed(config.seed)
-    eval_solve_generator = torch.Generator(device="cpu").manual_seed(config.seed + 1)
+    # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+    # eval_solve_generator = torch.Generator(device="cpu").manual_seed(config.seed + 1)
 
     net = ValueNet(
         spec,
@@ -256,7 +264,10 @@ def main() -> None:
             args.resume, net, target_net, optimizer, device
         )
 
-    eval_states_dev, eval_depths_cpu = _load_eval_set(device)
+    # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+    # The frozen ``eval_set_3x3.npz`` was deprecated in P1c; ``value_eval``
+    # regenerates a deterministic eval set from ``generator`` per call.
+    # eval_states_dev, eval_depths_cpu = _load_eval_set(device)
 
     n_params = sum(p.numel() for p in net.parameters())
     try:
@@ -280,10 +291,13 @@ def main() -> None:
     print(f"target_sync_interval:   {config.target_sync_interval}")
     print(f"learning_rate:          {config.learning_rate}")
     print(f"n_steps:                {config.n_steps}")
-    print(
-        f"eval_set:               {EVAL_SET_PATH.relative_to(REPO_ROOT)} "
-        f"({eval_states_dev.shape[0]} states)"
-    )
+    # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+    # eval_set printout removed alongside the frozen npz; value_eval logs
+    # its own per-call shape inside the training loop.
+    # print(
+    #     f"eval_set:               {EVAL_SET_PATH.relative_to(REPO_ROOT)} "
+    #     f"({eval_states_dev.shape[0]} states)"
+    # )
     if resume_mode is not None:
         try:
             resume_display = args.resume.relative_to(REPO_ROOT)
@@ -313,7 +327,10 @@ def main() -> None:
                 target_sync_interval=config.target_sync_interval,
                 learning_rate=config.learning_rate,
                 n_steps=config.n_steps,
-                eval_set_size=int(eval_states_dev.shape[0]),
+                # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+                # eval_set_size is now per-call (n_per_walk_depth × |walk_depths|)
+                # rather than a single fixed npz length.
+                # eval_set_size=int(eval_states_dev.shape[0]),
             )
 
             if resume_mode is not None:
@@ -358,61 +375,50 @@ def main() -> None:
                         flush=True,
                     )
 
-                if config.eval_every and step % config.eval_every == 0:
-                    vstar_metrics = eval_against_v_star(
-                        net, eval_states_dev, eval_depths_cpu
-                    )
-                    solve_metrics = greedy_solve(
-                        net, spec, generator=eval_solve_generator
-                    )
-                    logger.log(
-                        event="eval",
-                        step=step,
-                        **vstar_metrics,
-                        **solve_metrics,
-                    )
-                    print(
-                        f"  eval @ step {step:>7d}  "
-                        f"macro_mae {vstar_metrics['macro_mae']:.4f}  "
-                        f"val_mae {vstar_metrics['val_mae']:.4f}  "
-                        f"pred_std {vstar_metrics['pred_std']:.3f}  "
-                        f"solve: {_format_solve_rates(solve_metrics)}",
-                        flush=True,
-                    )
+                # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+                # The legacy eval_against_v_star + greedy_solve calls were
+                # removed in P1c when the three-function API landed; P2a
+                # wires the new ``value_eval`` here at every eval_every step
+                # and logs ``macro_v_star_mae`` (the early-stop driver) plus
+                # the per_walk_depth and v_star_mae views to wandb.
+                # if config.eval_every and step % config.eval_every == 0:
+                #     vstar_metrics = eval_against_v_star(
+                #         net, eval_states_dev, eval_depths_cpu
+                #     )
+                #     solve_metrics = greedy_solve(
+                #         net, spec, generator=eval_solve_generator
+                #     )
+                #     logger.log(
+                #         event="eval",
+                #         step=step,
+                #         **vstar_metrics,
+                #         **solve_metrics,
+                #     )
+                #     print(...)
 
                 if config.checkpoint_every and step % config.checkpoint_every == 0:
                     ckpt_path = out_dir / f"net_step_{step}.pt"
                     _save_checkpoint(ckpt_path, net, target_net, optimizer, step)
                     logger.log(event="checkpoint", step=step, path=str(ckpt_path.name))
 
-            # Final eval before the last checkpoint, so run_end carries the
-            # finals for downstream analysis.
-            final_vstar = eval_against_v_star(net, eval_states_dev, eval_depths_cpu)
-            final_solve = greedy_solve(net, spec, generator=eval_solve_generator)
-            logger.log(
-                event="eval",
-                step=config.n_steps,
-                final=True,
-                **final_vstar,
-                **final_solve,
-            )
+            # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
+            # Final-eval block is wired to value_eval + post-training beam
+            # eval (beam_eval_walk + beam_eval_v_star) by P2a. Until then
+            # the final eval / run_end logging is disabled with this stub
+            # so the loop closes cleanly without a NameError.
+            # final_vstar = eval_against_v_star(...)
+            # final_solve = greedy_solve(...)
             _save_checkpoint(
                 out_dir / "net_final.pt", net, target_net, optimizer, config.n_steps
             )
             logger.log(
                 event="run_end",
                 step=config.n_steps,
-                final_macro_mae=final_vstar["macro_mae"],
-                final_val_mae=final_vstar["val_mae"],
-                final_pred_mean=final_vstar["pred_mean"],
-                final_pred_std=final_vstar["pred_std"],
-                **{f"final_{k}": v for k, v in final_solve.items()},
+                # P2a: final_* metric fields slot in here.
             )
 
         print()
-        print(f"final macro_mae: {final_vstar['macro_mae']:.4f}")
-        print(f"final val_mae:   {final_vstar['val_mae']:.4f}")
-        print(f"final solve:     {_format_solve_rates(final_solve)}")
+        # P2a: final-metric printout slots in here once value_eval is wired.
         metrics_path = out_dir / "metrics.jsonl"
         try:
             metrics_display = metrics_path.relative_to(REPO_ROOT)

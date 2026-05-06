@@ -36,6 +36,7 @@ with 3x3 and dropping the canonicalization helpers):
 - ``save_v_star_bounded_3x3(v_star, path)``
 - ``lookup_v_star_bounded_3x3(state, v_star)``
 - ``lookup_v_star_bounded_3x3_batch(states, v_star)``
+- ``sample_states_at_v_star_3x3(states, depths, target_v_star, n, *, rng)``
 """
 
 from __future__ import annotations
@@ -156,6 +157,56 @@ def load_v_star_bounded_3x3_arrays(path: Path) -> tuple[np.ndarray, np.ndarray]:
         states = data["states"].copy()
         depths = data["depths"].copy()
     return states, depths
+
+
+def sample_states_at_v_star_3x3(
+    states: np.ndarray,
+    depths: np.ndarray,
+    target_v_star: int,
+    n: int,
+    *,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Uniformly sample ``n`` states with ``V*[state] == target_v_star``.
+
+    Mirrors ``v_star_2x2.sample_states_at_v_star`` but **without the rotate
+    option**: 3x3 states stored in this oracle are not canonicalized over
+    a 24-rotation orbit (see module docstring) — they are raw sticker
+    tensors, exactly the shape the solver consumes. There is no rotation
+    step to optionally undo.
+
+    Args:
+        states: ``(N, 54)`` int8 — from ``load_v_star_bounded_3x3_arrays``.
+        depths: ``(N,)`` int — same N as ``states``; optimal QTM depth.
+        target_v_star: the V* depth to sample from. ``0`` is the (lone)
+            solved state.
+        n: number of states to return.
+        rng: numpy random generator (deterministic when seeded).
+
+    Returns:
+        ``(n, 54)`` int8 array of states. Sampling is with replacement
+        when ``n`` exceeds the layer count at this depth.
+
+    Raises:
+        ValueError: if no states have ``V* == target_v_star``, or if
+            ``n < 0``.
+    """
+    if n < 0:
+        raise ValueError(f"n must be non-negative; got {n}")
+    if n == 0:
+        return np.empty((0, 54), dtype=np.int8)
+    mask = depths == target_v_star
+    if not mask.any():
+        raise ValueError(
+            f"no states with V*={target_v_star} in the table "
+            f"(table covers V* ∈ {{{int(depths.min())}, ..., {int(depths.max())}}})"
+        )
+    candidate_idx = np.flatnonzero(mask)
+    n_candidates = candidate_idx.shape[0]
+    replace = n > n_candidates
+    chosen_local = rng.choice(n_candidates, size=n, replace=replace)
+    chosen = candidate_idx[chosen_local]
+    return states[chosen].astype(np.int8, copy=True)
 
 
 def lookup_v_star_bounded_3x3(
