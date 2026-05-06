@@ -34,6 +34,18 @@ When an idea surfaces that isn't the current block's goal, append here:
 Surfaced: YYYY-MM-DD
 -->
 
+### M8 backlog: K=8 bounded V\* oracle expansion (warm-start from K=6)
+Bounded V\* currently at K=6 (~1M states, 14.9 MB cache, 4.8s build). Extending to K=8 means adding ~80M more states (depth-7 layer 8.2M new, depth-8 layer 70.9M new). Estimated ~10–15 GB working memory in dict form during build, ~6–15 min build time. Warm-start from existing K=6 cache (use the layer-6 frontier as the BFS seed) avoids re-doing layers 0..6. Validation: an "optimal-descent" test (greedy V\* descent from a random V\*=k state should reach solved in exactly k moves) — discussed but not landed yet, lift here when relevant. Useful when 3x3 training pushes solve rates near saturation at d≤6 and we want ground truth at d∈{7,8} too.
+Surfaced: 2026-05-06
+
+### M8 backlog: T0 capacity calibration on 3x3
+Sweep `batch_size × body_widths × n_residual_blocks` for ms/step on 3x3 (mirrors `experiments/davi-2x2/calibrate_step_time.py`). Earned 3x3-specific architecture replaces the M8 phase-2 hand-picked guess (`[5120, 1024] × 4 bn`). Stub already in place at `experiments/davi-3x3/calibrate_step_time_3x3.py` raising `NotImplementedError` until populated. Likely runs after Phase 2 smoke completes — at that point we have signal on whether the hand-picked guess is reasonable or undersized.
+Surfaced: 2026-05-06
+
+### Drive-by: rename 2x2 wandb project from `rubik` to `rubik-2x2`
+3x3 work goes to a separate `rubik-3x3` project to prevent cross-contamination. For symmetry, rename the existing 2x2 project from `rubik` to `rubik-2x2`. Note: wandb project renames may break links in old run dirs / README references. Decide whether to rename via UI (lossless for the project; existing run URLs may auto-redirect) or freeze old runs in `rubik` and create `rubik-2x2` afresh for new work.
+Surfaced: 2026-05-06
+
 ## Paused — 2x2 M5-followup (post-3x3)
 
 Parked 2026-05-06 when we pivoted the active surface to 3x3 (see Sequencing note above). 2x2 still has its V\* oracle, the M6 capability gap is real but documented, and any of these items remains a coherent block to open if/when we return. Not abandoned — just out of the active path.
