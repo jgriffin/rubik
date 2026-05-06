@@ -1,5 +1,7 @@
 """V* enumerator tests — canonicalization, BFS depth profile, lookup helpers."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -12,8 +14,10 @@ from rubik.oracle.v_star_2x2 import (
     canonicalize_states_batch,
     compute_v_star_2x2,
     load_v_star,
+    load_v_star_arrays,
     lookup_v_star,
     lookup_v_star_batch,
+    sample_states_at_v_star,
     save_v_star,
 )
 
@@ -145,3 +149,125 @@ def test_canonicalize_rejects_wrong_shape():
 def test_canonicalize_states_batch_rejects_wrong_shape():
     with pytest.raises(ValueError, match="\\(B, 24\\)"):
         canonicalize_states_batch(np.zeros((5, 20), dtype=np.int8))
+
+
+# ---------------------------------------------------------------------------
+# V*-stratified sampling — load_v_star_arrays + sample_states_at_v_star.
+# These tests use the real on-disk cache when available; otherwise they
+# build a tiny synthetic table so they remain runnable in any environment.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synth_v_star(tmp_path):
+    """Synthetic V*-table fixture: 3 distinct depths, 5 states each."""
+    rng = np.random.default_rng(42)
+    n_per_depth = 5
+    depths_list = [0, 5, 10]
+    states_list, depth_arr_list = [], []
+    for d in depths_list:
+        # Pick canonical states by canonicalizing random states (the
+        # "canonical" property is what `lookup_v_star_batch` exercises).
+        rand = rng.integers(0, 6, size=(n_per_depth, 24), dtype=np.int8)
+        canon = canonicalize_states_batch(rand)
+        states_list.append(canon)
+        depth_arr_list.append(np.full(n_per_depth, d, dtype=np.int8))
+    states = np.concatenate(states_list, axis=0)
+    depths = np.concatenate(depth_arr_list, axis=0)
+    return states, depths
+
+
+def test_load_v_star_arrays_round_trip(tmp_path, synth_v_star):
+    states, depths = synth_v_star
+    cache_path = tmp_path / "synth.npz"
+    np.savez_compressed(cache_path, states=states, depths=depths)
+    loaded_states, loaded_depths = load_v_star_arrays(cache_path)
+    assert np.array_equal(loaded_states, states)
+    assert np.array_equal(loaded_depths, depths)
+
+
+def test_sample_states_at_v_star_returns_correct_depth(synth_v_star):
+    states, depths = synth_v_star
+    rng = np.random.default_rng(0)
+    for d in (0, 5, 10):
+        sample = sample_states_at_v_star(states, depths, d, n=8, rng=rng, rotate=False)
+        assert sample.shape == (8, 24)
+        for row in sample:
+            canon = canonicalize_state(row)
+            # canonical sample row must match one of the d-depth seeds.
+            seeds = states[depths == d]
+            assert any(np.array_equal(canon, seed) for seed in seeds)
+
+
+def test_sample_states_at_v_star_rotate_preserves_v_star(synth_v_star):
+    """Rotation preserves V* — rotated rows still canonicalize to a depth-d seed."""
+    states, depths = synth_v_star
+    rng = np.random.default_rng(1)
+    sample = sample_states_at_v_star(states, depths, 5, n=20, rng=rng, rotate=True)
+    seeds_at_5 = states[depths == 5]
+    for row in sample:
+        canon = canonicalize_state(row)
+        assert any(np.array_equal(canon, seed) for seed in seeds_at_5)
+
+
+def test_sample_states_at_v_star_with_replacement(synth_v_star):
+    """Asking for more than the orbit count returns with-replacement samples."""
+    states, depths = synth_v_star
+    rng = np.random.default_rng(2)
+    # Synth table has 5 states per depth; ask for 50.
+    sample = sample_states_at_v_star(states, depths, 0, n=50, rng=rng, rotate=False)
+    assert sample.shape == (50, 24)
+
+
+def test_sample_states_at_v_star_zero_n(synth_v_star):
+    states, depths = synth_v_star
+    rng = np.random.default_rng(0)
+    sample = sample_states_at_v_star(states, depths, 5, n=0, rng=rng)
+    assert sample.shape == (0, 24)
+
+
+def test_sample_states_at_v_star_missing_depth_raises(synth_v_star):
+    states, depths = synth_v_star
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="V\\*=99"):
+        sample_states_at_v_star(states, depths, 99, n=4, rng=rng)
+
+
+def test_sample_states_at_v_star_negative_n_raises(synth_v_star):
+    states, depths = synth_v_star
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="n must be non-negative"):
+        sample_states_at_v_star(states, depths, 5, n=-1, rng=rng)
+
+
+def test_sample_states_at_v_star_deterministic_under_seed(synth_v_star):
+    states, depths = synth_v_star
+    sample_a = sample_states_at_v_star(
+        states, depths, 5, n=10, rng=np.random.default_rng(7)
+    )
+    sample_b = sample_states_at_v_star(
+        states, depths, 5, n=10, rng=np.random.default_rng(7)
+    )
+    assert np.array_equal(sample_a, sample_b)
+
+
+def test_sample_states_at_v_star_lookup_matches_real_table():
+    """End-to-end check against the real V* npz: every sampled state's V*
+    matches the requested target. Skipped if the cache isn't built."""
+    cache_path = Path(__file__).resolve().parents[2] / "data" / "v_star_2x2.npz"
+    if not cache_path.exists():
+        pytest.skip(f"V* cache not built at {cache_path}; skipping real-table test")
+    from rubik.oracle.v_star_2x2 import load_v_star
+
+    v_star = load_v_star(cache_path)
+    states_arr, depths_arr = load_v_star_arrays(cache_path)
+    rng = np.random.default_rng(0)
+    for target in (0, 5, 10, 14):
+        sample = sample_states_at_v_star(
+            states_arr, depths_arr, target, n=20, rng=rng, rotate=True
+        )
+        looked_up = lookup_v_star_batch(sample, v_star)
+        assert (looked_up == target).all(), (
+            f"V*-stratified sample at target={target} returned states with "
+            f"V* values {sorted(set(looked_up.tolist()))}"
+        )

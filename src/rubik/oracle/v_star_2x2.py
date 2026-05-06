@@ -205,6 +205,79 @@ def load_v_star(path: Path) -> dict[bytes, int]:
     return {states[i].tobytes(): int(depths[i]) for i in range(len(states))}
 
 
+def load_v_star_arrays(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Load V* as (states, depths) arrays — needed for V*-stratified sampling.
+
+    Returns:
+        states: ``(N, 24)`` int8 — canonical-state representatives.
+        depths: ``(N,)`` int8 — optimal QTM depth for the corresponding row.
+    """
+    with np.load(path) as data:
+        states = data["states"].copy()
+        depths = data["depths"].copy()
+    return states, depths
+
+
+def sample_states_at_v_star(
+    states: np.ndarray,
+    depths: np.ndarray,
+    target_v_star: int,
+    n: int,
+    *,
+    rng: np.random.Generator,
+    rotate: bool = True,
+) -> np.ndarray:
+    """Uniformly sample ``n`` states with ``V*[state] == target_v_star``.
+
+    The V* table stores canonical (lex-min over the 24-rotation orbit)
+    representatives. Whole-cube rotations preserve V*, so when ``rotate=True``
+    each sampled row gets a random rotation applied — this matches the
+    training input distribution (``random_scrambles`` returns un-canonicalized
+    states), so eval inputs aren't artificially biased toward the canonical
+    basis the network sees only rarely during training.
+
+    Args:
+        states: ``(N, 24)`` int8 — from ``load_v_star_arrays``.
+        depths: ``(N,)`` int — same shape as ``states``.
+        target_v_star: the V* depth to sample from. ``0`` is the (lone) solved
+            state.
+        n: number of states to return.
+        rng: numpy random generator (deterministic when seeded).
+        rotate: if True, apply a random whole-cube rotation per row before
+            returning.
+
+    Returns:
+        ``(n, 24)`` int8 array of states. Sampling is with replacement when
+        ``n`` exceeds the orbit count at this depth.
+
+    Raises:
+        ValueError: if no states have ``V* == target_v_star``.
+    """
+    if n < 0:
+        raise ValueError(f"n must be non-negative; got {n}")
+    if n == 0:
+        return np.empty((0, 24), dtype=np.int8)
+    mask = depths == target_v_star
+    if not mask.any():
+        raise ValueError(
+            f"no states with V*={target_v_star} in the table "
+            f"(table covers V* ∈ {{{int(depths.min())}, ..., {int(depths.max())}}})"
+        )
+    candidate_idx = np.flatnonzero(mask)
+    n_candidates = candidate_idx.shape[0]
+    replace = n > n_candidates
+    chosen_local = rng.choice(n_candidates, size=n, replace=replace)
+    chosen = candidate_idx[chosen_local]
+    sampled = states[chosen].astype(np.int8, copy=True)
+
+    if rotate:
+        rot_idx = rng.integers(0, 24, size=n)
+        perms = _CUBE_ROT_PERM[rot_idx]  # (n, 24)
+        sampled = np.take_along_axis(sampled, perms, axis=1)
+
+    return sampled
+
+
 def lookup_v_star(state: np.ndarray | torch.Tensor, v_star: dict[bytes, int]) -> int:
     """Look up the optimal QTM distance for a single state."""
     canon = canonicalize_state(state)
