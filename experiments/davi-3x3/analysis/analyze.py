@@ -1,26 +1,24 @@
 """Analyze each DAVI 3x3 run's metrics.jsonl and write a results.md skeleton.
 
-Iterates over the canonical ``RUNS`` list (empty in the P1a scaffold —
-populated as cycles land starting in P2b) and produces, per run:
+Iterates over the canonical ``RUNS`` list and produces, per run:
 
 - A train-loss curve summary (start / end / min).
-- An eval macro-MAE trajectory: every eval step, macro_mae and val_mae values.
-- A per-depth MAE table at start (first eval), middle, and end (final).
-- A greedy-solve rate trajectory per test depth.
+- An eval trajectory: every eval step, corrected_macro and
+  pred_mean/pred_std values.
+- A per-V*-layer MAE table at start (first eval), middle, and end
+  (final), drawn from the ``v_star_mae/d{1..6}`` keys emitted by the
+  bounded BFS oracle (K=6).
 
-Mirrors ``experiments/davi-2x2/analysis/analyze.py`` cell-for-cell. The
-file as a whole stays cold-readable; flipping between runs is a scroll
-rather than a re-run.
+Note: the 3x3 ``value_eval`` schema does NOT emit live
+``solve_rate_dN`` / ``avg_solve_len_dN`` keys (per plan §P1c — beam cost
+would slow training). The capability picture lives in
+``<run>/results/beam_eval_focused.json`` and is rendered by
+``render_error_trajectories.py``, not summarized here.
 
 Per project convention, we do *not* auto-generate ``intuition.md`` —
 that's hand-written, then appended at the end of ``results.md`` so the
 hypothesis-and-verification reasoning persists across re-runs of this
 analyzer.
-
-When ``RUNS`` is empty (pre-P2b state), this script writes a stub
-``results.md`` with the title and a placeholder note rather than
-crashing. That keeps the eval pipeline runnable end-to-end on an empty
-``runs/`` per the phase 1 acceptance gate.
 
 Usage::
 
@@ -38,10 +36,15 @@ RUNS_DIR = EXPERIMENT_DIR / "runs"
 RESULTS_PATH = EXPERIMENT_DIR / "results" / "results.md"
 INTUITION_PATH = EXPERIMENT_DIR / "results" / "intuition.md"
 
-# (label, run_subdir) — keep in sync with the renderer + capture script.
-# Empty in the P1a scaffold; cycles append here as they land (starting
-# with P2b's smoke run). Mirrors the davi-2x2 RUNS pattern.
-RUNS: list[tuple[str, str]] = []
+# (label, run_subdir) — keep in sync with the renderer.
+RUNS: list[tuple[str, str]] = [
+    ("smoke", "20260506T203408Z_smoke"),
+]
+
+# V* layer range emitted by the bounded oracle (K=6). Layer 0 is dropped
+# from corrected_macro because some evals in earlier runs erroneously
+# included v_star_mae/d0 in the recorded macro_v_star_mae.
+V_STAR_DEPTHS = list(range(1, 7))
 
 
 def _load_records(metrics_path: Path) -> list[dict]:
@@ -75,35 +78,36 @@ def _eval_records(records: list[dict]) -> list[dict]:
     return [r for r in records if r.get("event") == "eval"]
 
 
-def _solve_depth_keys(eval_recs: list[dict]) -> list[int]:
-    if not eval_recs:
-        return []
-    rec = eval_recs[0]
-    depths: list[int] = []
-    for k in rec:
-        if k.startswith("solve_rate_d"):
-            depths.append(int(k[len("solve_rate_d") :]))
-    return sorted(depths)
+def _corrected_macro(rec: dict) -> float | None:
+    """Mean of v_star_mae/dN for N>=1 (drops contaminated d=0)."""
+    vals = []
+    for d in V_STAR_DEPTHS:
+        v = rec.get(f"v_star_mae/d{d}")
+        if v is not None:
+            vals.append(float(v))
+    if not vals:
+        return None
+    return sum(vals) / len(vals)
 
 
-def _format_macro_mae_trajectory(eval_recs: list[dict]) -> str:
+def _format_macro_trajectory(eval_recs: list[dict]) -> str:
     lines = [
-        "| step | train_loss_recent | macro_mae | val_mae | pred_mean | pred_std |",
-        "|-----:|-----:|-----:|-----:|-----:|-----:|",
+        "| step | corrected_macro | pred_mean | pred_std |",
+        "|-----:|-----:|-----:|-----:|",
     ]
     for rec in eval_recs:
         step = rec["step"]
-        # train_loss_recent intentionally not joined here — the curve
-        # summary sits in its own section. Just dash-fill to keep table
-        # mechanically simple.
-        lines.append(
-            f"| {step} | — | {rec['macro_mae']:.4f} | "
-            f"{rec['val_mae']:.4f} | {rec['pred_mean']:.3f} | {rec['pred_std']:.3f} |"
-        )
+        cm = _corrected_macro(rec)
+        cm_s = f"{cm:.4f}" if cm is not None else "—"
+        pm = rec.get("pred_mean")
+        ps = rec.get("pred_std")
+        pm_s = f"{pm:.3f}" if pm is not None else "—"
+        ps_s = f"{ps:.3f}" if ps is not None else "—"
+        lines.append(f"| {step} | {cm_s} | {pm_s} | {ps_s} |")
     return "\n".join(lines)
 
 
-def _format_per_depth_table(eval_recs: list[dict]) -> str:
+def _format_per_v_star_table(eval_recs: list[dict]) -> str:
     if not eval_recs:
         return "_(no eval records)_"
     pick_recs = []
@@ -114,55 +118,19 @@ def _format_per_depth_table(eval_recs: list[dict]) -> str:
     if len(eval_recs) >= 2:
         pick_recs.append(("end", eval_recs[-1]))
 
-    # Collect all depths seen across the picked records.
-    all_depths = set()
-    for _label, rec in pick_recs:
-        all_depths.update(int(d) for d in rec["per_depth_mae"])
-    sorted_depths = sorted(all_depths)
-
     header = (
-        "| depth | "
+        "| V* depth | "
         + " | ".join(f"{label} (step {rec['step']})" for label, rec in pick_recs)
         + " |"
     )
     sep = "|------:|" + "|".join(["------:"] * len(pick_recs)) + "|"
     lines = [header, sep]
-    for d in sorted_depths:
+    for d in V_STAR_DEPTHS:
         cells = []
         for _label, rec in pick_recs:
-            v = rec["per_depth_mae"].get(str(d))
-            if v is None:
-                # JSON keys can come back as int when round-tripped via
-                # python; per_depth_mae was built with int() keys, but
-                # json serializes them as strings.
-                v = rec["per_depth_mae"].get(d)
+            v = rec.get(f"v_star_mae/d{d}")
             cells.append(f"{v:.3f}" if v is not None else "—")
         lines.append(f"| {d} | " + " | ".join(cells) + " |")
-    return "\n".join(lines)
-
-
-def _format_solve_trajectory(eval_recs: list[dict]) -> str:
-    depths = _solve_depth_keys(eval_recs)
-    if not depths:
-        return "_(no greedy-solve records)_"
-    header = (
-        "| step | "
-        + " | ".join(f"d{d} rate" for d in depths)
-        + " | "
-        + " | ".join(f"d{d} avg_len" for d in depths)
-        + " |"
-    )
-    sep = "|-----:|" + "|".join(["-----:"] * (len(depths) * 2)) + "|"
-    lines = [header, sep]
-    for rec in eval_recs:
-        rates = [f"{rec.get(f'solve_rate_d{d}', float('nan')):.2f}" for d in depths]
-        lens = []
-        for d in depths:
-            v = rec.get(f"avg_solve_len_d{d}")
-            lens.append(f"{v:.2f}" if v is not None else "—")
-        lines.append(
-            f"| {rec['step']} | " + " | ".join(rates) + " | " + " | ".join(lens) + " |"
-        )
     return "\n".join(lines)
 
 
@@ -204,19 +172,23 @@ def _section_for_run(label: str, run_subdir: str) -> list[str]:
         )
     md.append("")
 
-    md.append("### Eval macro-MAE trajectory")
+    md.append("### Eval corrected-macro trajectory")
     md.append("")
-    md.append(_format_macro_mae_trajectory(eval_recs))
-    md.append("")
-
-    md.append("### Per-depth MAE — start / middle / end")
-    md.append("")
-    md.append(_format_per_depth_table(eval_recs))
+    md.append(_format_macro_trajectory(eval_recs))
     md.append("")
 
-    md.append("### Greedy-policy solve rate trajectory")
+    md.append("### Per-V*-layer MAE — start / middle / end (bounded oracle, d=1..6)")
     md.append("")
-    md.append(_format_solve_trajectory(eval_recs))
+    md.append(_format_per_v_star_table(eval_recs))
+    md.append("")
+
+    md.append("### Beam capability")
+    md.append("")
+    md.append(
+        "_(Live solve_rate / avg_solve_len are not captured during 3x3 "
+        "training. See `<run>/results/beam_eval_focused.json` and the "
+        "Beam capability section of `error_trajectories.html`.)_"
+    )
     md.append("")
 
     return md
@@ -227,17 +199,16 @@ def main() -> None:
     md_lines.append("# DAVI 3x3 — per-run results")
     md_lines.append("")
     md_lines.append(
-        "_One section per run: train loss, eval macro-MAE trajectory, per-depth "
-        "MAE at start / middle / end, and greedy-solve trajectory. The "
-        "side-by-side cross-run views (overlaid charts, histograms, wavefront "
-        "heatmap) live in `error_trajectories.html`._"
+        "_One section per run: train loss, eval corrected-macro trajectory, and "
+        "per-V*-layer MAE at start / middle / end. Cross-run views (overlaid "
+        "charts, beam capability bars, heatmap) live in "
+        "`error_trajectories.html`._"
     )
     md_lines.append("")
 
     if not RUNS:
         md_lines.append(
-            "_(No runs registered yet. The first cycle lands in P2b — see "
-            "`plans/m8-3x3-davi.md`. Append to `RUNS` in this script when a "
+            "_(No runs registered yet. Append to `RUNS` in this script when a "
             "new run lands.)_"
         )
         md_lines.append("")

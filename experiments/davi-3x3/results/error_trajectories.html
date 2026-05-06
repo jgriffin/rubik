@@ -15,10 +15,798 @@
 <body>
   <h1>M8 DAVI 3x3 — error trajectories</h1>
   <p class="note">
-    Phase-1 scaffold. Eval is on the depth-stratified eval set built by
-    <code>build_eval_set_3x3.py</code>; macro_mae averages across walk-depth
-    bins (1..14). Bounded oracle V* is a side-channel (depths 0..6 only).
+    Eval is on the random-walk eval set + bounded V* oracle (K=6). Walks
+    of length 1..14 generate scrambled states; walks that land within
+    the bounded oracle contribute to <code>v_star_mae/d{0..6}</code>.
+    All walks contribute to <code>per_walk_depth/d{1..14}</code>
+    pred_mean/pred_std. The corrected macro is the mean of
+    <code>v_star_mae/d{1..6}</code>.
   </p>
-  <p class='note'>_(No runs registered yet. The first cycle lands in P2b — see <code>plans/m8-3x3-davi.md</code>. Append to <code>RUNS</code> in this script when a new run lands.)_</p>
+  
+  <div style="margin:12px 0"><span style="display:inline-block;margin-right:18px"><span style="display:inline-block;width:14px;height:14px;background:#1f77b4;border-radius:2px;vertical-align:middle"></span><span style="margin-left:6px;font-size:12px;color:#333">smoke 10k (K=8, sync=500)</span></span></div>
+
+  <h2>1. Corrected macro-MAE over training step</h2>
+  <p class="note">
+    Macro is recomputed per record from <code>v_star_mae/d{1..6}</code>
+    (mean across present layers). The recorded
+    <code>macro_v_star_mae</code> field is ignored because some evals in
+    the smoke run erroneously included <code>v_star_mae/d0</code> in the
+    average; the renderer derives from per-layer values to avoid that
+    contamination. y=1.0 is a scale anchor only (not a 3x3 acceptance
+    gate).
+  </p>
+  <svg viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="900" height="360" fill="#fafafa"/>
+<rect x="60" y="30" width="820" height="290" fill="white" stroke="#ccc"/>
+<line x1="60" y1="320.0" x2="880" y2="320.0" stroke="#eee"/>
+<text x="52" y="324.0" text-anchor="end" font-size="11" fill="#666">0</text>
+<line x1="60" y1="240.6" x2="880" y2="240.6" stroke="#eee"/>
+<text x="52" y="244.6" text-anchor="end" font-size="11" fill="#666">1</text>
+<line x1="60" y1="161.2" x2="880" y2="161.2" stroke="#eee"/>
+<text x="52" y="165.2" text-anchor="end" font-size="11" fill="#666">2</text>
+<line x1="60" y1="81.7" x2="880" y2="81.7" stroke="#eee"/>
+<text x="52" y="85.7" text-anchor="end" font-size="11" fill="#666">3</text>
+<line x1="60" y1="240.6" x2="880" y2="240.6" stroke="#000" stroke-dasharray="4 4" stroke-width="1"/>
+<text x="872" y="236.6" text-anchor="end" font-size="11" fill="#000">scale anchor (corrected_macro = 1.0)</text>
+<line x1="60.0" y1="320" x2="60.0" y2="324" stroke="#666"/>
+<text x="60.0" y="338" text-anchor="middle" font-size="11" fill="#666">0</text>
+<line x1="265.0" y1="320" x2="265.0" y2="324" stroke="#666"/>
+<text x="265.0" y="338" text-anchor="middle" font-size="11" fill="#666">2500</text>
+<line x1="470.0" y1="320" x2="470.0" y2="324" stroke="#666"/>
+<text x="470.0" y="338" text-anchor="middle" font-size="11" fill="#666">5000</text>
+<line x1="675.0" y1="320" x2="675.0" y2="324" stroke="#666"/>
+<text x="675.0" y="338" text-anchor="middle" font-size="11" fill="#666">7500</text>
+<line x1="880.0" y1="320" x2="880.0" y2="324" stroke="#666"/>
+<text x="880.0" y="338" text-anchor="middle" font-size="11" fill="#666">10000</text>
+<path d="M 101.00 43.81 L 142.00 78.60 L 183.00 130.25 L 224.00 177.53 L 265.00 213.49 L 306.00 233.37 L 347.00 240.72 L 388.00 245.57 L 429.00 247.92 L 470.00 255.03 L 511.00 256.06 L 552.00 256.03 L 593.00 256.73 L 634.00 260.41 L 675.00 261.70 L 716.00 260.53 L 757.00 258.62 L 798.00 259.78 L 839.00 257.52 L 880.00 260.52" fill="none" stroke="#1f77b4" stroke-width="2"/>
+<circle cx="101.0" cy="43.8" r="2.5" fill="#1f77b4"/>
+<circle cx="142.0" cy="78.6" r="2.5" fill="#1f77b4"/>
+<circle cx="183.0" cy="130.3" r="2.5" fill="#1f77b4"/>
+<circle cx="224.0" cy="177.5" r="2.5" fill="#1f77b4"/>
+<circle cx="265.0" cy="213.5" r="2.5" fill="#1f77b4"/>
+<circle cx="306.0" cy="233.4" r="2.5" fill="#1f77b4"/>
+<circle cx="347.0" cy="240.7" r="2.5" fill="#1f77b4"/>
+<circle cx="388.0" cy="245.6" r="2.5" fill="#1f77b4"/>
+<circle cx="429.0" cy="247.9" r="2.5" fill="#1f77b4"/>
+<circle cx="470.0" cy="255.0" r="2.5" fill="#1f77b4"/>
+<circle cx="511.0" cy="256.1" r="2.5" fill="#1f77b4"/>
+<circle cx="552.0" cy="256.0" r="2.5" fill="#1f77b4"/>
+<circle cx="593.0" cy="256.7" r="2.5" fill="#1f77b4"/>
+<circle cx="634.0" cy="260.4" r="2.5" fill="#1f77b4"/>
+<circle cx="675.0" cy="261.7" r="2.5" fill="#1f77b4"/>
+<circle cx="716.0" cy="260.5" r="2.5" fill="#1f77b4"/>
+<circle cx="757.0" cy="258.6" r="2.5" fill="#1f77b4"/>
+<circle cx="798.0" cy="259.8" r="2.5" fill="#1f77b4"/>
+<circle cx="839.0" cy="257.5" r="2.5" fill="#1f77b4"/>
+<circle cx="880.0" cy="260.5" r="2.5" fill="#1f77b4"/>
+<text x="470.0" y="352" text-anchor="middle" font-size="12" fill="#333">training step</text>
+<text x="14" y="175.0" text-anchor="middle" font-size="12" fill="#333" transform="rotate(-90 14 175.0)">corrected_macro (V*=1..6 mean)</text>
+</svg>
+
+  <h2>2. Per-V*-layer MAE — bounded oracle (d=1..6)</h2>
+  <p class="note">
+    One mini-chart per V*-true depth from the bounded BFS oracle (K=6).
+    Cells are populated only when at least one walk landed on a state
+    with that V*-true depth in the eval batch — sparse at deeper layers
+    early in training. Dashed grey reference at MAE=1.
+  </p>
+  <svg viewBox="0 0 1432 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1432" height="232" fill="#fafafa"/>
+<text x="716.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Per-V*-layer MAE (bounded oracle, d=1..6)</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 1</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="164.7" x2="228" y2="164.7" stroke="#eee" stroke-width="1"/>
+<text x="45" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="48" y1="145.3" x2="228" y2="145.3" stroke="#eee" stroke-width="1"/>
+<text x="45" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="48" y1="126.0" x2="228" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="48" y1="106.7" x2="228" y2="106.7" stroke="#eee" stroke-width="1"/>
+<text x="45" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="48" y1="87.3" x2="228" y2="87.3" stroke="#eee" stroke-width="1"/>
+<text x="45" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="48" y1="164.7" x2="228" y2="164.7" stroke="#aaa" stroke-dasharray="3 3" stroke-width="1"/>
+<path d="M 57.00 166.98 L 66.00 167.81 L 75.00 178.53 L 84.00 183.31 L 93.00 183.40 L 102.00 183.41 L 111.00 183.45 L 120.00 183.02 L 129.00 181.96 L 138.00 182.67 L 147.00 183.10 L 156.00 183.42 L 165.00 183.71 L 174.00 183.50 L 183.00 183.21 L 192.00 183.18 L 201.00 183.21 L 210.00 183.29 L 219.00 183.24 L 228.00 183.58" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 2</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="164.7" x2="464" y2="164.7" stroke="#eee" stroke-width="1"/>
+<text x="281" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="284" y1="145.3" x2="464" y2="145.3" stroke="#eee" stroke-width="1"/>
+<text x="281" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="284" y1="126.0" x2="464" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="284" y1="106.7" x2="464" y2="106.7" stroke="#eee" stroke-width="1"/>
+<text x="281" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="284" y1="87.3" x2="464" y2="87.3" stroke="#eee" stroke-width="1"/>
+<text x="281" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="284" y1="164.7" x2="464" y2="164.7" stroke="#aaa" stroke-dasharray="3 3" stroke-width="1"/>
+<path d="M 293.00 144.84 L 302.00 151.27 L 311.00 162.77 L 320.00 174.02 L 329.00 178.60 L 338.00 176.15 L 347.00 174.21 L 356.00 179.48 L 365.00 179.79 L 374.00 178.84 L 383.00 178.93 L 392.00 179.85 L 401.00 179.44 L 410.00 180.08 L 419.00 180.48 L 428.00 177.74 L 437.00 178.77 L 446.00 179.17 L 455.00 179.94 L 464.00 179.80" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 3</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="164.7" x2="700" y2="164.7" stroke="#eee" stroke-width="1"/>
+<text x="517" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="520" y1="145.3" x2="700" y2="145.3" stroke="#eee" stroke-width="1"/>
+<text x="517" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="520" y1="126.0" x2="700" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="520" y1="106.7" x2="700" y2="106.7" stroke="#eee" stroke-width="1"/>
+<text x="517" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="520" y1="87.3" x2="700" y2="87.3" stroke="#eee" stroke-width="1"/>
+<text x="517" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="520" y1="164.7" x2="700" y2="164.7" stroke="#aaa" stroke-dasharray="3 3" stroke-width="1"/>
+<path d="M 529.00 125.83 L 538.00 135.36 L 547.00 146.10 L 556.00 157.51 L 565.00 168.83 L 574.00 171.83 L 583.00 167.27 L 592.00 168.21 L 601.00 174.13 L 610.00 176.16 L 619.00 171.71 L 628.00 174.20 L 637.00 173.75 L 646.00 173.46 L 655.00 175.58 L 664.00 173.98 L 673.00 171.82 L 682.00 174.10 L 691.00 173.22 L 700.00 174.24" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 4</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="164.7" x2="936" y2="164.7" stroke="#eee" stroke-width="1"/>
+<text x="753" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="756" y1="145.3" x2="936" y2="145.3" stroke="#eee" stroke-width="1"/>
+<text x="753" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="756" y1="126.0" x2="936" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="756" y1="106.7" x2="936" y2="106.7" stroke="#eee" stroke-width="1"/>
+<text x="753" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="756" y1="87.3" x2="936" y2="87.3" stroke="#eee" stroke-width="1"/>
+<text x="753" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="756" y1="164.7" x2="936" y2="164.7" stroke="#aaa" stroke-dasharray="3 3" stroke-width="1"/>
+<path d="M 765.00 106.82 L 774.00 117.80 L 783.00 131.30 L 792.00 143.75 L 801.00 154.10 L 810.00 162.86 L 819.00 164.79 L 828.00 160.23 L 837.00 162.24 L 846.00 168.63 L 855.00 166.50 L 864.00 163.36 L 873.00 167.48 L 882.00 167.60 L 891.00 166.93 L 900.00 168.98 L 909.00 166.34 L 918.00 166.24 L 927.00 167.20 L 936.00 166.77" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="992" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="1070.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 5</text>
+<line x1="992" y1="184.0" x2="1172" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="992" y1="164.7" x2="1172" y2="164.7" stroke="#eee" stroke-width="1"/>
+<text x="989" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="992" y1="145.3" x2="1172" y2="145.3" stroke="#eee" stroke-width="1"/>
+<text x="989" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="992" y1="126.0" x2="1172" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="992" y1="106.7" x2="1172" y2="106.7" stroke="#eee" stroke-width="1"/>
+<text x="989" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="992" y1="87.3" x2="1172" y2="87.3" stroke="#eee" stroke-width="1"/>
+<text x="989" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="992" y1="68.0" x2="1172" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="992" y1="164.7" x2="1172" y2="164.7" stroke="#aaa" stroke-dasharray="3 3" stroke-width="1"/>
+<path d="M 1001.00 87.23 L 1010.00 98.97 L 1019.00 113.45 L 1028.00 127.71 L 1037.00 139.78 L 1046.00 148.89 L 1055.00 155.06 L 1064.00 155.77 L 1073.00 152.67 L 1082.00 156.88 L 1091.00 160.42 L 1100.00 158.27 L 1109.00 157.38 L 1118.00 160.31 L 1127.00 160.94 L 1136.00 160.72 L 1145.00 161.04 L 1154.00 159.54 L 1163.00 159.12 L 1172.00 160.31" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="1228" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="1306.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 6</text>
+<line x1="1228" y1="184.0" x2="1408" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="1228" y1="164.7" x2="1408" y2="164.7" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="1228" y1="145.3" x2="1408" y2="145.3" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="1228" y1="126.0" x2="1408" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="1228" y1="106.7" x2="1408" y2="106.7" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="1228" y1="87.3" x2="1408" y2="87.3" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="1228" y1="68.0" x2="1408" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="1225" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="1228" y1="164.7" x2="1408" y2="164.7" stroke="#aaa" stroke-dasharray="3 3" stroke-width="1"/>
+<path d="M 1237.00 68.90 L 1246.00 80.21 L 1255.00 94.70 L 1264.00 109.62 L 1273.00 123.72 L 1282.00 134.32 L 1291.00 143.43 L 1300.00 148.58 L 1309.00 147.94 L 1318.00 145.93 L 1327.00 149.95 L 1336.00 151.47 L 1345.00 149.84 L 1354.00 152.00 L 1363.00 151.72 L 1372.00 152.54 L 1381.00 153.17 L 1390.00 153.71 L 1399.00 150.02 L 1408.00 152.42" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+
+  <h2>3. Per walk-depth pred_mean — banded</h2>
+  <p class="note">
+    For each walk-depth d∈{1..14}, the network's mean predicted V*
+    over states reached by random walks of length d. The dashed grey
+    reference at <code>y = depth</code> shows where the prediction would
+    sit if the network identified each walk's length as its V*. In
+    practice walks fold back so true V* is ≤ d; the line should rise
+    over training and sit somewhat below the reference.
+  </p>
+  <svg viewBox="0 0 1196 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1196" height="232" fill="#fafafa"/>
+<text x="598.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Shallow pred_mean — walk-depths 1–5  (y 0..6)</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 1</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="164.7" x2="228" y2="164.7" stroke="#eee"/>
+<text x="45" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="48" y1="145.3" x2="228" y2="145.3" stroke="#eee"/>
+<text x="45" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="48" y1="126.0" x2="228" y2="126.0" stroke="#eee"/>
+<text x="45" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="48" y1="106.7" x2="228" y2="106.7" stroke="#eee"/>
+<text x="45" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="48" y1="87.3" x2="228" y2="87.3" stroke="#eee"/>
+<text x="45" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="48" y1="164.7" x2="228" y2="164.7" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="224" y="161.7" text-anchor="end" font-size="9" fill="#888">y = depth (1)</text>
+<path d="M 57.00 181.81 L 66.00 180.74 L 75.00 170.05 L 84.00 165.06 L 93.00 164.08 L 102.00 165.25 L 111.00 164.84 L 120.00 163.92 L 129.00 165.43 L 138.00 163.43 L 147.00 165.42 L 156.00 164.94 L 165.00 164.47 L 174.00 164.43 L 183.00 164.75 L 192.00 165.45 L 201.00 165.45 L 210.00 163.96 L 219.00 164.73 L 228.00 164.25" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 2</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="164.7" x2="464" y2="164.7" stroke="#eee"/>
+<text x="281" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="284" y1="145.3" x2="464" y2="145.3" stroke="#eee"/>
+<text x="281" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="284" y1="126.0" x2="464" y2="126.0" stroke="#eee"/>
+<text x="281" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="284" y1="106.7" x2="464" y2="106.7" stroke="#eee"/>
+<text x="281" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="284" y1="87.3" x2="464" y2="87.3" stroke="#eee"/>
+<text x="281" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="284" y1="145.3" x2="464" y2="145.3" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="460" y="142.3" text-anchor="end" font-size="9" fill="#888">y = depth (2)</text>
+<path d="M 293.00 184.00 L 302.00 177.92 L 311.00 166.47 L 320.00 155.43 L 329.00 150.73 L 338.00 153.17 L 347.00 155.12 L 356.00 149.80 L 365.00 148.89 L 374.00 150.54 L 383.00 149.72 L 392.00 149.47 L 401.00 149.88 L 410.00 148.80 L 419.00 148.91 L 428.00 151.64 L 437.00 150.60 L 446.00 150.16 L 455.00 149.37 L 464.00 149.52" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 3</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="164.7" x2="700" y2="164.7" stroke="#eee"/>
+<text x="517" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="520" y1="145.3" x2="700" y2="145.3" stroke="#eee"/>
+<text x="517" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="520" y1="126.0" x2="700" y2="126.0" stroke="#eee"/>
+<text x="517" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="520" y1="106.7" x2="700" y2="106.7" stroke="#eee"/>
+<text x="517" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="520" y1="87.3" x2="700" y2="87.3" stroke="#eee"/>
+<text x="517" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="520" y1="126.0" x2="700" y2="126.0" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="696" y="123.0" text-anchor="end" font-size="9" fill="#888">y = depth (3)</text>
+<path d="M 529.00 184.00 L 538.00 174.94 L 547.00 164.22 L 556.00 152.85 L 565.00 141.55 L 574.00 140.28 L 583.00 144.02 L 592.00 141.89 L 601.00 136.48 L 610.00 134.68 L 619.00 138.93 L 628.00 135.84 L 637.00 137.04 L 646.00 137.16 L 655.00 135.11 L 664.00 137.61 L 673.00 138.69 L 682.00 136.86 L 691.00 137.05 L 700.00 136.37" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 4</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="164.7" x2="936" y2="164.7" stroke="#eee"/>
+<text x="753" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="756" y1="145.3" x2="936" y2="145.3" stroke="#eee"/>
+<text x="753" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="756" y1="126.0" x2="936" y2="126.0" stroke="#eee"/>
+<text x="753" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="756" y1="106.7" x2="936" y2="106.7" stroke="#eee"/>
+<text x="753" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="756" y1="87.3" x2="936" y2="87.3" stroke="#eee"/>
+<text x="753" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="756" y1="106.7" x2="936" y2="106.7" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="932" y="103.7" text-anchor="end" font-size="9" fill="#888">y = depth (4)</text>
+<path d="M 765.00 184.00 L 774.00 173.61 L 783.00 159.43 L 792.00 147.14 L 801.00 136.97 L 810.00 128.63 L 819.00 127.09 L 828.00 130.99 L 837.00 128.97 L 846.00 123.22 L 855.00 125.52 L 864.00 127.39 L 873.00 124.91 L 882.00 123.87 L 891.00 125.27 L 900.00 122.53 L 909.00 126.13 L 918.00 125.08 L 927.00 125.53 L 936.00 125.75" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="992" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="1070.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 5</text>
+<line x1="992" y1="184.0" x2="1172" y2="184.0" stroke="#eee"/>
+<text x="989" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="992" y1="164.7" x2="1172" y2="164.7" stroke="#eee"/>
+<text x="989" y="167.7" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="992" y1="145.3" x2="1172" y2="145.3" stroke="#eee"/>
+<text x="989" y="148.3" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="992" y1="126.0" x2="1172" y2="126.0" stroke="#eee"/>
+<text x="989" y="129.0" text-anchor="end" font-size="9" fill="#888">3</text>
+<line x1="992" y1="106.7" x2="1172" y2="106.7" stroke="#eee"/>
+<text x="989" y="109.7" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="992" y1="87.3" x2="1172" y2="87.3" stroke="#eee"/>
+<text x="989" y="90.3" text-anchor="end" font-size="9" fill="#888">5</text>
+<line x1="992" y1="68.0" x2="1172" y2="68.0" stroke="#eee"/>
+<text x="989" y="71.0" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="992" y1="87.3" x2="1172" y2="87.3" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="1168" y="84.3" text-anchor="end" font-size="9" fill="#888">y = depth (5)</text>
+<path d="M 1001.00 183.80 L 1010.00 172.28 L 1019.00 157.80 L 1028.00 144.38 L 1037.00 131.96 L 1046.00 123.00 L 1055.00 117.95 L 1064.00 116.98 L 1073.00 119.63 L 1082.00 115.32 L 1091.00 112.42 L 1100.00 114.25 L 1109.00 115.94 L 1118.00 111.71 L 1127.00 111.25 L 1136.00 112.30 L 1145.00 110.74 L 1154.00 114.27 L 1163.00 112.47 L 1172.00 112.90" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+<svg viewBox="0 0 1196 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1196" height="232" fill="#fafafa"/>
+<text x="598.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Mid pred_mean — walk-depths 6–10  (y 0..10)</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 6</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="160.8" x2="228" y2="160.8" stroke="#eee"/>
+<text x="45" y="163.8" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="48" y1="137.6" x2="228" y2="137.6" stroke="#eee"/>
+<text x="45" y="140.6" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="48" y1="114.4" x2="228" y2="114.4" stroke="#eee"/>
+<text x="45" y="117.4" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="48" y1="91.2" x2="228" y2="91.2" stroke="#eee"/>
+<text x="45" y="94.2" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="48" y1="114.4" x2="228" y2="114.4" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="224" y="111.4" text-anchor="end" font-size="9" fill="#888">y = depth (6)</text>
+<path d="M 57.00 183.37 L 66.00 176.61 L 75.00 168.11 L 84.00 159.62 L 93.00 150.65 L 102.00 144.19 L 111.00 139.32 L 120.00 136.36 L 129.00 136.86 L 138.00 137.92 L 147.00 136.46 L 156.00 134.96 L 165.00 136.24 L 174.00 133.87 L 183.00 135.14 L 192.00 134.50 L 201.00 134.48 L 210.00 134.67 L 219.00 135.81 L 228.00 134.60" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 7</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="160.8" x2="464" y2="160.8" stroke="#eee"/>
+<text x="281" y="163.8" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="284" y1="137.6" x2="464" y2="137.6" stroke="#eee"/>
+<text x="281" y="140.6" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="284" y1="114.4" x2="464" y2="114.4" stroke="#eee"/>
+<text x="281" y="117.4" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="284" y1="91.2" x2="464" y2="91.2" stroke="#eee"/>
+<text x="281" y="94.2" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="284" y1="102.8" x2="464" y2="102.8" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="460" y="99.8" text-anchor="end" font-size="9" fill="#888">y = depth (7)</text>
+<path d="M 293.00 183.99 L 302.00 176.25 L 311.00 167.53 L 320.00 158.86 L 329.00 150.01 L 338.00 142.47 L 347.00 137.04 L 356.00 132.83 L 365.00 131.74 L 374.00 132.82 L 383.00 131.38 L 392.00 130.04 L 401.00 129.50 L 410.00 129.70 L 419.00 128.61 L 428.00 127.76 L 437.00 127.75 L 446.00 127.24 L 455.00 128.36 L 464.00 128.64" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 8</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="160.8" x2="700" y2="160.8" stroke="#eee"/>
+<text x="517" y="163.8" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="520" y1="137.6" x2="700" y2="137.6" stroke="#eee"/>
+<text x="517" y="140.6" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="520" y1="114.4" x2="700" y2="114.4" stroke="#eee"/>
+<text x="517" y="117.4" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="520" y1="91.2" x2="700" y2="91.2" stroke="#eee"/>
+<text x="517" y="94.2" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="520" y1="91.2" x2="700" y2="91.2" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="696" y="88.2" text-anchor="end" font-size="9" fill="#888">y = depth (8)</text>
+<path d="M 529.00 184.00 L 538.00 176.02 L 547.00 167.49 L 556.00 158.17 L 565.00 149.12 L 574.00 141.07 L 583.00 135.13 L 592.00 129.34 L 601.00 126.46 L 610.00 126.17 L 619.00 127.00 L 628.00 125.14 L 637.00 122.95 L 646.00 125.44 L 655.00 123.22 L 664.00 122.33 L 673.00 122.56 L 682.00 122.48 L 691.00 124.78 L 700.00 123.17" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 9</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="160.8" x2="936" y2="160.8" stroke="#eee"/>
+<text x="753" y="163.8" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="756" y1="137.6" x2="936" y2="137.6" stroke="#eee"/>
+<text x="753" y="140.6" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="756" y1="114.4" x2="936" y2="114.4" stroke="#eee"/>
+<text x="753" y="117.4" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="756" y1="91.2" x2="936" y2="91.2" stroke="#eee"/>
+<text x="753" y="94.2" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="756" y1="79.6" x2="936" y2="79.6" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="932" y="76.6" text-anchor="end" font-size="9" fill="#888">y = depth (9)</text>
+<path d="M 765.00 183.75 L 774.00 176.15 L 783.00 167.24 L 792.00 158.16 L 801.00 148.59 L 810.00 140.48 L 819.00 133.40 L 828.00 128.10 L 837.00 123.98 L 846.00 123.73 L 855.00 124.08 L 864.00 122.23 L 873.00 119.97 L 882.00 122.02 L 891.00 120.61 L 900.00 120.24 L 909.00 119.52 L 918.00 120.45 L 927.00 120.62 L 936.00 121.56" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="992" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="1070.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 10</text>
+<line x1="992" y1="184.0" x2="1172" y2="184.0" stroke="#eee"/>
+<text x="989" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="992" y1="160.8" x2="1172" y2="160.8" stroke="#eee"/>
+<text x="989" y="163.8" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="992" y1="137.6" x2="1172" y2="137.6" stroke="#eee"/>
+<text x="989" y="140.6" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="992" y1="114.4" x2="1172" y2="114.4" stroke="#eee"/>
+<text x="989" y="117.4" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="992" y1="91.2" x2="1172" y2="91.2" stroke="#eee"/>
+<text x="989" y="94.2" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="992" y1="68.0" x2="1172" y2="68.0" stroke="#eee"/>
+<text x="989" y="71.0" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="992" y1="68.0" x2="1172" y2="68.0" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="1168" y="65.0" text-anchor="end" font-size="9" fill="#888">y = depth (10)</text>
+<path d="M 1001.00 183.94 L 1010.00 175.72 L 1019.00 166.84 L 1028.00 157.73 L 1037.00 148.35 L 1046.00 139.53 L 1055.00 132.31 L 1064.00 126.93 L 1073.00 121.18 L 1082.00 120.00 L 1091.00 122.48 L 1100.00 122.15 L 1109.00 117.29 L 1118.00 118.24 L 1127.00 118.53 L 1136.00 117.77 L 1145.00 117.26 L 1154.00 116.18 L 1163.00 117.72 L 1172.00 118.25" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+<svg viewBox="0 0 960 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="960" height="232" fill="#fafafa"/>
+<text x="480.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Deep pred_mean — walk-depths 11–14  (y 0..14)</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 11</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="167.4" x2="228" y2="167.4" stroke="#eee"/>
+<text x="45" y="170.4" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="48" y1="150.9" x2="228" y2="150.9" stroke="#eee"/>
+<text x="45" y="153.9" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="48" y1="134.3" x2="228" y2="134.3" stroke="#eee"/>
+<text x="45" y="137.3" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="48" y1="117.7" x2="228" y2="117.7" stroke="#eee"/>
+<text x="45" y="120.7" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="48" y1="101.1" x2="228" y2="101.1" stroke="#eee"/>
+<text x="45" y="104.1" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="48" y1="84.6" x2="228" y2="84.6" stroke="#eee"/>
+<text x="45" y="87.6" text-anchor="end" font-size="9" fill="#888">12</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">14</text>
+<line x1="48" y1="92.9" x2="228" y2="92.9" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="224" y="89.9" text-anchor="end" font-size="9" fill="#888">y = depth (11)</text>
+<path d="M 57.00 183.78 L 66.00 178.19 L 75.00 172.00 L 84.00 165.17 L 93.00 158.23 L 102.00 152.07 L 111.00 146.37 L 120.00 141.59 L 129.00 138.87 L 138.00 137.81 L 147.00 137.96 L 156.00 138.55 L 165.00 135.79 L 174.00 135.44 L 183.00 136.26 L 192.00 134.93 L 201.00 135.12 L 210.00 135.21 L 219.00 135.28 L 228.00 136.23" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 12</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="167.4" x2="464" y2="167.4" stroke="#eee"/>
+<text x="281" y="170.4" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="284" y1="150.9" x2="464" y2="150.9" stroke="#eee"/>
+<text x="281" y="153.9" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="284" y1="134.3" x2="464" y2="134.3" stroke="#eee"/>
+<text x="281" y="137.3" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="284" y1="117.7" x2="464" y2="117.7" stroke="#eee"/>
+<text x="281" y="120.7" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="284" y1="101.1" x2="464" y2="101.1" stroke="#eee"/>
+<text x="281" y="104.1" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="284" y1="84.6" x2="464" y2="84.6" stroke="#eee"/>
+<text x="281" y="87.6" text-anchor="end" font-size="9" fill="#888">12</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">14</text>
+<line x1="284" y1="84.6" x2="464" y2="84.6" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="460" y="81.6" text-anchor="end" font-size="9" fill="#888">y = depth (12)</text>
+<path d="M 293.00 183.62 L 302.00 178.13 L 311.00 171.68 L 320.00 165.03 L 329.00 158.05 L 338.00 151.89 L 347.00 146.11 L 356.00 141.28 L 365.00 137.77 L 374.00 136.76 L 383.00 137.94 L 392.00 137.59 L 401.00 135.12 L 410.00 134.60 L 419.00 135.15 L 428.00 134.83 L 437.00 134.25 L 446.00 133.94 L 455.00 134.39 L 464.00 135.11" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 13</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="167.4" x2="700" y2="167.4" stroke="#eee"/>
+<text x="517" y="170.4" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="520" y1="150.9" x2="700" y2="150.9" stroke="#eee"/>
+<text x="517" y="153.9" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="520" y1="134.3" x2="700" y2="134.3" stroke="#eee"/>
+<text x="517" y="137.3" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="520" y1="117.7" x2="700" y2="117.7" stroke="#eee"/>
+<text x="517" y="120.7" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="520" y1="101.1" x2="700" y2="101.1" stroke="#eee"/>
+<text x="517" y="104.1" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="520" y1="84.6" x2="700" y2="84.6" stroke="#eee"/>
+<text x="517" y="87.6" text-anchor="end" font-size="9" fill="#888">12</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">14</text>
+<line x1="520" y1="76.3" x2="700" y2="76.3" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="696" y="73.3" text-anchor="end" font-size="9" fill="#888">y = depth (13)</text>
+<path d="M 529.00 183.98 L 538.00 178.22 L 547.00 171.79 L 556.00 165.13 L 565.00 158.20 L 574.00 151.56 L 583.00 145.62 L 592.00 140.97 L 601.00 137.68 L 610.00 135.99 L 619.00 136.85 L 628.00 137.42 L 637.00 134.22 L 646.00 133.76 L 655.00 135.01 L 664.00 134.42 L 673.00 133.15 L 682.00 133.17 L 691.00 134.08 L 700.00 133.92" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 14</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="167.4" x2="936" y2="167.4" stroke="#eee"/>
+<text x="753" y="170.4" text-anchor="end" font-size="9" fill="#888">2</text>
+<line x1="756" y1="150.9" x2="936" y2="150.9" stroke="#eee"/>
+<text x="753" y="153.9" text-anchor="end" font-size="9" fill="#888">4</text>
+<line x1="756" y1="134.3" x2="936" y2="134.3" stroke="#eee"/>
+<text x="753" y="137.3" text-anchor="end" font-size="9" fill="#888">6</text>
+<line x1="756" y1="117.7" x2="936" y2="117.7" stroke="#eee"/>
+<text x="753" y="120.7" text-anchor="end" font-size="9" fill="#888">8</text>
+<line x1="756" y1="101.1" x2="936" y2="101.1" stroke="#eee"/>
+<text x="753" y="104.1" text-anchor="end" font-size="9" fill="#888">10</text>
+<line x1="756" y1="84.6" x2="936" y2="84.6" stroke="#eee"/>
+<text x="753" y="87.6" text-anchor="end" font-size="9" fill="#888">12</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">14</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#888" stroke-dasharray="4 3" stroke-width="1"/>
+<text x="932" y="65.0" text-anchor="end" font-size="9" fill="#888">y = depth (14)</text>
+<path d="M 765.00 183.97 L 774.00 178.42 L 783.00 171.42 L 792.00 165.35 L 801.00 158.26 L 810.00 151.33 L 819.00 145.64 L 828.00 140.38 L 837.00 137.13 L 846.00 135.80 L 855.00 136.67 L 864.00 137.06 L 873.00 134.10 L 882.00 133.17 L 891.00 134.06 L 900.00 133.60 L 909.00 132.94 L 918.00 132.89 L 927.00 133.60 L 936.00 133.44" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+
+  <h2>4. Per walk-depth pred_std — banded</h2>
+  <p class="note">
+    Spread of predictions per walk-depth. Useful as a coarse calibration
+    signal; very low std at deep walks usually means the network
+    collapsed onto a constant.
+  </p>
+  <svg viewBox="0 0 1196 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1196" height="232" fill="#fafafa"/>
+<text x="598.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Shallow pred_std — walk-depths 1–5</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 1</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="155.0" x2="228" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="48" y1="126.0" x2="228" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="48" y1="97.0" x2="228" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 57.00 150.91 L 66.00 165.91 L 75.00 173.39 L 84.00 181.48 L 93.00 182.33 L 102.00 182.33 L 111.00 180.92 L 120.00 179.14 L 129.00 169.83 L 138.00 175.75 L 147.00 177.44 L 156.00 181.79 L 165.00 183.20 L 174.00 181.93 L 183.00 179.56 L 192.00 182.11 L 201.00 182.73 L 210.00 180.12 L 219.00 180.63 L 228.00 183.33" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 2</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="155.0" x2="464" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="284" y1="126.0" x2="464" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="284" y1="97.0" x2="464" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 293.00 159.21 L 302.00 166.25 L 311.00 166.56 L 320.00 168.42 L 329.00 178.00 L 338.00 179.00 L 347.00 176.55 L 356.00 178.62 L 365.00 170.21 L 374.00 169.20 L 383.00 175.10 L 392.00 170.34 L 401.00 180.94 L 410.00 174.15 L 419.00 177.06 L 428.00 176.12 L 437.00 177.91 L 446.00 179.46 L 455.00 181.53 L 464.00 181.17" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 3</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="155.0" x2="700" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="520" y1="126.0" x2="700" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="520" y1="97.0" x2="700" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 529.00 160.43 L 538.00 166.55 L 547.00 167.45 L 556.00 163.14 L 565.00 168.84 L 574.00 161.47 L 583.00 166.84 L 592.00 175.75 L 601.00 169.59 L 610.00 165.31 L 619.00 167.17 L 628.00 169.77 L 637.00 162.55 L 646.00 170.87 L 655.00 166.56 L 664.00 162.38 L 673.00 170.10 L 682.00 167.78 L 691.00 173.71 L 700.00 170.92" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 4</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="155.0" x2="936" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="756" y1="126.0" x2="936" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="756" y1="97.0" x2="936" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 765.00 165.39 L 774.00 168.81 L 783.00 171.78 L 792.00 168.75 L 801.00 164.41 L 810.00 161.64 L 819.00 163.04 L 828.00 169.11 L 837.00 170.80 L 846.00 164.80 L 855.00 162.60 L 864.00 168.44 L 873.00 162.02 L 882.00 163.51 L 891.00 163.52 L 900.00 164.73 L 909.00 161.71 L 918.00 167.94 L 927.00 161.24 L 936.00 162.83" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="992" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="1070.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 5</text>
+<line x1="992" y1="184.0" x2="1172" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="992" y1="155.0" x2="1172" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="992" y1="126.0" x2="1172" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="992" y1="97.0" x2="1172" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="992" y1="68.0" x2="1172" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 1001.00 167.58 L 1010.00 172.72 L 1019.00 174.34 L 1028.00 169.22 L 1037.00 167.70 L 1046.00 163.38 L 1055.00 156.74 L 1064.00 158.48 L 1073.00 166.49 L 1082.00 165.85 L 1091.00 160.37 L 1100.00 157.84 L 1109.00 160.74 L 1118.00 164.12 L 1127.00 163.50 L 1136.00 162.17 L 1145.00 164.99 L 1154.00 157.11 L 1163.00 168.21 L 1172.00 161.37" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+<svg viewBox="0 0 1196 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1196" height="232" fill="#fafafa"/>
+<text x="598.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Mid pred_std — walk-depths 6–10</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 6</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="155.0" x2="228" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="48" y1="126.0" x2="228" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="48" y1="97.0" x2="228" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 57.00 168.98 L 66.00 171.01 L 75.00 173.42 L 84.00 170.57 L 93.00 171.82 L 102.00 167.06 L 111.00 159.81 L 120.00 153.52 L 129.00 156.52 L 138.00 163.73 L 147.00 154.48 L 156.00 157.57 L 165.00 155.05 L 174.00 166.45 L 183.00 153.67 L 192.00 151.70 L 201.00 152.85 L 210.00 147.53 L 219.00 156.84 L 228.00 157.16" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 7</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="155.0" x2="464" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="284" y1="126.0" x2="464" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="284" y1="97.0" x2="464" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 293.00 170.16 L 302.00 173.90 L 311.00 174.31 L 320.00 173.20 L 329.00 170.43 L 338.00 165.99 L 347.00 160.04 L 356.00 151.62 L 365.00 147.50 L 374.00 150.57 L 383.00 158.61 L 392.00 151.34 L 401.00 146.44 L 410.00 152.69 L 419.00 150.65 L 428.00 142.92 L 437.00 148.55 L 446.00 148.64 L 455.00 149.52 L 464.00 152.01" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 8</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="155.0" x2="700" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="520" y1="126.0" x2="700" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="520" y1="97.0" x2="700" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 529.00 169.14 L 538.00 173.80 L 547.00 175.41 L 556.00 175.99 L 565.00 173.59 L 574.00 167.78 L 583.00 162.86 L 592.00 153.75 L 601.00 153.49 L 610.00 147.24 L 619.00 156.26 L 628.00 156.05 L 637.00 148.29 L 646.00 149.55 L 655.00 153.68 L 664.00 149.98 L 673.00 151.37 L 682.00 149.39 L 691.00 138.55 L 700.00 156.59" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 9</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="155.0" x2="936" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="756" y1="126.0" x2="936" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="756" y1="97.0" x2="936" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 765.00 170.95 L 774.00 173.03 L 783.00 175.09 L 792.00 175.62 L 801.00 175.36 L 810.00 168.70 L 819.00 163.41 L 828.00 157.34 L 837.00 152.19 L 846.00 145.15 L 855.00 153.92 L 864.00 164.70 L 873.00 147.18 L 882.00 146.00 L 891.00 153.52 L 900.00 150.21 L 909.00 150.26 L 918.00 147.25 L 927.00 147.35 L 936.00 152.81" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="992" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="1070.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 10</text>
+<line x1="992" y1="184.0" x2="1172" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="992" y1="155.0" x2="1172" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="992" y1="126.0" x2="1172" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="992" y1="97.0" x2="1172" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="992" y1="68.0" x2="1172" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="989" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 1001.00 170.40 L 1010.00 173.25 L 1019.00 175.76 L 1028.00 176.10 L 1037.00 174.57 L 1046.00 171.52 L 1055.00 166.95 L 1064.00 163.70 L 1073.00 156.04 L 1082.00 151.99 L 1091.00 153.64 L 1100.00 153.09 L 1109.00 160.80 L 1118.00 151.50 L 1127.00 157.73 L 1136.00 150.53 L 1145.00 151.27 L 1154.00 156.39 L 1163.00 156.12 L 1172.00 157.26" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+<svg viewBox="0 0 960 232" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="960" height="232" fill="#fafafa"/>
+<text x="480.0" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Deep pred_std — walk-depths 11–14</text>
+<rect x="48" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="126.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 11</text>
+<line x1="48" y1="184.0" x2="228" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="48" y1="155.0" x2="228" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="48" y1="126.0" x2="228" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="48" y1="97.0" x2="228" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="48" y1="68.0" x2="228" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="45" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 57.00 170.25 L 66.00 174.71 L 75.00 177.15 L 84.00 176.01 L 93.00 177.65 L 102.00 172.64 L 111.00 169.35 L 120.00 165.61 L 129.00 158.13 L 138.00 149.84 L 147.00 161.93 L 156.00 163.75 L 165.00 160.16 L 174.00 155.59 L 183.00 161.68 L 192.00 163.71 L 201.00 156.49 L 210.00 157.03 L 219.00 153.61 L 228.00 159.42" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="284" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="362.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 12</text>
+<line x1="284" y1="184.0" x2="464" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="284" y1="155.0" x2="464" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="284" y1="126.0" x2="464" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="284" y1="97.0" x2="464" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="284" y1="68.0" x2="464" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="281" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 293.00 171.22 L 302.00 174.37 L 311.00 176.03 L 320.00 178.00 L 329.00 178.05 L 338.00 173.21 L 347.00 170.68 L 356.00 168.34 L 365.00 163.47 L 374.00 154.28 L 383.00 158.24 L 392.00 168.41 L 401.00 164.33 L 410.00 159.43 L 419.00 162.92 L 428.00 159.02 L 437.00 157.62 L 446.00 160.01 L 455.00 159.97 L 464.00 157.52" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="520" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="598.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 13</text>
+<line x1="520" y1="184.0" x2="700" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="520" y1="155.0" x2="700" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="520" y1="126.0" x2="700" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="520" y1="97.0" x2="700" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="520" y1="68.0" x2="700" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="517" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 529.00 172.26 L 538.00 174.81 L 547.00 175.75 L 556.00 177.26 L 565.00 176.80 L 574.00 174.09 L 583.00 172.99 L 592.00 166.48 L 601.00 160.33 L 610.00 158.01 L 619.00 160.95 L 628.00 165.64 L 637.00 170.07 L 646.00 160.63 L 655.00 166.32 L 664.00 162.10 L 673.00 163.37 L 682.00 162.17 L 691.00 163.16 L 700.00 164.18" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+<rect x="756" y="68" width="180" height="116" fill="white" stroke="#ccc"/>
+<text x="834.0" y="60" text-anchor="middle" font-size="12" font-weight="600" fill="#333">depth 14</text>
+<line x1="756" y1="184.0" x2="936" y2="184.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="187.0" text-anchor="end" font-size="9" fill="#888">0</text>
+<line x1="756" y1="155.0" x2="936" y2="155.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="158.0" text-anchor="end" font-size="9" fill="#888">0.5</text>
+<line x1="756" y1="126.0" x2="936" y2="126.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="129.0" text-anchor="end" font-size="9" fill="#888">1</text>
+<line x1="756" y1="97.0" x2="936" y2="97.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="100.0" text-anchor="end" font-size="9" fill="#888">1.5</text>
+<line x1="756" y1="68.0" x2="936" y2="68.0" stroke="#eee" stroke-width="1"/>
+<text x="753" y="71.0" text-anchor="end" font-size="9" fill="#888">2</text>
+<path d="M 765.00 171.74 L 774.00 174.48 L 783.00 176.83 L 792.00 176.98 L 801.00 176.82 L 810.00 176.26 L 819.00 173.27 L 828.00 169.26 L 837.00 165.48 L 846.00 161.57 L 855.00 160.14 L 864.00 171.88 L 873.00 167.91 L 882.00 163.00 L 891.00 166.93 L 900.00 167.76 L 909.00 165.71 L 918.00 167.11 L 927.00 163.06 L 936.00 163.67" fill="none" stroke="#1f77b4" stroke-width="1.5" opacity="0.9"/>
+</svg>
+
+  <h2>5. Beam capability (post-hoc, from <code>beam_eval_focused.json</code>)</h2>
+  <p class="note">
+    Beam(width=256) solve rates at the captured checkpoint(s). Two
+    panels: per V*-true depth (d=1..6, BFS oracle) and per walk-depth
+    (d=1..14). Live <code>solve_rate_dN</code> / <code>avg_solve_len_dN</code>
+    are intentionally NOT captured during 3x3 training — beam cost would
+    slow the training loop, per plan §P1c. The capability picture lives
+    here, post-hoc.
+  </p>
+  <h3 style="font-size:13px;margin:14px 0 6px 0;color:#444">smoke 10k (K=8, sync=500) — beam capability</h3>
+<svg viewBox="0 0 910 360" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="910" height="360" fill="#fafafa"/>
+<rect x="20" y="10" width="14" height="10" fill="#1f77b4"/>
+<text x="38" y="19" font-size="11" fill="#333">step 7500</text>
+<rect x="130" y="10" width="14" height="10" fill="rgb(210,227,240)"/>
+<text x="148" y="19" font-size="11" fill="#333">step 10000</text>
+<text x="230.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Per V* solve-rate (beam, d=1..6)</text>
+<rect x="56" y="55" width="376" height="210" fill="white" stroke="#ccc"/>
+<line x1="56" y1="265.0" x2="432" y2="265.0" stroke="#eee"/>
+<text x="52" y="268.0" text-anchor="end" font-size="10" fill="#666">0.00</text>
+<line x1="56" y1="212.5" x2="432" y2="212.5" stroke="#eee"/>
+<text x="52" y="215.5" text-anchor="end" font-size="10" fill="#666">0.25</text>
+<line x1="56" y1="160.0" x2="432" y2="160.0" stroke="#eee"/>
+<text x="52" y="163.0" text-anchor="end" font-size="10" fill="#666">0.50</text>
+<line x1="56" y1="107.5" x2="432" y2="107.5" stroke="#eee"/>
+<text x="52" y="110.5" text-anchor="end" font-size="10" fill="#666">0.75</text>
+<line x1="56" y1="55.0" x2="432" y2="55.0" stroke="#eee"/>
+<text x="52" y="58.0" text-anchor="end" font-size="10" fill="#666">1.00</text>
+<text x="87.3" y="279.0" text-anchor="middle" font-size="10" fill="#666">d1</text>
+<rect x="60.70" y="55.00" width="26.63" height="210.00" fill="#1f77b4"><title>step=7500 d1 solve_rate=1.000</title></rect>
+<rect x="87.33" y="55.00" width="26.63" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d1 solve_rate=1.000</title></rect>
+<text x="150.0" y="279.0" text-anchor="middle" font-size="10" fill="#666">d2</text>
+<rect x="123.37" y="55.00" width="26.63" height="210.00" fill="#1f77b4"><title>step=7500 d2 solve_rate=1.000</title></rect>
+<rect x="150.00" y="55.00" width="26.63" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d2 solve_rate=1.000</title></rect>
+<text x="212.7" y="279.0" text-anchor="middle" font-size="10" fill="#666">d3</text>
+<rect x="186.03" y="55.00" width="26.63" height="210.00" fill="#1f77b4"><title>step=7500 d3 solve_rate=1.000</title></rect>
+<rect x="212.67" y="55.00" width="26.63" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d3 solve_rate=1.000</title></rect>
+<text x="275.3" y="279.0" text-anchor="middle" font-size="10" fill="#666">d4</text>
+<rect x="248.70" y="55.00" width="26.63" height="210.00" fill="#1f77b4"><title>step=7500 d4 solve_rate=1.000</title></rect>
+<rect x="275.33" y="55.00" width="26.63" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d4 solve_rate=1.000</title></rect>
+<text x="338.0" y="279.0" text-anchor="middle" font-size="10" fill="#666">d5</text>
+<rect x="311.37" y="55.00" width="26.63" height="210.00" fill="#1f77b4"><title>step=7500 d5 solve_rate=1.000</title></rect>
+<rect x="338.00" y="55.00" width="26.63" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d5 solve_rate=1.000</title></rect>
+<text x="400.7" y="279.0" text-anchor="middle" font-size="10" fill="#666">d6</text>
+<rect x="374.03" y="55.00" width="26.63" height="210.00" fill="#1f77b4"><title>step=7500 d6 solve_rate=1.000</title></rect>
+<rect x="400.67" y="55.00" width="26.63" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d6 solve_rate=1.000</title></rect>
+<text x="230.0" y="350.0" text-anchor="middle" font-size="11" fill="#444">depth</text>
+<text x="680.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#222">Per walk-depth solve-rate (beam, d=1..14)</text>
+<rect x="506" y="55" width="376" height="210" fill="white" stroke="#ccc"/>
+<line x1="506" y1="265.0" x2="882" y2="265.0" stroke="#eee"/>
+<text x="502" y="268.0" text-anchor="end" font-size="10" fill="#666">0.00</text>
+<line x1="506" y1="212.5" x2="882" y2="212.5" stroke="#eee"/>
+<text x="502" y="215.5" text-anchor="end" font-size="10" fill="#666">0.25</text>
+<line x1="506" y1="160.0" x2="882" y2="160.0" stroke="#eee"/>
+<text x="502" y="163.0" text-anchor="end" font-size="10" fill="#666">0.50</text>
+<line x1="506" y1="107.5" x2="882" y2="107.5" stroke="#eee"/>
+<text x="502" y="110.5" text-anchor="end" font-size="10" fill="#666">0.75</text>
+<line x1="506" y1="55.0" x2="882" y2="55.0" stroke="#eee"/>
+<text x="502" y="58.0" text-anchor="end" font-size="10" fill="#666">1.00</text>
+<text x="519.4" y="279.0" text-anchor="middle" font-size="10" fill="#666">d1</text>
+<rect x="508.01" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d1 solve_rate=1.000</title></rect>
+<rect x="519.43" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d1 solve_rate=1.000</title></rect>
+<text x="546.3" y="279.0" text-anchor="middle" font-size="10" fill="#666">d2</text>
+<rect x="534.87" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d2 solve_rate=1.000</title></rect>
+<rect x="546.29" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d2 solve_rate=1.000</title></rect>
+<text x="573.1" y="279.0" text-anchor="middle" font-size="10" fill="#666">d3</text>
+<rect x="561.73" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d3 solve_rate=1.000</title></rect>
+<rect x="573.14" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d3 solve_rate=1.000</title></rect>
+<text x="600.0" y="279.0" text-anchor="middle" font-size="10" fill="#666">d4</text>
+<rect x="588.59" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d4 solve_rate=1.000</title></rect>
+<rect x="600.00" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d4 solve_rate=1.000</title></rect>
+<text x="626.9" y="279.0" text-anchor="middle" font-size="10" fill="#666">d5</text>
+<rect x="615.44" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d5 solve_rate=1.000</title></rect>
+<rect x="626.86" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d5 solve_rate=1.000</title></rect>
+<text x="653.7" y="279.0" text-anchor="middle" font-size="10" fill="#666">d6</text>
+<rect x="642.30" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d6 solve_rate=1.000</title></rect>
+<rect x="653.71" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d6 solve_rate=1.000</title></rect>
+<text x="680.6" y="279.0" text-anchor="middle" font-size="10" fill="#666">d7</text>
+<rect x="669.16" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d7 solve_rate=1.000</title></rect>
+<rect x="680.57" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d7 solve_rate=1.000</title></rect>
+<text x="707.4" y="279.0" text-anchor="middle" font-size="10" fill="#666">d8</text>
+<rect x="696.01" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d8 solve_rate=1.000</title></rect>
+<rect x="707.43" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d8 solve_rate=1.000</title></rect>
+<text x="734.3" y="279.0" text-anchor="middle" font-size="10" fill="#666">d9</text>
+<rect x="722.87" y="55.00" width="11.41" height="210.00" fill="#1f77b4"><title>step=7500 d9 solve_rate=1.000</title></rect>
+<rect x="734.29" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d9 solve_rate=1.000</title></rect>
+<text x="761.1" y="279.0" text-anchor="middle" font-size="10" fill="#666">d10</text>
+<rect x="749.73" y="59.20" width="11.41" height="205.80" fill="#1f77b4"><title>step=7500 d10 solve_rate=0.980</title></rect>
+<rect x="761.14" y="55.00" width="11.41" height="210.00" fill="rgb(210,227,240)"><title>step=10000 d10 solve_rate=1.000</title></rect>
+<text x="788.0" y="279.0" text-anchor="middle" font-size="10" fill="#666">d11</text>
+<rect x="776.59" y="80.20" width="11.41" height="184.80" fill="#1f77b4"><title>step=7500 d11 solve_rate=0.880</title></rect>
+<rect x="788.00" y="71.80" width="11.41" height="193.20" fill="rgb(210,227,240)"><title>step=10000 d11 solve_rate=0.920</title></rect>
+<text x="814.9" y="279.0" text-anchor="middle" font-size="10" fill="#666">d12</text>
+<rect x="803.44" y="130.60" width="11.41" height="134.40" fill="#1f77b4"><title>step=7500 d12 solve_rate=0.640</title></rect>
+<rect x="814.86" y="97.00" width="11.41" height="168.00" fill="rgb(210,227,240)"><title>step=10000 d12 solve_rate=0.800</title></rect>
+<text x="841.7" y="279.0" text-anchor="middle" font-size="10" fill="#666">d13</text>
+<rect x="830.30" y="168.40" width="11.41" height="96.60" fill="#1f77b4"><title>step=7500 d13 solve_rate=0.460</title></rect>
+<rect x="841.71" y="160.00" width="11.41" height="105.00" fill="rgb(210,227,240)"><title>step=10000 d13 solve_rate=0.500</title></rect>
+<text x="868.6" y="279.0" text-anchor="middle" font-size="10" fill="#666">d14</text>
+<rect x="857.16" y="227.20" width="11.41" height="37.80" fill="#1f77b4"><title>step=7500 d14 solve_rate=0.180</title></rect>
+<rect x="868.57" y="206.20" width="11.41" height="58.80" fill="rgb(210,227,240)"><title>step=10000 d14 solve_rate=0.280</title></rect>
+<text x="680.0" y="350.0" text-anchor="middle" font-size="11" fill="#444">depth</text>
+</svg>
+
+  <h2>6. Solve-length histograms — placeholder</h2>
+  <p class="note">
+    _(post-hoc per-attempt histograms — TODO when
+    <code>capture_solve_histograms.py</code> is extended for the 3x3
+    schema. Section will populate once that capture pipeline lands.)_
+  </p>
+
+  <h2>7. Per-run wavefront heatmap — placeholder</h2>
+  <p class="note">
+    _(per-run depth-step heatmap — TODO when there are ≥2 3x3 runs.
+    With a single run the cross-run wavefront comparison is degenerate;
+    the section unlocks when a second cycle lands.)_
+  </p>
+
 </body>
 </html>
