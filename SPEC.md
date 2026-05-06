@@ -278,10 +278,12 @@ no CPU round-trips in the hot path (verified via profiler trace).
 
 - `training/scrambles.py`: backward random-scramble generator with
   non-trivial-move pruning. Returns `(states, depths, last_faces)`.
-- `model/network.py`: MLP value network (architecture from draft spec —
-  input one-hot, body of 5000→1000→4×residual(1000→1000)→1).
-  Parameterized on `CubeSpec` (input dim derives from sticker count and
-  color count) so the same network class drops in for 3x3 at M8.
+- `model/network.py`: MLP value network parameterized on `CubeSpec`
+  (input dim derives from sticker count and color count). Body shape
+  (`body_widths=(h1, h2)`, `n_residual_blocks=n`) is a required kwarg —
+  no committed default. The right values for 2x2 are an open empirical
+  question, picked by tier 1+ experimentation. Same class drops in for
+  3x3 at M8.
 - `training/davi.py`: DAVI training loop — target is
   `min_a (1 + V_target(child))` with terminal-child clamp; periodic
   `V_target ← V_θ` sync.
@@ -291,7 +293,10 @@ no CPU round-trips in the hot path (verified via profiler trace).
 
 **Acceptance (2x2):** loss decreases monotonically over 100k steps; mean
 absolute error vs BFS-optimal `V*` < 1.0 across all reachable states;
-greedy solve rate ≥ 99% on depth ≤ 11 (2x2 God's Number is 11 QTM).
+greedy solve rate ≥ 99% on depth ≤ 14 (2x2 QTM diameter is 14, verified
+empirically by the M5 V\* enumerator). Note: "11" is the 2x2 *HTM* God's
+Number — the often-quoted figure — but our move set is QTM-only, so the
+relevant diameter for this acceptance gate is 14.
 
 ### M6 — Beam search (2x2)
 
@@ -302,8 +307,9 @@ greedy solve rate ≥ 99% on depth ≤ 11 (2x2 God's Number is 11 QTM).
   of 1000 random scrambles — 2x2 gives us this ground truth. 3x3
   validation happens at M8.
 
-**Acceptance (2x2):** 100% solve rate on 1000 depth ≤ 11 scrambles at
-beam_width=256; mean solution length within 1 move of BFS-optimal.
+**Acceptance (2x2):** 100% solve rate on 1000 depth ≤ 14 scrambles at
+beam_width=256 (full 2x2 QTM coverage); mean solution length within 1
+move of BFS-optimal.
 
 ### M7 — Perf-2 / hyperparam experiment loop (2x2 training)
 
@@ -356,9 +362,8 @@ spec, not adding code paths**.
   frontend that reads a JSON solve trace.
 - Analysis: extract 3- and 5-move subsequences from 1000 random solves;
   frequency analysis vs. uniform baseline; check for `aba⁻¹` conjugate
-  patterns (DeepCubeA reports 13.1%); compare to CFOP step boundaries
-  ("does it ever pass through a white-cross-solved state?"). Writeup in
-  `reports/`.
+  patterns; compare to CFOP step boundaries ("does it ever pass through
+  a white-cross-solved state?"). Writeup in `reports/`.
 
 ## Cross-cutting concerns
 
@@ -414,10 +419,12 @@ Primary papers:
 
 Reference implementations:
 
-- DeepCubeA: https://github.com/forestagostinelli/DeepCubeA — move
-  tables, training hyperparameter starting points.
+- DeepCubeA: https://github.com/forestagostinelli/DeepCubeA — reference
+  for cube-group conventions and ADI loop shape. **Hyperparameter values
+  are deliberately not borrowed** — see CLAUDE.md "Earn every
+  hyperparameter."
 - EfficientCube: https://github.com/kyo-takano/efficientcube — beam
-  search with policy.
+  search with policy. Same caveat.
 
 Background:
 

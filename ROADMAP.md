@@ -29,3 +29,7 @@ When an idea surfaces that isn't the current block's goal, append here:
 <1-3 lines of context>
 Surfaced: YYYY-MM-DD
 -->
+
+### W&B integration for DAVI training observability
+Flip the W&B passthrough in `MetricLogger` (added in M5 commit 5) at the tier 1 → tier 2 boundary, when ~10 runs accumulate and the analysis question shifts from "is this run healthy?" to "which configs win along which axis?" Cost: ~30 min — `uv add wandb`, `wandb login`, flip the flag, smoke-test the dashboard. JSONL stays the source-of-truth; W&B is for visualization + cross-run comparison. Reverses the bootstrap stack-purity decision to drop tensorboard/wandb/matplotlib — make consciously, when payoff is real. **MPS gotcha:** W&B's GPU telemetry tab is empty on Apple Silicon (NVIDIA-only); macmon stays our GPU-utilization source for M8 perf work. Skip W&B Sweeps / Hyperband — orchestration bypasses intuition formation and the early-stopping heuristic collides with the cube DAVI proxy-gap risk. Hold for M7 (systematic hparam characterization is the actual milestone goal).
+Surfaced: 2026-05-02

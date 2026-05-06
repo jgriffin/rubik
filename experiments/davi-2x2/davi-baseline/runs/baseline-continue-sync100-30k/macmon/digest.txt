@@ -1,0 +1,4 @@
+samples=300  window=60.0s
+gpu_busy   mean=0.956  median=0.960  min=0.907  max=1.000
+gpu_power  mean=47.41W median=47.71W min=40.36W max=52.63W
+gpu_temp   mean=76.2C min=74.6C max=76.6C

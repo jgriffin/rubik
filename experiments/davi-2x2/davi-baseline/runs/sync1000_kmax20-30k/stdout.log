@@ -1,0 +1,348 @@
+run dir:                experiments/davi-2x2/davi-baseline/runs/sweep_sync1000_kmax20-30k
+device:                 mps
+params:                 13.21M
+body_widths:            (4096, 1024)
+n_residual_blocks:      4
+normalization:          bn
+batch_size:             4096
+max_scramble_depth:     20
+target_sync_interval:   1000
+learning_rate:          0.001
+n_steps:                30000
+eval_set:               experiments/davi-2x2/eval_set.npz (1400 states)
+
+step     100/30000  loss 0.1554  step 221.6 ms
+step     200/30000  loss 0.1520  step 222.7 ms
+step     300/30000  loss 0.1442  step 221.5 ms
+step     400/30000  loss 0.1401  step 221.5 ms
+step     500/30000  loss 0.1401  step 219.3 ms
+step     600/30000  loss 0.1364  step 221.3 ms
+step     700/30000  loss 0.1391  step 222.7 ms
+step     800/30000  loss 0.1222  step 220.7 ms
+step     900/30000  loss 0.1272  step 221.2 ms
+step    1000/30000  loss 0.1324  step 220.5 ms
+  eval @ step    1000  macro_mae 7.7184  val_mae 7.7184  pred_std 0.286  solve: d1=1.00 d11=0.02 d13=0.00 d3=0.16 d5=0.02 d7=0.00 d9=0.00
+step    1100/30000  loss 0.0173  step 221.2 ms
+step    1200/30000  loss 0.0136  step 221.1 ms
+step    1300/30000  loss 0.0122  step 220.4 ms
+step    1400/30000  loss 0.0118  step 220.5 ms
+step    1500/30000  loss 0.0121  step 221.9 ms
+step    1600/30000  loss 0.0109  step 224.9 ms
+step    1700/30000  loss 0.0151  step 220.8 ms
+step    1800/30000  loss 0.0100  step 219.9 ms
+step    1900/30000  loss 0.0093  step 220.7 ms
+step    2000/30000  loss 0.0100  step 221.6 ms
+  eval @ step    2000  macro_mae 7.1454  val_mae 7.1454  pred_std 0.252  solve: d1=1.00 d11=0.00 d13=0.00 d3=0.20 d5=0.14 d7=0.14 d9=0.00
+step    2100/30000  loss 0.0107  step 221.1 ms
+step    2200/30000  loss 0.0077  step 220.4 ms
+step    2300/30000  loss 0.0067  step 221.1 ms
+step    2400/30000  loss 0.0068  step 221.6 ms
+step    2500/30000  loss 0.0058  step 222.0 ms
+step    2600/30000  loss 0.0052  step 220.7 ms
+step    2700/30000  loss 0.0053  step 220.8 ms
+step    2800/30000  loss 0.0050  step 220.6 ms
+step    2900/30000  loss 0.0047  step 224.2 ms
+step    3000/30000  loss 0.0042  step 220.6 ms
+  eval @ step    3000  macro_mae 6.4117  val_mae 6.4117  pred_std 0.292  solve: d1=1.00 d11=0.10 d13=0.04 d3=0.48 d5=0.20 d7=0.12 d9=0.06
+step    3100/30000  loss 0.0128  step 220.9 ms
+step    3200/30000  loss 0.0093  step 220.4 ms
+step    3300/30000  loss 0.0073  step 220.4 ms
+step    3400/30000  loss 0.0069  step 220.9 ms
+step    3500/30000  loss 0.0069  step 221.1 ms
+step    3600/30000  loss 0.0059  step 220.7 ms
+step    3700/30000  loss 0.0059  step 220.6 ms
+step    3800/30000  loss 0.0068  step 221.9 ms
+step    3900/30000  loss 0.0051  step 221.0 ms
+step    4000/30000  loss 0.0052  step 221.0 ms
+  eval @ step    4000  macro_mae 5.6632  val_mae 5.6632  pred_std 0.357  solve: d1=1.00 d11=0.02 d13=0.02 d3=0.28 d5=0.18 d7=0.14 d9=0.12
+step    4100/30000  loss 0.0213  step 222.6 ms
+step    4200/30000  loss 0.0167  step 221.2 ms
+step    4300/30000  loss 0.0141  step 221.4 ms
+step    4400/30000  loss 0.0123  step 221.2 ms
+step    4500/30000  loss 0.0145  step 223.5 ms
+step    4600/30000  loss 0.0139  step 221.4 ms
+step    4700/30000  loss 0.0100  step 221.5 ms
+step    4800/30000  loss 0.0103  step 220.5 ms
+step    4900/30000  loss 0.0093  step 221.7 ms
+step    5000/30000  loss 0.0094  step 221.1 ms
+  eval @ step    5000  macro_mae 4.9733  val_mae 4.9733  pred_std 0.502  solve: d1=1.00 d11=0.16 d13=0.12 d3=0.74 d5=0.48 d7=0.30 d9=0.16
+step    5100/30000  loss 0.0361  step 221.5 ms
+step    5200/30000  loss 0.0263  step 221.0 ms
+step    5300/30000  loss 0.0215  step 222.9 ms
+step    5400/30000  loss 0.0207  step 221.2 ms
+step    5500/30000  loss 0.0218  step 221.2 ms
+step    5600/30000  loss 0.0212  step 220.9 ms
+step    5700/30000  loss 0.0177  step 220.0 ms
+step    5800/30000  loss 0.0221  step 221.7 ms
+step    5900/30000  loss 0.0163  step 224.1 ms
+step    6000/30000  loss 0.0167  step 222.1 ms
+  eval @ step    6000  macro_mae 4.3442  val_mae 4.3442  pred_std 0.705  solve: d1=1.00 d11=0.26 d13=0.20 d3=1.00 d5=0.88 d7=0.52 d9=0.42
+step    6100/30000  loss 0.0235  step 221.9 ms
+step    6200/30000  loss 0.0254  step 220.7 ms
+step    6300/30000  loss 0.0170  step 220.8 ms
+step    6400/30000  loss 0.0171  step 222.2 ms
+step    6500/30000  loss 0.0175  step 221.4 ms
+step    6600/30000  loss 0.0156  step 221.5 ms
+step    6700/30000  loss 0.0172  step 221.5 ms
+step    6800/30000  loss 0.0129  step 221.8 ms
+step    6900/30000  loss 0.0130  step 220.8 ms
+step    7000/30000  loss 0.0169  step 222.3 ms
+  eval @ step    7000  macro_mae 3.8618  val_mae 3.8618  pred_std 0.976  solve: d1=1.00 d11=0.24 d13=0.22 d3=1.00 d5=0.96 d7=0.80 d9=0.44
+step    7100/30000  loss 0.0343  step 220.9 ms
+step    7200/30000  loss 0.0240  step 221.6 ms
+step    7300/30000  loss 0.0214  step 220.3 ms
+step    7400/30000  loss 0.0236  step 221.2 ms
+step    7500/30000  loss 0.0213  step 221.6 ms
+step    7600/30000  loss 0.0213  step 221.6 ms
+step    7700/30000  loss 0.0178  step 222.8 ms
+step    7800/30000  loss 0.0169  step 221.3 ms
+step    7900/30000  loss 0.0154  step 220.6 ms
+step    8000/30000  loss 0.0161  step 220.8 ms
+  eval @ step    8000  macro_mae 3.4523  val_mae 3.4523  pred_std 1.253  solve: d1=1.00 d11=0.30 d13=0.20 d3=1.00 d5=1.00 d7=0.76 d9=0.56
+step    8100/30000  loss 0.0654  step 220.9 ms
+step    8200/30000  loss 0.0529  step 220.8 ms
+step    8300/30000  loss 0.0505  step 221.0 ms
+step    8400/30000  loss 0.0450  step 220.6 ms
+step    8500/30000  loss 0.0458  step 220.7 ms
+step    8600/30000  loss 0.0410  step 220.0 ms
+step    8700/30000  loss 0.0403  step 221.1 ms
+step    8800/30000  loss 0.0418  step 220.7 ms
+step    8900/30000  loss 0.0362  step 221.2 ms
+step    9000/30000  loss 0.0324  step 222.2 ms
+  eval @ step    9000  macro_mae 3.1560  val_mae 3.1560  pred_std 1.422  solve: d1=1.00 d11=0.46 d13=0.26 d3=1.00 d5=0.98 d7=0.76 d9=0.54
+step    9100/30000  loss 0.0710  step 221.2 ms
+step    9200/30000  loss 0.0635  step 221.2 ms
+step    9300/30000  loss 0.0646  step 222.5 ms
+step    9400/30000  loss 0.0590  step 221.0 ms
+step    9500/30000  loss 0.0672  step 221.1 ms
+step    9600/30000  loss 0.0552  step 220.7 ms
+step    9700/30000  loss 0.0561  step 220.7 ms
+step    9800/30000  loss 0.0535  step 220.3 ms
+step    9900/30000  loss 0.0523  step 222.8 ms
+step   10000/30000  loss 0.0565  step 220.8 ms
+  eval @ step   10000  macro_mae 3.0368  val_mae 3.0368  pred_std 1.577  solve: d1=1.00 d11=0.36 d13=0.38 d3=1.00 d5=1.00 d7=0.88 d9=0.50
+step   10100/30000  loss 0.0591  step 220.7 ms
+step   10200/30000  loss 0.0529  step 221.5 ms
+step   10300/30000  loss 0.0509  step 220.7 ms
+step   10400/30000  loss 0.0516  step 223.2 ms
+step   10500/30000  loss 0.0459  step 220.9 ms
+step   10600/30000  loss 0.0490  step 220.4 ms
+step   10700/30000  loss 0.0466  step 220.6 ms
+step   10800/30000  loss 0.0480  step 220.9 ms
+step   10900/30000  loss 0.0470  step 220.8 ms
+step   11000/30000  loss 0.0434  step 220.3 ms
+  eval @ step   11000  macro_mae 2.9749  val_mae 2.9749  pred_std 1.618  solve: d1=1.00 d11=0.32 d13=0.28 d3=1.00 d5=1.00 d7=0.98 d9=0.58
+step   11100/30000  loss 0.0642  step 220.3 ms
+step   11200/30000  loss 0.0626  step 219.7 ms
+step   11300/30000  loss 0.0603  step 221.5 ms
+step   11400/30000  loss 0.0557  step 220.3 ms
+step   11500/30000  loss 0.0536  step 220.8 ms
+step   11600/30000  loss 0.0513  step 221.9 ms
+step   11700/30000  loss 0.0523  step 220.9 ms
+step   11800/30000  loss 0.0520  step 220.6 ms
+step   11900/30000  loss 0.0482  step 220.4 ms
+step   12000/30000  loss 0.0504  step 221.1 ms
+  eval @ step   12000  macro_mae 2.9181  val_mae 2.9181  pred_std 1.672  solve: d1=1.00 d11=0.52 d13=0.46 d3=1.00 d5=0.98 d7=0.90 d9=0.72
+step   12100/30000  loss 0.0759  step 221.4 ms
+step   12200/30000  loss 0.0731  step 222.6 ms
+step   12300/30000  loss 0.0698  step 221.2 ms
+step   12400/30000  loss 0.0671  step 220.8 ms
+step   12500/30000  loss 0.0648  step 220.2 ms
+step   12600/30000  loss 0.0638  step 221.7 ms
+step   12700/30000  loss 0.0627  step 233.3 ms
+step   12800/30000  loss 0.0569  step 220.7 ms
+step   12900/30000  loss 0.0562  step 220.6 ms
+step   13000/30000  loss 0.0582  step 222.7 ms
+  eval @ step   13000  macro_mae 2.9017  val_mae 2.9017  pred_std 1.662  solve: d1=1.00 d11=0.46 d13=0.36 d3=1.00 d5=1.00 d7=0.88 d9=0.80
+step   13100/30000  loss 0.0761  step 220.7 ms
+step   13200/30000  loss 0.0712  step 221.0 ms
+step   13300/30000  loss 0.0676  step 220.7 ms
+step   13400/30000  loss 0.0677  step 220.6 ms
+step   13500/30000  loss 0.0678  step 221.5 ms
+step   13600/30000  loss 0.0670  step 221.1 ms
+step   13700/30000  loss 0.0629  step 220.7 ms
+step   13800/30000  loss 0.0634  step 221.4 ms
+step   13900/30000  loss 0.0594  step 221.6 ms
+step   14000/30000  loss 0.0607  step 221.5 ms
+  eval @ step   14000  macro_mae 2.8962  val_mae 2.8962  pred_std 1.699  solve: d1=1.00 d11=0.38 d13=0.48 d3=1.00 d5=1.00 d7=0.90 d9=0.70
+step   14100/30000  loss 0.0634  step 220.9 ms
+step   14200/30000  loss 0.0574  step 220.3 ms
+step   14300/30000  loss 0.0576  step 220.7 ms
+step   14400/30000  loss 0.0561  step 222.3 ms
+step   14500/30000  loss 0.0521  step 221.5 ms
+step   14600/30000  loss 0.0520  step 220.8 ms
+step   14700/30000  loss 0.0540  step 220.8 ms
+step   14800/30000  loss 0.0599  step 221.1 ms
+step   14900/30000  loss 0.0487  step 221.4 ms
+step   15000/30000  loss 0.0508  step 221.1 ms
+  eval @ step   15000  macro_mae 2.8729  val_mae 2.8729  pred_std 1.655  solve: d1=1.00 d11=0.60 d13=0.52 d3=1.00 d5=1.00 d7=0.94 d9=0.78
+step   15100/30000  loss 0.0636  step 220.9 ms
+step   15200/30000  loss 0.0566  step 221.8 ms
+step   15300/30000  loss 0.0576  step 225.8 ms
+step   15400/30000  loss 0.0611  step 225.2 ms
+step   15500/30000  loss 0.0574  step 222.7 ms
+step   15600/30000  loss 0.0567  step 220.8 ms
+step   15700/30000  loss 0.0574  step 220.7 ms
+step   15800/30000  loss 0.0564  step 221.1 ms
+step   15900/30000  loss 0.0539  step 221.1 ms
+step   16000/30000  loss 0.0516  step 220.8 ms
+  eval @ step   16000  macro_mae 2.8381  val_mae 2.8381  pred_std 1.704  solve: d1=1.00 d11=0.50 d13=0.40 d3=0.98 d5=0.96 d7=0.86 d9=0.66
+step   16100/30000  loss 0.0746  step 220.3 ms
+step   16200/30000  loss 0.0648  step 220.8 ms
+step   16300/30000  loss 0.0694  step 220.7 ms
+step   16400/30000  loss 0.0628  step 221.7 ms
+step   16500/30000  loss 0.0637  step 221.4 ms
+step   16600/30000  loss 0.0605  step 220.9 ms
+step   16700/30000  loss 0.0618  step 221.1 ms
+step   16800/30000  loss 0.0629  step 221.8 ms
+step   16900/30000  loss 0.0609  step 221.1 ms
+step   17000/30000  loss 0.0622  step 220.5 ms
+  eval @ step   17000  macro_mae 2.8232  val_mae 2.8232  pred_std 1.730  solve: d1=1.00 d11=0.66 d13=0.40 d3=1.00 d5=1.00 d7=0.90 d9=0.80
+step   17100/30000  loss 0.0675  step 221.1 ms
+step   17200/30000  loss 0.0613  step 221.7 ms
+step   17300/30000  loss 0.0621  step 220.6 ms
+step   17400/30000  loss 0.0609  step 222.6 ms
+step   17500/30000  loss 0.0627  step 221.2 ms
+step   17600/30000  loss 0.0539  step 222.0 ms
+step   17700/30000  loss 0.0580  step 224.5 ms
+step   17800/30000  loss 0.0542  step 221.1 ms
+step   17900/30000  loss 0.0539  step 220.8 ms
+step   18000/30000  loss 0.0575  step 221.3 ms
+  eval @ step   18000  macro_mae 2.8664  val_mae 2.8664  pred_std 1.691  solve: d1=1.00 d11=0.56 d13=0.38 d3=1.00 d5=1.00 d7=0.98 d9=0.84
+step   18100/30000  loss 0.0637  step 222.1 ms
+step   18200/30000  loss 0.0619  step 220.9 ms
+step   18300/30000  loss 0.0643  step 221.0 ms
+step   18400/30000  loss 0.0625  step 220.3 ms
+step   18500/30000  loss 0.0582  step 220.5 ms
+step   18600/30000  loss 0.0529  step 222.4 ms
+step   18700/30000  loss 0.0558  step 220.9 ms
+step   18800/30000  loss 0.0539  step 221.2 ms
+step   18900/30000  loss 0.0587  step 220.9 ms
+step   19000/30000  loss 0.0576  step 220.8 ms
+  eval @ step   19000  macro_mae 2.9072  val_mae 2.9072  pred_std 1.624  solve: d1=1.00 d11=0.42 d13=0.36 d3=1.00 d5=0.98 d7=0.94 d9=0.66
+step   19100/30000  loss 0.0508  step 223.7 ms
+step   19200/30000  loss 0.0477  step 220.7 ms
+step   19300/30000  loss 0.0473  step 221.1 ms
+step   19400/30000  loss 0.0467  step 220.6 ms
+step   19500/30000  loss 0.0436  step 220.8 ms
+step   19600/30000  loss 0.0438  step 220.5 ms
+step   19700/30000  loss 0.0446  step 220.9 ms
+step   19800/30000  loss 0.0451  step 220.6 ms
+step   19900/30000  loss 0.0436  step 221.7 ms
+step   20000/30000  loss 0.0430  step 220.5 ms
+  eval @ step   20000  macro_mae 2.8762  val_mae 2.8762  pred_std 1.592  solve: d1=1.00 d11=0.52 d13=0.34 d3=1.00 d5=1.00 d7=0.92 d9=0.72
+step   20100/30000  loss 0.0394  step 221.1 ms
+step   20200/30000  loss 0.0397  step 221.1 ms
+step   20300/30000  loss 0.0370  step 220.7 ms
+step   20400/30000  loss 0.0368  step 221.1 ms
+step   20500/30000  loss 0.0388  step 221.4 ms
+step   20600/30000  loss 0.0365  step 221.6 ms
+step   20700/30000  loss 0.0342  step 221.8 ms
+step   20800/30000  loss 0.0365  step 220.9 ms
+step   20900/30000  loss 0.0367  step 220.6 ms
+step   21000/30000  loss 0.0347  step 221.6 ms
+  eval @ step   21000  macro_mae 2.8842  val_mae 2.8842  pred_std 1.585  solve: d1=1.00 d11=0.46 d13=0.40 d3=1.00 d5=1.00 d7=0.92 d9=0.68
+step   21100/30000  loss 0.0469  step 220.9 ms
+step   21200/30000  loss 0.0464  step 221.9 ms
+step   21300/30000  loss 0.0445  step 221.6 ms
+step   21400/30000  loss 0.0406  step 221.7 ms
+step   21500/30000  loss 0.0401  step 220.9 ms
+step   21600/30000  loss 0.0377  step 220.8 ms
+step   21700/30000  loss 0.0394  step 220.9 ms
+step   21800/30000  loss 0.0410  step 221.3 ms
+step   21900/30000  loss 0.0407  step 221.0 ms
+step   22000/30000  loss 0.0385  step 221.0 ms
+  eval @ step   22000  macro_mae 2.8450  val_mae 2.8450  pred_std 1.599  solve: d1=1.00 d11=0.52 d13=0.40 d3=1.00 d5=0.98 d7=0.88 d9=0.60
+step   22100/30000  loss 0.0421  step 220.6 ms
+step   22200/30000  loss 0.0386  step 220.8 ms
+step   22300/30000  loss 0.0430  step 221.2 ms
+step   22400/30000  loss 0.0448  step 220.9 ms
+step   22500/30000  loss 0.0389  step 221.7 ms
+step   22600/30000  loss 0.0407  step 221.1 ms
+step   22700/30000  loss 0.0389  step 221.0 ms
+step   22800/30000  loss 0.0397  step 221.1 ms
+step   22900/30000  loss 0.0408  step 221.4 ms
+step   23000/30000  loss 0.0372  step 220.7 ms
+  eval @ step   23000  macro_mae 2.8754  val_mae 2.8754  pred_std 1.596  solve: d1=1.00 d11=0.38 d13=0.30 d3=1.00 d5=1.00 d7=0.86 d9=0.64
+step   23100/30000  loss 0.0455  step 220.7 ms
+step   23200/30000  loss 0.0447  step 222.4 ms
+step   23300/30000  loss 0.0430  step 220.1 ms
+step   23400/30000  loss 0.0421  step 221.0 ms
+step   23500/30000  loss 0.0421  step 220.9 ms
+step   23600/30000  loss 0.0439  step 220.4 ms
+step   23700/30000  loss 0.0423  step 220.5 ms
+step   23800/30000  loss 0.0387  step 221.0 ms
+step   23900/30000  loss 0.0373  step 221.2 ms
+step   24000/30000  loss 0.0388  step 221.5 ms
+  eval @ step   24000  macro_mae 2.8825  val_mae 2.8825  pred_std 1.573  solve: d1=1.00 d11=0.40 d13=0.36 d3=1.00 d5=1.00 d7=0.84 d9=0.60
+step   24100/30000  loss 0.0551  step 220.7 ms
+step   24200/30000  loss 0.0522  step 221.1 ms
+step   24300/30000  loss 0.0514  step 221.5 ms
+step   24400/30000  loss 0.0507  step 220.9 ms
+step   24500/30000  loss 0.0478  step 220.5 ms
+step   24600/30000  loss 0.0471  step 220.8 ms
+step   24700/30000  loss 0.0424  step 220.5 ms
+step   24800/30000  loss 0.0453  step 220.3 ms
+step   24900/30000  loss 0.0461  step 221.1 ms
+step   25000/30000  loss 0.0459  step 221.1 ms
+  eval @ step   25000  macro_mae 2.9084  val_mae 2.9084  pred_std 1.574  solve: d1=1.00 d11=0.42 d13=0.20 d3=1.00 d5=0.94 d7=0.88 d9=0.48
+step   25100/30000  loss 0.0388  step 222.9 ms
+step   25200/30000  loss 0.0360  step 222.8 ms
+step   25300/30000  loss 0.0358  step 221.0 ms
+step   25400/30000  loss 0.0337  step 220.8 ms
+step   25500/30000  loss 0.0343  step 221.2 ms
+step   25600/30000  loss 0.0331  step 222.8 ms
+step   25700/30000  loss 0.0326  step 223.8 ms
+step   25800/30000  loss 0.0324  step 220.6 ms
+step   25900/30000  loss 0.0322  step 220.8 ms
+step   26000/30000  loss 0.0316  step 222.4 ms
+  eval @ step   26000  macro_mae 2.9044  val_mae 2.9044  pred_std 1.558  solve: d1=1.00 d11=0.52 d13=0.26 d3=1.00 d5=1.00 d7=0.80 d9=0.62
+step   26100/30000  loss 0.0436  step 221.0 ms
+step   26200/30000  loss 0.0413  step 220.6 ms
+step   26300/30000  loss 0.0412  step 220.3 ms
+step   26400/30000  loss 0.0371  step 220.5 ms
+step   26500/30000  loss 0.0361  step 221.2 ms
+step   26600/30000  loss 0.0386  step 221.4 ms
+step   26700/30000  loss 0.0360  step 220.9 ms
+step   26800/30000  loss 0.0362  step 225.0 ms
+step   26900/30000  loss 0.0363  step 221.3 ms
+step   27000/30000  loss 0.0346  step 221.5 ms
+  eval @ step   27000  macro_mae 2.8904  val_mae 2.8904  pred_std 1.575  solve: d1=1.00 d11=0.50 d13=0.28 d3=1.00 d5=0.98 d7=0.90 d9=0.68
+step   27100/30000  loss 0.0532  step 220.8 ms
+step   27200/30000  loss 0.0523  step 221.4 ms
+step   27300/30000  loss 0.0503  step 223.7 ms
+step   27400/30000  loss 0.0519  step 220.9 ms
+step   27500/30000  loss 0.0479  step 221.0 ms
+step   27600/30000  loss 0.0458  step 221.1 ms
+step   27700/30000  loss 0.0453  step 220.4 ms
+step   27800/30000  loss 0.0457  step 220.7 ms
+step   27900/30000  loss 0.0457  step 220.8 ms
+step   28000/30000  loss 0.0430  step 221.0 ms
+  eval @ step   28000  macro_mae 2.9075  val_mae 2.9075  pred_std 1.558  solve: d1=1.00 d11=0.58 d13=0.28 d3=1.00 d5=1.00 d7=0.90 d9=0.60
+step   28100/30000  loss 0.0576  step 220.3 ms
+step   28200/30000  loss 0.0482  step 220.7 ms
+step   28300/30000  loss 0.0452  step 220.7 ms
+step   28400/30000  loss 0.0426  step 220.8 ms
+step   28500/30000  loss 0.0423  step 220.6 ms
+step   28600/30000  loss 0.0448  step 220.5 ms
+step   28700/30000  loss 0.0425  step 223.2 ms
+step   28800/30000  loss 0.0409  step 221.0 ms
+step   28900/30000  loss 0.0414  step 220.3 ms
+step   29000/30000  loss 0.0429  step 220.7 ms
+  eval @ step   29000  macro_mae 2.8817  val_mae 2.8817  pred_std 1.570  solve: d1=1.00 d11=0.32 d13=0.26 d3=1.00 d5=1.00 d7=0.82 d9=0.70
+step   29100/30000  loss 0.0406  step 221.1 ms
+step   29200/30000  loss 0.0395  step 221.1 ms
+step   29300/30000  loss 0.0367  step 220.6 ms
+step   29400/30000  loss 0.0352  step 221.6 ms
+step   29500/30000  loss 0.0380  step 220.9 ms
+step   29600/30000  loss 0.0357  step 220.9 ms
+step   29700/30000  loss 0.0354  step 221.9 ms
+step   29800/30000  loss 0.0336  step 220.8 ms
+step   29900/30000  loss 0.0349  step 220.7 ms
+step   30000/30000  loss 0.0333  step 221.1 ms
+  eval @ step   30000  macro_mae 2.8967  val_mae 2.8967  pred_std 1.559  solve: d1=1.00 d11=0.36 d13=0.28 d3=1.00 d5=0.98 d7=0.84 d9=0.50
+
+final macro_mae: 2.8967
+final val_mae:   2.8967
+final solve:     d1=1.00 d11=0.46 d13=0.24 d3=1.00 d5=0.98 d7=0.82 d9=0.76
+done. metrics:   experiments/davi-2x2/davi-baseline/runs/sweep_sync1000_kmax20-30k/metrics.jsonl

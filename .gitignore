@@ -58,15 +58,19 @@ htmlcov/
 *.safetensors
 
 # Project: training logs / runs
+# Run dirs themselves are tracked — small files (metrics.jsonl, stdout.log,
+# config.yaml, watcher.log, macmon/*.ndjson) are long-term-interesting and
+# committed. Large model checkpoints are excluded by `*.pt` above.
 wandb/
 lightning_logs/
-runs/
 tb_logs/
 
 # Project: experiment outputs (scripts kept, outputs ignored)
-experiments/*/runs/
 experiments/*/results/
 experiments/*/cache/
+
+# Project: cached ground-truth artifacts (V* table, etc.)
+data/
 
 # Jupyter
 .ipynb_checkpoints/
