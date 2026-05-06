@@ -82,7 +82,13 @@ def value_eval(
       excluded from this view. Layers with zero post-mask samples are
       omitted from the dict.
     - **macro_v_star_mae** — uniform mean across the populated
-      ``v_star_mae/d*`` keys. The early-stop driver per the plan.
+      ``v_star_mae/d*`` keys for ``d ≥ 1``. **V*=0 (solved state) is
+      excluded** because its MAE captures terminal-value calibration
+      (the network's prediction at solved vs. the constant 0), a
+      different quality from "V* prediction error on non-trivial
+      scrambled states." Walks rarely land on V*=0 (walk redundancy at
+      length ≥ 6+) and including it makes the headline scalar
+      inconsistent eval-to-eval. The early-stop driver per the plan.
 
     Args:
         net: ValueNet (or any module mapping ``(B, n_stickers)`` -> ``(B,)``).
@@ -178,8 +184,17 @@ def value_eval(
 
     for v, mae in v_star_mae.items():
         out[f"v_star_mae/d{int(v)}"] = mae
-    if v_star_mae:
-        out["macro_v_star_mae"] = float(sum(v_star_mae.values()) / len(v_star_mae))
+    # Macro excludes V*=0 (the solved state). V*=0's MAE measures terminal-value
+    # calibration — a different quality from "V* prediction error on non-trivial
+    # scrambled states." Including it would also make the macro inconsistent
+    # eval-to-eval, since V*=0 only populates when a walk happens to return to
+    # solved (rare, walk-depth-dependent) — its presence/absence would jitter
+    # the headline scalar that drives early-stop.
+    non_terminal_maes = [mae for v, mae in v_star_mae.items() if v > 0]
+    if non_terminal_maes:
+        out["macro_v_star_mae"] = float(
+            sum(non_terminal_maes) / len(non_terminal_maes)
+        )
     else:
         out["macro_v_star_mae"] = float("nan")
 
