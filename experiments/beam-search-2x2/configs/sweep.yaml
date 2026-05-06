@@ -1,0 +1,31 @@
+checkpoint_path: experiments/davi-2x2/davi-baseline/runs/sync500_kmax20-30k/net_final.pt
+body_widths:
+  - 4096
+  - 1024
+n_residual_blocks: 4
+normalization: bn
+depths:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+beam_widths:
+  - 1
+  - 4
+  - 16
+  - 64
+  - 256
+n_per_depth: 200
+max_steps: 20
+seed: 0
+device: mps
