@@ -19,7 +19,7 @@ persists across re-runs of this analyzer.
 
 Usage::
 
-    uv run python experiments/beam-search-2x2/analyze.py \\
+    uv run python experiments/beam-search-2x2/analysis/analyze.py \\
         [--run-dir runs/<sweep-name>] \\
         [--acceptance-dir runs/<acceptance-name>]
 
@@ -32,12 +32,12 @@ import argparse
 import json
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXPERIMENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[3]
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_RUN_DIR = EXPERIMENT_DIR / "runs" / "sync500_kmax20-baseline"
 DEFAULT_ACCEPTANCE_DIR = EXPERIMENT_DIR / "runs" / "sync500_kmax20-acceptance"
-RESULTS_PATH = EXPERIMENT_DIR / "results.md"
-INTUITION_PATH = EXPERIMENT_DIR / "intuition.md"
+RESULTS_PATH = EXPERIMENT_DIR / "results" / "results.md"
+INTUITION_PATH = EXPERIMENT_DIR / "results" / "intuition.md"
 
 # SPEC gates (from plans/m6-beam-search.md and SPEC.md):
 SOLVE_RATE_GATE = 0.999  # per-depth threshold (≤1 fail per 1000)

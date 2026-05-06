@@ -3,15 +3,15 @@
 # Captures a 60s macmon GPU-utilization probe at ~step 5k (steady-state) so
 # we can answer the wider-batch question after the run.
 #
-# Usage: bash experiments/davi-2x2/davi-baseline/run_continue.sh
+# Usage: bash experiments/davi-2x2/run_continue.sh
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-CONFIG="experiments/davi-2x2/davi-baseline/configs/baseline_continue_sync100.yaml"
-RESUME="experiments/davi-2x2/davi-baseline/runs/baseline-30k/net_final.pt"
-OUT_DIR="experiments/davi-2x2/davi-baseline/runs/baseline-continue-sync100-30k"
+CONFIG="experiments/davi-2x2/configs/baseline_continue_sync100.yaml"
+RESUME="experiments/davi-2x2/runs/baseline-30k/net_final.pt"
+OUT_DIR="experiments/davi-2x2/runs/baseline-continue-sync100-30k"
 MACMON_DIR="${OUT_DIR}/macmon"
 
 if [[ ! -f "$RESUME" ]]; then

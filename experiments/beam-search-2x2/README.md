@@ -18,10 +18,10 @@ If yes, M5's "decent enough" framing was correct and the value net's ordering si
 - `configs/acceptance.yaml` — width=256 × depths `1..14` × `n_per_depth=1000`. SPEC's exact gate.
 - `run.py` — entry point. Loads `BeamEvalConfig`, instantiates `ValueNet`, sweeps the `(depth, beam_width)` grid, logs per-cell metrics + raw `solve_lens` arrays.
 - `run.sh` — one-line wrapper invoking the sweep.
-- `analyze.py` — *(written in C4)* reads `metrics.jsonl` → `results.md` tables.
-- `render_beam_curves.py` — *(written in C4)* produces `beam_curves.html` with per-depth small-multiples (5/5/4 banding from M5 cycle-3).
-- `results.md` — sweep tables + acceptance verdict.
-- `intuition.md` — hand-written Observations → Hypotheses (with verification plans) → Open questions.
+- `analysis/analyze.py` — *(written in C4)* reads `metrics.jsonl` → `results/results.md` tables.
+- `analysis/render_beam_curves.py` — *(written in C4)* produces `results/beam_curves.html` with per-depth small-multiples (5/5/4 banding from M5 cycle-3).
+- `results/results.md` — sweep tables + acceptance verdict.
+- `results/intuition.md` — hand-written Observations → Hypotheses (with verification plans) → Open questions.
 
 ## Earned vs first-try-defensible knobs
 

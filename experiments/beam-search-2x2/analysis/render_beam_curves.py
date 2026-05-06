@@ -33,7 +33,7 @@ depth be inspected independently while keeping nearby depths visually
 adjacent.
 
 Pure stdlib + inline SVG. Open with
-``open experiments/beam-search-2x2/beam_curves.html``.
+``open experiments/beam-search-2x2/results/beam_curves.html``.
 """
 
 from __future__ import annotations
@@ -43,10 +43,10 @@ import json
 import math
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXPERIMENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[3]
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_RUN_DIR = EXPERIMENT_DIR / "runs" / "sync500_kmax20-baseline"
-OUT_PATH = EXPERIMENT_DIR / "beam_curves.html"
+OUT_PATH = EXPERIMENT_DIR / "results" / "beam_curves.html"
 
 BANDS = [
     ("Shallow (d=1–5)", [1, 2, 3, 4, 5]),

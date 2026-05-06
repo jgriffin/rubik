@@ -19,10 +19,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-EXPERIMENT_DIR = REPO_ROOT / "experiments" / "batch-sensitivity-2x2"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
 RUNS_ROOT = EXPERIMENT_DIR / "runs"
-RESULTS_PATH = EXPERIMENT_DIR / "results.md"
+RESULTS_PATH = EXPERIMENT_DIR / "results" / "results.md"
 
 # Scaling efficiency = (throughput_ratio / batch_ratio). Linear scaling
 # = 1.0; full saturation = 0.0. We use efficiency rather than raw gain
@@ -248,7 +248,7 @@ def render_results_md(
         "hyperparameter choices, and a deliberate exercise in building "
         "GPU-saturation intuition for this hardware.\n\n"
         "Sweep grid lives in `config.yaml`. Driver: `run.py`. Steady-state "
-        "spot-check: `run_steady_state.py`. Renderer: `analyze.py`.\n"
+        "spot-check: `run_steady_state.py`. Renderer: `analysis/analyze.py`.\n"
     )
 
     # 2. Latest run.
@@ -302,7 +302,7 @@ def render_results_md(
     else:
         sections.append(
             "Calibration pending — run `run_steady_state.py` and rerun "
-            "`analyze.py --steady-state-run <path>` to embed the "
+            "`analysis/analyze.py --steady-state-run <path>` to embed the "
             "bench-vs-pipelined correction factor here. Until then: the "
             "sweep numbers are sync-bracket per-call seconds, which "
             "underestimate steady-state pipelined throughput by a "
@@ -311,7 +311,7 @@ def render_results_md(
         )
 
     # 7. Intuition (hand-written, preserved across regenerations).
-    intuition_path = EXPERIMENT_DIR / "intuition.md"
+    intuition_path = EXPERIMENT_DIR / "results" / "intuition.md"
     if intuition_path.exists():
         sections.append(intuition_path.read_text().rstrip() + "\n")
 

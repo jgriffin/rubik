@@ -13,11 +13,11 @@ This script:
 2. Runs a high-sample-size greedy solve (``n_per_depth=200``) at each
    test depth (1..13 contiguous, matching eval.py's default depth set).
 3. Writes per-(run, depth) raw solve-length arrays to
-   ``solve_histograms.json`` in the run's parent dir
-   (experiments/davi-2x2/davi-baseline/) so the renderer can read one file.
+   ``solve_histograms.json`` under the experiment's results/ dir
+   (experiments/davi-2x2/results/) so the renderer can read one file.
 
 Usage:
-    uv run python experiments/davi-2x2/davi-baseline/capture_solve_histograms.py
+    uv run python experiments/davi-2x2/analysis/capture_solve_histograms.py
 """
 
 from __future__ import annotations
@@ -33,10 +33,9 @@ from rubik.model.network import ValueNet
 from rubik.solve import greedy_solve_batch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-BASELINE_DIR = REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "runs"
-OUT_PATH = (
-    REPO_ROOT / "experiments" / "davi-2x2" / "davi-baseline" / "solve_histograms.json"
-)
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
+BASELINE_DIR = EXPERIMENT_DIR / "runs"
+OUT_PATH = EXPERIMENT_DIR / "results" / "solve_histograms.json"
 
 RUNS: list[tuple[str, str]] = [
     ("cycle-1 baseline-30k  (K=18, sync=500)", "baseline-30k"),

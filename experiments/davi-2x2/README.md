@@ -1,6 +1,82 @@
-# davi-baseline — first DAVI run
+# davi-2x2
 
-## Context
+DAVI training experiments toward M5 acceptance on the 2x2 cube.
+
+**M5 acceptance gate** (per SPEC.md):
+- MAE vs `V*` < 1.0
+- Greedy solve rate ≥ 99% on depth ≤ 14 (QTM diameter; V* covers all
+  3,674,160 reachable states).
+
+**Methodology — tiered hand-curated.**
+
+Every config we ship is *earned* — picked from our own measurements, not
+borrowed from prior work. There is no starting reference config in the
+repo on purpose: the question of "what hyperparameters work for 2x2 DAVI
+on this hardware" is what these experiments answer.
+
+| Tier | Question                                                         | Script                       | Cost              |
+|------|------------------------------------------------------------------|------------------------------|-------------------|
+| 0    | What does a DAVI step *cost* across (batch, body, blocks)?       | `calibrate_step_time.py`     | one-shot, ~30 min |
+| 1    | Does DAVI converge *at all* on a downscaled cube?                | `run.py` w/ tiny configs     | 5–10 min/run      |
+| 2    | Single-axis sweeps at mid-scale — LR / sync / curriculum / batch | `run.py` w/ swept configs    | ~5 min/run        |
+| 3    | Champion full-scale run informed by tiers 0–2.                   | `run.py` w/ tier-3 config    | hours             |
+
+Without tier 0 every downstream budget is blind. So tier 0 ships first.
+
+---
+
+## Tier 0 — step time calibration
+
+**Status:** harness landed. Calibration run pending.
+
+**Script:** [`calibrate_step_time.py`](calibrate_step_time.py).
+
+**Grid (initial; refine after first pass):**
+- `batch_size`: TBD
+- `body_widths`: TBD
+- `n_residual_blocks`: TBD
+
+**Acceptance for tier 0:** one JSONL row per cell with `step_ms_median`,
+`step_ms_ci_low`, `step_ms_ci_high`, `n_params`. Numbers feed tier 1 +
+tier 2 budget decisions.
+
+(table to be appended once the calibration runs)
+
+---
+
+## Tier 1 — sanity runs (downscaled)
+
+**Status:** pending tier 0.
+
+Tiny net (`body_widths=(256, 64)`, `n_residual_blocks=2`) on a depth ≤ 5
+curriculum. Goal: DAVI loss curve reaches near-zero on a problem small
+enough to be obviously learnable. If it doesn't, no amount of tier 2/3
+tuning will help.
+
+---
+
+## Tier 2 — single-axis sweeps (mid-scale)
+
+**Status:** pending tier 1.
+
+One axis at a time, fixed budget per cell, on a mid-scale net. Axes:
+`learning_rate`, `target_sync_interval`, `max_scramble_depth`,
+`batch_size`. Goal: identify working regimes per axis without compounding
+changes (each cell starts from the same baseline so attribution is
+clean).
+
+---
+
+## Tier 3 — champion run
+
+**Status:** pending tier 2.
+
+Single full-scale run informed by tier 2 winners. Reports M5 acceptance
+gate evaluation (MAE vs V*, greedy solve rate by depth).
+
+---
+
+## Baseline-30k run rationale
 
 This is the first end-to-end DAVI training run on the 2x2. The
 V*-supervised detour (everything that lived under `t1-capacity/` and
@@ -9,7 +85,7 @@ V*-supervised detour (everything that lived under `t1-capacity/` and
 the actual DAVI loop. V* is the eval oracle here, never the training
 signal.
 
-## Question
+### Question
 
 Does DAVI on a comfortable network with first-try-defensible
 hyperparameters reach M5 acceptance — `macro_mae < 1.0` AND
@@ -19,7 +95,7 @@ If yes, we have a concrete config to do the M5 close on. If no, the
 failure shape (loss diverges / wavefront stalls at low depth / value
 collapses to mean / etc.) tells us which axis to sweep first.
 
-## What's an informed pick vs. a placeholder
+### What's an informed pick vs. a placeholder
 
 - **`max_scramble_depth: 18`** — user-directed. QTM God's number on the
   2x2 is 14 (verified empirically by the M5 V\* enumerator across all
@@ -69,7 +145,7 @@ established as innocent → keep). Everything else is a defensible first
 try, with the understanding that the post-run intuition section calls
 out which knob the data points to next.
 
-## Acceptance + plan
+### Acceptance + plan
 
 - **Pass:** final-eval `macro_mae < 1.0` AND every
   `solve_rate_d{d} > 0.99` at the test depth grid {1..13} (contiguous
@@ -87,15 +163,25 @@ out which knob the data points to next.
   - Per-depth MAE follows the depth distribution (high MAE at modal
     depths, low at tails) → predict-the-mean collapse, this time
     inside DAVI.
-- **Writeup:** `intuition.md` is hand-written per project convention
-  (Observations → Hypotheses with confidence + verification plan →
-  Open questions). `analyze.py` regenerates `results.md` with curves
-  + tables and appends the intuition section verbatim.
+- **Writeup:** `results/intuition.md` is hand-written per project
+  convention (Observations → Hypotheses with confidence + verification
+  plan → Open questions). `analysis/analyze.py` regenerates
+  `results/results.md` with curves + tables and appends the intuition
+  section verbatim.
 
-## Files
+### Files
 
 - `configs/baseline.yaml` — DAVIConfig YAML with the values above.
-- `run.sh` — one-line wrapper invoking the parent `run.py`.
-- `analyze.py` — reads `runs/baseline-30k/metrics.jsonl`, writes
-  `results.md` with train-loss / macro-MAE / per-depth / solve-rate
-  tables, and appends `intuition.md`.
+- `run.sh` — one-line wrapper invoking `run.py`.
+- `analysis/analyze.py` — reads `runs/baseline-30k/metrics.jsonl`,
+  writes `results/results.md` with train-loss / macro-MAE / per-depth /
+  solve-rate tables, and appends `results/intuition.md`.
+
+---
+
+## Intuition
+
+(Hand-written in `results/intuition.md` once tier 0 has data; appended
+by an analyzer in a later commit. Per project convention: Observations
+→ Hypotheses w/ confidence + evidence + verification plan → Open
+questions.)
