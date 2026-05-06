@@ -17,7 +17,8 @@ mode produces them; we don't pre-create stubs).
 - **M7** — Perf-2 / hyperparam experiment loop on 2x2 training — *not yet planned*
 - **M8** — 3x3 enablement — *active*
   - 3x3 env: CubeSpec + cubie oracle + tensor cube + viz + equivalence — ✅ done (LOG 2026-05-06)
-  - 3x3 DAVI training: capacity sweep → eval methodology → first cycle — *next*
+  - 3x3 DAVI scaffold + T0 capacity calibration (M8 phases 1+2, "does 3x3 train?") — *next* ([plan](plans/m8-3x3-davi.md))
+  - 3x3 DAVI champion cycles (M8 phase 3+) — *upcoming, replanned after phase 2*
   - 3x3 beam search + perf verification (10M transitions/sec target) — *upcoming*
 - **M9 (stretch)** — 3D / web frontend + solution-trace analysis — *not yet planned*
 
