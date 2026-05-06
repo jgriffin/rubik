@@ -4,6 +4,31 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-06 — M8 P2: smoke training with early-stop infra 🟡 in-progress
+**Goal:** Train one 3x3 DAVI run end-to-end with proper instrumentation. Verify (a) the wired-up training loop works on 3x3 — loss decreases, no NaN, no MPS errors; (b) `macro_v_star_mae` evolves downward over training (network is learning the value function); (c) sync-period-keyed early-stop behaves sensibly on a real trajectory; (d) post-training beam evals produce our first 3x3 capability data points. **Goal is NOT acceptance-grade champion training** — this is smoke. Phase 3+ replans against Phase 2 outcomes.
+**Milestone:** M8 phase 2 ([plan](plans/m8-3x3-davi.md))
+**Approach:** Branch `m8-3x3-smoke-train` from main HEAD `fa0d648`. Two atomic sub-blocks on the branch.
+
+**P2a** — Early-stop infra + value_eval wiring + W&B project switch:
+- Add 5 required fields to `DAVIConfig` in `src/rubik/training/config.py`: `early_stop_enabled: bool`, `early_stop_metric: str`, `early_stop_patience_evals: int`, `early_stop_min_evals: int`, `early_stop_min_delta: float`. No defaults (project rule). YAML round-trip + tests. **Constraint at config-load:** if `early_stop_enabled=true`, require `eval_every == target_sync_interval` (or clean multiple) — enforces patience-in-evals = patience-in-syncs. Errors on misalignment.
+- Backfill the 5 new fields into all historical `experiments/davi-2x2/runs/*/config.yaml` snapshots (schema-additive; flat behavior = `early_stop_enabled: false`).
+- Wire `value_eval` from `experiments/davi-3x3/eval.py` into `experiments/davi-3x3/run.py` at every `eval_every`. Reverse the P1c `# P2a:` markers. Track `macro_v_star_mae` history; fire early-stop when criteria meet (write `event=early_stop`, save final checkpoint, exit cleanly).
+- Switch `experiments/davi-3x3/run.py` wandb project default from `rubik` → `rubik-3x3`. Auto-tag wandb runs with `cube=3x3`, `phase=smoke`.
+- Tests for early-stop logic on synthetic metric histories: improving / flat / decreasing-then-flat / never-improves.
+
+**P2b** — Smoke run + post-training beam eval + writeup:
+- Author `experiments/davi-3x3/configs/smoke.yaml` per plan: `body_widths: [5120, 1024]` × 4 BN residual blocks (hand-picked guess, NOT borrowed), `max_scramble_depth: 8`, `batch_size: 4096`, `n_steps: 10000` hardcap, `learning_rate: 0.001`, `target_sync_interval: 500`, `eval_every: 500` (aligned to sync), `checkpoint_every: 2500`, early-stop `patience=12 / warmup=4 / min_delta=0.001`, `device: mps`.
+- Run training: `uv run python experiments/davi-3x3/run.py --config configs/smoke.yaml`. Expect either n_steps cap or early-stop firing on plateau. Watch wandb live.
+- Post-training: invoke `beam_eval_walk` + `beam_eval_v_star` on `net_final.pt`; write `runs/<run>/results/beam_eval.json` + summary metrics to wandb under `eval/beam_walk/*` + `eval/beam_v_star/*`.
+- Optional follow-up: run `scripts/post_run_beam_eval.py` on intermediate checkpoints to produce the beam-trajectory chart.
+- Writeup `experiments/davi-3x3/results/results.md` with the project's intuition convention (Observations → Hypotheses with verification plans → Open questions). Hand-written `intuition.md` companion that `analyze.py` appends.
+
+**Phase 2 acceptance gate (from plan §Phase 2 acceptance gate):** (1) DAVIConfig extended + tests + load-time validation; (2) smoke run completes (cap or early-stop) with no NaN/MPS errors; (3) `macro_v_star_mae` trajectory visibly downward, not flat from step 0, not exploding; (4) post-training beam evals yield per-V* + per-walk-depth solve rates; (5) results writeup includes intuition section; (6) wandb run shows up under `rubik-3x3` (NOT `rubik`) with three panel groups populated.
+
+**Next:** P2a — start with DAVIConfig field additions + YAML round-trip tests + load-time validation rule. Then backfill historical 2x2 run-dir configs. Then wire `value_eval` into run.py reversing the P1c `# P2a:` markers. Then early-stop logic + synthetic-history tests. Then wandb project flip. Atomic commit at the end of P2a; P2b follows on the same branch.
+**In progress:**
+- Block opened. Branch `m8-3x3-smoke-train` from main HEAD `fa0d648` (the merge commit closing P1). cc-process commit-gate honored: P1 fully merged before opening P2. Plan stays at `plans/m8-3x3-davi.md` — no plan revisions needed for P2a/P2b kickoff.
+
 ## 2026-05-06 — M8 P1: 3x3 eval scaffold + bounded V* sanity oracle ✅ done
 **Goal:** Stand up `experiments/davi-3x3/` mirroring the 2x2 layer, build a bounded BFS V* oracle at K=6 (~1M states, ~60–80MB cache, ~30–120s build) as a sanity-check ground truth, and freeze a 1400-state eval set (100 × 14 walk-depths). Three sub-blocks (P1a/b/c) stack on this branch. Goal isn't deep-eval coverage — that's accepted as a permanent gap on 3x3 (state space is 4.3×10¹⁹). Goal IS confirming the eval pipeline runs end-to-end on 3x3 before any training cycle.
 **Milestone:** M8 phase 1 ([plan](plans/m8-3x3-davi.md))
