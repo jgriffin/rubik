@@ -1,20 +1,45 @@
-"""Capture per-attempt solve-length distributions for each run's final checkpoint.
+"""Capture per-attempt solve-length distributions for each run × strategy × method × depth.
 
 The eval pipeline's ``greedy_solve`` (eval.py) only logs per-depth summary
 stats (``solve_rate``, ``avg_solve_len``). For the post-hoc histogram view
 we need the raw per-attempt ``solve_lens`` tensor: each value is either
-``-1`` (failed within the 2*depth move budget) or the number of moves
-used to reach solved.
+``-1`` (failed within the move budget) or the number of moves used to
+reach solved.
 
 This script:
 1. Loads each run's terminal checkpoint (``net_final.pt`` if present, else
    the last ``net_step_*.pt``). Handles both the legacy bare-state-dict
    format (M5 baseline-30k) and the new dict format ({net_state, ...}).
-2. Runs a high-sample-size greedy solve (``n_per_depth=200``) at each
-   test depth (1..13 contiguous, matching eval.py's default depth set).
-3. Writes per-(run, depth) raw solve-length arrays to
-   ``solve_histograms.json`` under the experiment's results/ dir
-   (experiments/davi-2x2/results/) so the renderer can read one file.
+2. For each (run, strategy, depth) cell, samples states ONCE under the
+   strategy with a deterministic seed, then runs each entry in
+   ``METHODS`` against the *same* sampled states so greedy and beam see
+   identical inputs and the comparison is clean.
+
+   - ``random_walk_depth``: scramble = random walk of length ``d`` (V* ≤ d).
+   - ``v_star_stratified``: state drawn uniformly from ``{V* == d}`` via
+     the BFS oracle table. ``rotate=False`` so the solver's solved-state
+     equality check still recognizes solved cubes.
+   - methods: ``("greedy", 1)`` via ``greedy_solve_batch``; ``("beam", 256)``
+     via ``beam_solve_batch`` with ``max_steps=20`` matching the M6
+     acceptance config.
+3. Writes the raw per-attempt arrays to ``solve_histograms.json`` under
+   ``experiments/davi-2x2/results/`` so the renderer can read one file.
+
+   Schema::
+
+       { "config": {...},
+         "runs": { "<run_subdir>": {
+             "label": "...",
+             "ckpt": "...",
+             "<strategy>": {
+                 "<method>": { "lens": { "<depth>": [...] } },
+                 ...
+             },
+             ...
+         } } }
+
+Seeds are deterministic per ``(run_idx, strategy_idx, depth)`` so adding
+a run, strategy, or method doesn't reshuffle previously-captured cells.
 
 Usage:
     uv run python experiments/davi-2x2/analysis/capture_solve_histograms.py
@@ -25,33 +50,47 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from rubik.cube.env import random_scrambles
 from rubik.cube.spec import CUBE_2X2
 from rubik.model.network import ValueNet
+from rubik.oracle.v_star_2x2 import load_v_star_arrays, sample_states_at_v_star
+from rubik.search import beam_solve_batch
 from rubik.solve import greedy_solve_batch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
 BASELINE_DIR = EXPERIMENT_DIR / "runs"
 OUT_PATH = EXPERIMENT_DIR / "results" / "solve_histograms.json"
+V_STAR_PATH = REPO_ROOT / "data" / "v_star_2x2.npz"
 
 RUNS: list[tuple[str, str]] = [
     ("cycle-1 baseline-30k  (K=18, sync=500)", "baseline-30k"),
     ("cycle-3 sync500_kmax20-30k  (K=20)", "sync500_kmax20-30k"),
     ("cycle-3 sync1000_kmax20-30k  (K=20)", "sync1000_kmax20-30k"),
+    ("cycle-4 kmax28_warm-30k  (K=28, warm-start)", "kmax28_warm-30k"),
 ]
+
+STRATEGIES: tuple[str, ...] = ("random_walk_depth", "v_star_stratified")
+
+# (method_name, beam_width). Greedy is beam_width=1 conceptually but we keep
+# the dedicated greedy_solve_batch path for greedy and beam_solve_batch for
+# beam — same inputs per cell, distinct codepaths, comparable outputs.
+# beam_width=256 + max_steps=20 matches the M6 acceptance config.
+METHODS: tuple[tuple[str, int], ...] = (("greedy", 1), ("beam", 256))
+BEAM_MAX_STEPS = 20
 
 # Match the trained net architecture (all four runs share this).
 BODY_WIDTHS = [4096, 1024]
 N_RESIDUAL_BLOCKS = 4
 NORMALIZATION = "bn"
 
-DEPTHS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+DEPTHS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 N_PER_DEPTH = 200
-DEPTH_BUDGET_FACTOR = 2  # matches eval.py default
-SEED = 17  # different from training-eval seed; just reproducibility
+DEPTH_BUDGET_FACTOR = 2  # greedy: matches eval.py default (max_steps = 2*depth)
+SEED_BASE = 17  # any int — combined with (run_idx, strategy_idx, depth) per cell
 
 
 def find_terminal_checkpoint(run_dir: Path) -> Path:
@@ -84,27 +123,90 @@ def load_net(ckpt_path: Path, device: torch.device) -> ValueNet:
     return net
 
 
-def greedy_solve_with_lens(
-    net: torch.nn.Module,
+def _cell_seed(run_idx: int, strategy_idx: int, depth: int) -> int:
+    """Stable seed for a (run, strategy, depth) cell.
+
+    Mixing run_idx and strategy_idx with the depth and a base constant
+    keeps each cell independently reproducible — adding a new run or
+    strategy doesn't shift seeds for previously-captured cells.
+    """
+    # Deterministic mix; the specific arithmetic doesn't matter as long
+    # as distinct (run, strategy, depth) → distinct seed.
+    return SEED_BASE + 100_003 * run_idx + 1_009 * strategy_idx + depth
+
+
+def sample_states_random_walk(
     *,
     depth: int,
     n: int,
-    generator: torch.Generator,
-) -> list[int]:
-    """Return per-attempt solve_lens (length n). -1 means failed.
+    seed: int,
+) -> torch.Tensor:
+    """``random_walk_depth``: scramble = random walk of length ``d``."""
+    spec = CUBE_2X2
+    gen = torch.Generator(device="cpu").manual_seed(seed)
+    states, _ = random_scrambles(
+        spec, batch_size=n, depth=depth, generator=gen, prune_same_face=True
+    )
+    return states
 
-    Thin wrapper over ``rubik.solve.greedy_solve_batch`` that handles the
-    per-depth scramble generation + ``2 * depth`` budget convention used
-    by every histogram-style writeup in this experiment dir.
+
+def sample_states_v_star_stratified(
+    *,
+    depth: int,
+    n: int,
+    seed: int,
+    v_star_states: np.ndarray,
+    v_star_depths: np.ndarray,
+) -> torch.Tensor:
+    """``v_star_stratified``: state ~ Uniform({s : V*(s) == depth}).
+
+    ``rotate=False`` is critical when feeding the solver: the solver
+    tests is_solved(state) against ``spec.solved_state`` exactly, so a
+    rotated solved state would not be recognized as solved.
+    """
+    rng = np.random.default_rng(seed)
+    states_np = sample_states_at_v_star(
+        v_star_states, v_star_depths, target_v_star=depth, n=n, rng=rng, rotate=False
+    )
+    return torch.from_numpy(states_np.astype(np.int64))
+
+
+def solve_with_method(
+    net: torch.nn.Module,
+    *,
+    method: str,
+    beam_width: int,
+    states: torch.Tensor,
+    depth: int,
+) -> list[int]:
+    """Run the named search method on ``states`` and return per-attempt solve lens.
+
+    Greedy uses ``max_steps = 2 * depth`` (matches eval.py budget). Beam
+    uses ``max_steps = BEAM_MAX_STEPS`` (matches M6 acceptance config).
     """
     spec = CUBE_2X2
-    states, _ = random_scrambles(
-        spec, batch_size=n, depth=depth, generator=generator, prune_same_face=True
+    if method == "greedy":
+        solve_lens = greedy_solve_batch(
+            net, spec, states, max_steps=DEPTH_BUDGET_FACTOR * depth
+        )
+        return solve_lens.cpu().tolist()
+    if method == "beam":
+        result = beam_solve_batch(
+            net, spec, states, beam_width=beam_width, max_steps=BEAM_MAX_STEPS
+        )
+        return result.solve_lens.cpu().tolist()
+    raise ValueError(f"unknown method: {method}")
+
+
+def _summarize(lens: list[int], n: int) -> str:
+    n_solved = sum(1 for x in lens if x >= 0)
+    if n_solved == 0:
+        return f"solved {n_solved}/{n}  avg_len=N/A"
+    avg = sum(x for x in lens if x >= 0) / n_solved
+    return (
+        f"solved {n_solved}/{n} ({100 * n_solved / n:5.1f}%)  "
+        f"avg_len={avg:.2f}"
     )
-    solve_lens = greedy_solve_batch(
-        net, spec, states, max_steps=DEPTH_BUDGET_FACTOR * depth
-    )
-    return solve_lens.cpu().tolist()
 
 
 def main() -> None:
@@ -114,12 +216,25 @@ def main() -> None:
             "n_per_depth": N_PER_DEPTH,
             "depth_budget_factor": DEPTH_BUDGET_FACTOR,
             "depths": list(DEPTHS),
-            "seed": SEED,
+            "strategies": list(STRATEGIES),
+            "methods": [name for name, _ in METHODS],
+            "beam_width": dict(METHODS).get("beam"),
+            "beam_max_steps": BEAM_MAX_STEPS,
+            "seed_base": SEED_BASE,
         },
         "runs": {},
     }
 
-    for label, run_subdir in RUNS:
+    # Load V* table once (shared across all runs × depths for the
+    # v_star_stratified strategy).
+    if not V_STAR_PATH.exists():
+        raise FileNotFoundError(
+            f"V* table not found at {V_STAR_PATH} — required for v_star_stratified"
+        )
+    v_star_states, v_star_depths = load_v_star_arrays(V_STAR_PATH)
+    print(f"loaded V* table: {len(v_star_states)} canonical states")
+
+    for run_idx, (label, run_subdir) in enumerate(RUNS):
         run_dir = BASELINE_DIR / run_subdir
         if not run_dir.exists():
             print(f"skip {label}: {run_dir} not found")
@@ -128,26 +243,57 @@ def main() -> None:
         print(f"\n=== {label} ===")
         print(f"  ckpt: {ckpt_path.relative_to(REPO_ROOT)}")
         net = load_net(ckpt_path, device)
-        # Fresh generator per run for reproducibility.
-        gen = torch.Generator(device="cpu").manual_seed(SEED)
-        per_depth: dict[str, list[int]] = {}
-        for d in DEPTHS:
-            lens = greedy_solve_with_lens(net, depth=d, n=N_PER_DEPTH, generator=gen)
-            n_solved = sum(1 for x in lens if x >= 0)
-            avg = sum(x for x in lens if x >= 0) / n_solved if n_solved > 0 else None
-            print(
-                f"  d={d:>2}: solved {n_solved}/{N_PER_DEPTH} "
-                f"({100 * n_solved / N_PER_DEPTH:5.1f}%)  "
-                f"avg_len={avg:.2f}"
-                if avg is not None
-                else f"  d={d:>2}: solved {n_solved}/{N_PER_DEPTH}  avg_len=N/A"
-            )
-            per_depth[str(d)] = lens
-        out["runs"][run_subdir] = {
+
+        run_entry: dict = {
             "label": label,
             "ckpt": str(ckpt_path.relative_to(REPO_ROOT)),
-            "lens": per_depth,
         }
+
+        for strategy_idx, strategy in enumerate(STRATEGIES):
+            print(f"  -- strategy: {strategy}")
+            # Per-method per-depth length arrays.
+            per_method: dict[str, dict[str, list[int]]] = {
+                name: {} for name, _ in METHODS
+            }
+            for d in DEPTHS:
+                seed = _cell_seed(run_idx, strategy_idx, d)
+                # Sample states ONCE per cell so greedy and beam see the
+                # same inputs — clean cross-method comparison.
+                if strategy == "random_walk_depth":
+                    states = sample_states_random_walk(
+                        depth=d, n=N_PER_DEPTH, seed=seed
+                    )
+                elif strategy == "v_star_stratified":
+                    states = sample_states_v_star_stratified(
+                        depth=d,
+                        n=N_PER_DEPTH,
+                        seed=seed,
+                        v_star_states=v_star_states,
+                        v_star_depths=v_star_depths,
+                    )
+                else:
+                    raise ValueError(f"unknown strategy: {strategy}")
+
+                for method_name, beam_width in METHODS:
+                    lens = solve_with_method(
+                        net,
+                        method=method_name,
+                        beam_width=beam_width,
+                        states=states,
+                        depth=d,
+                    )
+                    print(
+                        f"     d={d:>2} [{method_name:>6}]: "
+                        f"{_summarize(lens, N_PER_DEPTH)}"
+                    )
+                    per_method[method_name][str(d)] = lens
+
+            run_entry[strategy] = {
+                method_name: {"lens": per_method[method_name]}
+                for method_name, _ in METHODS
+            }
+
+        out["runs"][run_subdir] = run_entry
 
     with OUT_PATH.open("w") as f:
         json.dump(out, f, indent=2)

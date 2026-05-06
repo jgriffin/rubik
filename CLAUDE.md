@@ -84,6 +84,42 @@ by swapping a `CubeSpec` — same code path, parameterized.
   anchoring future agents — the format invites investigation rather than
   asserting conclusions. Distinguish observation from inference from
   hypothesis; hypotheses get verification plans, not authoritative tone.
+- **Cycle reporting pipeline (don't parallel-build).** Each
+  `experiments/<name>/` has an `analysis/` layer with three roles:
+  `analyze.py` reads per-run `metrics.jsonl` and writes
+  `results/results.md`; `capture_*.py` runs post-hoc captures (e.g.
+  N=200 solve-length histograms) on each run's final checkpoint into raw
+  JSON under `results/`; `render_*.py` consumes both and produces ONE
+  canonical comparison HTML at `results/<name>.html` with **all runs
+  overlaid**. Each script has a `RUNS:` table at the top — a new cycle
+  is "append a tuple, regenerate." New sampling strategies or metric
+  families extend the existing capture + renderer with parameters,
+  **never a parallel script or HTML** under `scripts/` or
+  `results/cycle-N-*.html`. The 5/5/4 banded small-multiples convention
+  (Shallow d=1–5 / Mid d=6–10 / Deep d=11–14) documented in
+  `render_error_trajectories.py` applies to every per-depth chart.
+- **Evaluating training cycles correctly.** Four things must hold:
+  (1) **Right baseline**: a warm-start cycle is evaluated against its
+  immediate predecessor (the checkpoint it warm-started from), NOT
+  cycle-1. Cycle N+1 vs cycle N tells you the marginal effect of cycle
+  N+1; vs cycle-1 measures cumulative everything-to-date and can hide a
+  regression inside a long-run improvement curve.
+  (2) **Both sampling strategies**: `random_walk_depth` (length-d walks,
+  V*≤d, walk-distribution-biased) and `v_star_stratified` (states with
+  true V*=d, sampled from the BFS oracle). Walk redundancy dilutes
+  deep-V* mass — a length-14 walk lands mostly on V*<14 states — so
+  random_walk_depth can mask regressions concentrated at the deepest
+  true V* that v_star_stratified surfaces directly.
+  (3) **Both solve methods**: greedy AND beam(256). Greedy at deep V*
+  is ~0% on every checkpoint trained so far, so greedy-only eval flatlines
+  and hides ordering-quality changes. Beam consumes ordering; that's
+  where cycle-deltas live for production search.
+  (4) **macro_mae alone is not the verdict**: macro_mae is a calibration
+  metric. Search capability is a different one. They can diverge —
+  cycle-4 improved macro_mae 3.13→2.87 while LOSING 24-30pp of beam
+  capability at v_star_stratified d=11..13. Always cross-check
+  capability metrics on v_star_stratified × beam before accepting a
+  cycle as an improvement.
 
 ## Pointers
 

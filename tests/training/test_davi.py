@@ -134,6 +134,8 @@ def _full_davi_config_kwargs() -> dict:
     suite asserts shape + round-trip + frozen, not value semantics."""
     return dict(
         max_scramble_depth=14,
+        max_scramble_depth_initial=0,
+        max_scramble_depth_ramp_steps=0,
         batch_size=512,
         n_steps=10_000,
         learning_rate=1e-4,

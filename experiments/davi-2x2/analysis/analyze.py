@@ -1,11 +1,17 @@
-"""Analyze the davi-baseline 30k run and write a results.md skeleton.
+"""Analyze each DAVI run's metrics.jsonl and write a results.md skeleton.
 
-Reads ``runs/baseline-30k/metrics.jsonl`` and produces:
+Iterates over the canonical ``RUNS`` list (cycle-1 baseline plus the
+cycle-3/cycle-4 follow-ups) and produces, per run:
 
 - A train-loss curve summary (start / end / min).
-- macro-MAE trajectory: every eval step, macro_mae and val_mae values.
+- A V* macro-MAE trajectory: every eval step, macro_mae and val_mae values.
 - A per-depth MAE table at start (first eval), middle, and end (final).
 - A greedy-solve rate trajectory per test depth.
+
+The same shape that the original single-run analyzer produced — just
+emitted once per run, under an H2 section keyed on the run's label. The
+file as a whole stays cold-readable; flipping between runs is a scroll
+rather than a re-run.
 
 Per project convention, we do *not* auto-generate ``intuition.md`` —
 that's hand-written, then appended at the end of ``results.md`` so the
@@ -24,17 +30,24 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPERIMENT_DIR = Path(__file__).resolve().parent.parent
-RUN_DIR = EXPERIMENT_DIR / "runs" / "baseline-30k"
-METRICS_PATH = RUN_DIR / "metrics.jsonl"
+RUNS_DIR = EXPERIMENT_DIR / "runs"
 RESULTS_PATH = EXPERIMENT_DIR / "results" / "results.md"
 INTUITION_PATH = EXPERIMENT_DIR / "results" / "intuition.md"
 
+# (label, run_subdir) — keep in sync with the renderer + capture script.
+RUNS: list[tuple[str, str]] = [
+    ("cycle-1 baseline-30k  (K=18, sync=500)", "baseline-30k"),
+    ("cycle-3 sync500_kmax20-30k  (K=20)", "sync500_kmax20-30k"),
+    ("cycle-3 sync1000_kmax20-30k  (K=20)", "sync1000_kmax20-30k"),
+    ("cycle-4 kmax28_warm-30k  (K=28, warm-start)", "kmax28_warm-30k"),
+]
 
-def _load_records() -> list[dict]:
-    if not METRICS_PATH.exists():
-        raise FileNotFoundError(f"metrics.jsonl not found at {METRICS_PATH}")
+
+def _load_records(metrics_path: Path) -> list[dict]:
+    if not metrics_path.exists():
+        raise FileNotFoundError(f"metrics.jsonl not found at {metrics_path}")
     records: list[dict] = []
-    for line in METRICS_PATH.read_text().splitlines():
+    for line in metrics_path.read_text().splitlines():
         line = line.strip()
         if not line:
             continue
@@ -152,47 +165,75 @@ def _format_solve_trajectory(eval_recs: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
-    records = _load_records()
+def _section_for_run(label: str, run_subdir: str) -> list[str]:
+    """Render the per-run subsection. Returns a list of markdown lines."""
+    run_dir = RUNS_DIR / run_subdir
+    metrics_path = run_dir / "metrics.jsonl"
+
+    md: list[str] = []
+    md.append(f"## {label}")
+    md.append("")
+
+    if not metrics_path.exists():
+        md.append(f"_(metrics.jsonl not found at `{metrics_path.relative_to(REPO_ROOT)}`)_")
+        md.append("")
+        return md
+
+    records = _load_records(metrics_path)
     eval_recs = _eval_records(records)
     loss_summary = _summarize_loss(records)
 
-    md_lines: list[str] = []
-    md_lines.append("# davi-baseline — 30k DAVI run results")
-    md_lines.append("")
-    md_lines.append(
-        f"_Run dir: `{RUN_DIR.relative_to(REPO_ROOT)}`. "
+    md.append(
+        f"_Run dir: `{run_dir.relative_to(REPO_ROOT)}`. "
         f"Records: {len(records)} total, {len(eval_recs)} eval cycles._"
     )
-    md_lines.append("")
+    md.append("")
 
-    md_lines.append("## Train loss")
-    md_lines.append("")
+    md.append("### Train loss")
+    md.append("")
     if loss_summary["start"] is None:
-        md_lines.append("_(no step records)_")
+        md.append("_(no step records)_")
     else:
-        md_lines.append(
+        md.append(
             f"- start: {loss_summary['start']:.4f}\n"
             f"- end:   {loss_summary['end']:.4f}\n"
             f"- min:   {loss_summary['min']:.4f} "
             f"(step {loss_summary['min_step']})"
         )
+    md.append("")
+
+    md.append("### V* macro-MAE trajectory")
+    md.append("")
+    md.append(_format_macro_mae_trajectory(eval_recs))
+    md.append("")
+
+    md.append("### Per-depth MAE — start / middle / end")
+    md.append("")
+    md.append(_format_per_depth_table(eval_recs))
+    md.append("")
+
+    md.append("### Greedy-policy solve rate trajectory")
+    md.append("")
+    md.append(_format_solve_trajectory(eval_recs))
+    md.append("")
+
+    return md
+
+
+def main() -> None:
+    md_lines: list[str] = []
+    md_lines.append("# DAVI 2x2 — per-run results")
+    md_lines.append("")
+    md_lines.append(
+        "_One section per run: train loss, V* macro-MAE trajectory, per-depth "
+        "MAE at start / middle / end, and greedy-solve trajectory. The "
+        "side-by-side cross-run views (overlaid charts, histograms, wavefront "
+        "heatmap) live in `error_trajectories.html`._"
+    )
     md_lines.append("")
 
-    md_lines.append("## V* macro-MAE trajectory")
-    md_lines.append("")
-    md_lines.append(_format_macro_mae_trajectory(eval_recs))
-    md_lines.append("")
-
-    md_lines.append("## Per-depth MAE — start / middle / end")
-    md_lines.append("")
-    md_lines.append(_format_per_depth_table(eval_recs))
-    md_lines.append("")
-
-    md_lines.append("## Greedy-policy solve rate trajectory")
-    md_lines.append("")
-    md_lines.append(_format_solve_trajectory(eval_recs))
-    md_lines.append("")
+    for label, run_subdir in RUNS:
+        md_lines.extend(_section_for_run(label, run_subdir))
 
     md = "\n".join(md_lines)
 
