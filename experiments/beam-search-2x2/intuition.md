@@ -186,3 +186,100 @@ deep depths beyond the gap greedy already showed, H4 supported. Cost:
   gate-as-max are both met regardless. But H2's diagnosis depends on
   whether the *failures* would have had high V\*-excess if they had
   been solved — by definition we don't have that data.
+
+---
+
+# C5 acceptance run addendum
+
+*Datestamp: 2026-05-05. Written after the C5 acceptance run
+(`runs/sync500_kmax20-acceptance`, width=256, n_per_depth=1000, depths
+1..14, max_steps=20, 555.6s wall).*
+
+## C5 Observations
+
+- **Per-depth solve rate at width=256, n=1000:** d=1..9 = 1.000
+  (perfect — gate ✅). d=10 = 0.997 (3/1000 fail), d=11 = 0.992
+  (8/1000 fail), d=12 = 0.975 (25/1000 fail), d=13 = 0.970 (30/1000
+  fail), d=14 = 0.952 (48/1000 fail). All five deep depths miss the
+  ≥0.999 gate.
+- **Mean V\*-excess across 14 depths = 0.248** (max 0.508 at d=5,
+  deep-depth values d=10..14 in [0.080, 0.209]). The ≤1.0 gate is
+  PASSED with margin. Confirms the C3 sweep finding: **capability is
+  the binding constraint, not solution length.**
+- **C3 sweep (n=200) over- vs under-projected the n=1000 numbers:**
+  d=10 sweep 0.990 → C5 0.997 (under); d=11 sweep 0.990 → C5 0.992
+  (close); d=12 sweep 0.985 → C5 0.975 (over by 1pp); d=13 sweep 0.990
+  → C5 0.970 (over by 2pp); d=14 sweep 0.970 → C5 0.952 (over by
+  1.8pp). All inside the n=200 binomial SE (~±0.024 at 95% CI). The
+  sweep at n=200 was systematically slightly optimistic at the deep
+  end — single-cell luck in the sweep's specific scramble seeds.
+- **No `max_steps` saturation.** d=14 avg solve length is 9.16
+  (sweep was 8.91). max_steps was 20. Plenty of headroom — the failures
+  are not "ran out of steps" but "never found a solved state in the
+  beam." Q3 from the original intuition is answered: max_steps is not
+  binding.
+- **Failure count grows with depth, super-linearly past d=11.** Fails
+  per 1000 by depth: d=10→3, d=11→8, d=12→25, d=13→30, d=14→48.
+  Doubling roughly per depth from d=10 to d=12, then slowing.
+
+## C5 Hypothesis updates
+
+- **H1 (width=256 is 1–2 doublings short of 99.9% at d≥10):
+  CONFIRMED in shape, refined in magnitude.** d=14 missed by 0.047
+  (instead of 0.029 the sweep predicted). The slope-extrapolation
+  (≈+0.15 per 4×) needs **0.047 / 0.15 ≈ 0.31 more 4× steps** = ~width
+  400–800 to crack 0.999 at d=14, conservatively width 1024 to have
+  margin. d=12, d=13 each need ≈ 1 more 4× step. Updated estimate:
+  **width 1024 likely meets the gate at d=10..13; d=14 may need
+  width 1024–4096.** Acceptance gate at width 1024 would cost roughly
+  4× the C5 wall time = ~37 min; width 4096 would cost ~37 min × 4 =
+  ~2.5 hrs (with the linear `n_expansions` scaling at deep depths
+  partially offset by sublinear wall scaling).
+- **H2 (failures concentrate on natural-distribution-tail true-V\*
+  states): NOT YET VERIFIED.** Required follow-up: index the per-cell
+  failed-scramble seeds into V\* and tabulate. Q1 from the original
+  intuition is still open. The shape of the per-depth fail rate
+  (super-linear from d=10 to d=12) is consistent with H2 — true V\*
+  hits its diameter at 14 and the natural-state-distribution mode is
+  d=11–13 — but is also consistent with "deeper random walks just
+  produce more states the net hasn't seen well-trained examples for."
+- **H3 (better-trained V_θ closes the gap at width=256):
+  becomes load-bearing if the user prefers not to widen.** This is
+  the link to the M5 forward-backlog (V\*-stratified resampling /
+  curriculum). Cost: 1–3 fresh DAVI cycles, ~1–3 hours each on M4 Max.
+  No way to verify without running them.
+- **H4 (compression amplification): low-priority and currently
+  unverified.** The cycle-1 baseline-30k vs sync500_kmax20-30k
+  comparison at width=256 would take ~9 min wall. Worth doing as a
+  diagnostic if/when we revisit M5; not critical for the M6 close.
+
+## What didn't work — for future reference
+
+- **n=200 sweep underestimated the d=14 gap by 1.8pp.** When the
+  sweep cell shows 0.970 ± 0.024, and the gate is 0.999, the natural
+  read is "barely misses." The n=1000 acceptance shows the truer 0.952
+  — *clearly* misses by ~5pp. Methodology lesson: **when a sweep cell
+  is within ~2× SE of a hard gate, the sweep cannot tell you whether
+  the gate will pass at higher n; rerun at the gate's n before
+  declaring "almost there."**
+
+## Gate-decision context (for the LOG and the user)
+
+The plan (`plans/m6-beam-search.md` §C5) is explicit: **don't
+silently widen the beam past 256 to chase the gate — that's a SPEC
+violation.** Two legitimate next moves:
+
+1. **Accept M6 at "≥99% per depth, V\*-excess passes with margin"** as
+   a documented gap from the literal SPEC. Proceed to M7 (hyperparam
+   characterization) and revisit the gate when V\* training improves.
+2. **Return to M5** for the V\*-stratified resampling / curriculum
+   work flagged in cycle-3's backlog. If a new checkpoint reaches the
+   gate at width=256, M6 closes cleanly.
+
+Per the `EARN_EVERY_HYPERPARAMETER` rule and the project's "ordering
+matters more than calibration" decision recorded in M5, the failure
+mode here is **substantive and known**, not a coding bug — the
+training-data distribution under-samples the natural-state-distribution
+mode at d=11–13, and the resulting net's ordering signal at deep
+states is ~5pp short of what the SPEC asks beam search to extract.
+

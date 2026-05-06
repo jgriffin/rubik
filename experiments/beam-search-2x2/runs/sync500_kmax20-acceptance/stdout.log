@@ -1,0 +1,27 @@
+run dir:        experiments/beam-search-2x2/runs/sync500_kmax20-acceptance
+checkpoint:     experiments/davi-2x2/davi-baseline/runs/sync500_kmax20-30k/net_final.pt
+device:         mps
+params:         13.21M
+depths:         [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+beam_widths:    [256]
+n_per_depth:    1000
+max_steps:      20
+V* states:      3,674,160
+
+  d= 1 w= 256  solved 1000/1000  rate 1.000  avg_len 1.00  excess 0.00  (2.5s, 12,000 exp)
+  d= 2 w= 256  solved 1000/1000  rate 1.000  avg_len 2.00  excess 0.15  (5.0s, 156,000 exp)
+  d= 3 w= 256  solved 1000/1000  rate 1.000  avg_len 2.97  excess 0.35  (12.4s, 1,510,092 exp)
+  d= 4 w= 256  solved 1000/1000  rate 1.000  avg_len 3.80  excess 0.42  (20.0s, 4,171,392 exp)
+  d= 5 w= 256  solved 1000/1000  rate 1.000  avg_len 4.67  excess 0.51  (26.6s, 6,700,104 exp)
+  d= 6 w= 256  solved 1000/1000  rate 1.000  avg_len 5.34  excess 0.41  (32.0s, 8,768,916 exp)
+  d= 7 w= 256  solved 1000/1000  rate 1.000  avg_len 5.93  excess 0.43  (37.8s, 10,541,580 exp)
+  d= 8 w= 256  solved 1000/1000  rate 1.000  avg_len 6.66  excess 0.33  (44.9s, 12,777,384 exp)
+  d= 9 w= 256  solved 1000/1000  rate 1.000  avg_len 7.11  excess 0.22  (49.5s, 14,172,684 exp)
+  d=10 w= 256  solved  997/1000  rate 0.997  avg_len 7.57  excess 0.21  (53.6s, 15,686,256 exp)
+  d=11 w= 256  solved  992/1000  rate 0.992  avg_len 8.09  excess 0.13  (59.3s, 17,482,776 exp)
+  d=12 w= 256  solved  975/1000  rate 0.975  avg_len 8.44  excess 0.12  (65.6s, 19,148,088 exp)
+  d=13 w= 256  solved  970/1000  rate 0.970  avg_len 8.86  excess 0.11  (70.4s, 20,556,300 exp)
+  d=14 w= 256  solved  952/1000  rate 0.952  avg_len 9.16  excess 0.08  (76.0s, 22,054,200 exp)
+
+done. 14 cells in 555.6s wall.
+histograms: experiments/beam-search-2x2/runs/sync500_kmax20-acceptance/solve_histograms_beam.json
