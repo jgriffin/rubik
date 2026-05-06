@@ -44,4 +44,11 @@ CUBE_2X2 = CubeSpec(
     n_moves=12,
 )
 
-# TODO M5: CUBE_3X3
+CUBE_3X3 = CubeSpec(
+    name="3x3",
+    size=3,
+    faces=("U", "L", "F", "R", "B", "D"),
+    stickers_per_face=9,
+    n_colors=6,
+    n_moves=12,
+)
