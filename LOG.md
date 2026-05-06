@@ -8,9 +8,10 @@ ahead, `SPEC.md` for the full project spec. Process docs at
 **Goal:** Mirror the 2x2 stack for 3x3 — add `CUBE_3X3` spec, extend the cubie oracle to 8 corners + 12 edges + (fixed) 6 centers, render a human-verifiable `visuals/oracle_rotations_3x3.html`, snapshot the 12-move sticker permutation table into `env.py`, and run the full equivalence + identities test corpus that the 2x2 stack passes. No training. Five separate branches stacked: `3x3-spec` → `3x3-cubie-oracle` → `3x3-oracle-viz` → `3x3-tensor-cube` → `3x3-equivalence`.
 **Milestone:** M8 ([SPEC](SPEC.md#m8))
 **Approach:** Block-per-branch off the prior block's tip. Each commits atomically with passing tests + ruff clean. Subagent per block, run sequentially overnight by parent agent. Concrete morning artifacts: passing test suite expanded with 3x3 equivalence/identity tests, `visuals/oracle_rotations_3x3.html` openable for visual confirmation of all 12 rotations, `MOVE_PERM_3X3` constant embedded in `env.py`.
-**Next:** Continue with Block 2 — extend cubie oracle for 3x3 (add edges).
+**Next:** Continue with Block 3 — render visuals/oracle_rotations_3x3.html for human verification of all 12 moves.
 **In progress:**
 - B1 done: `CUBE_3X3` constant added to `src/rubik/cube/spec.py`. Tests in `tests/cube/test_spec.py` for 3x3 field values + solved_state. Branch `3x3-spec` off main HEAD `9ec8fed`.
+- B2 done: cubie oracle extended for 3x3 (corners + 12 edges + fixed centers). U/D-axis edge-flip convention. Tests in `tests/oracle/test_cubie_3x3.py` cover M^4=I, sexy^6=I, Sune^6=I, T-perm^2=I, color preservation, random round-trip. Test count 269 → 322. Branch `3x3-cubie-oracle` off `3x3-spec`.
 
 ## 2026-05-05 — W&B integration: opt-in-out sink alongside JSONL ✅ done
 **Goal:** Add Weights & Biases as a parallel metrics sink so long runs (kmax28-class, 30k+ steps) can be watched in near real-time with the same charts the local analyzer produces. JSONL stays the source of truth; W&B is opt-in via config flag. No changes to trainer/oracle/eval logic — purely a sink addition leveraging the duck-typed `wandb_run` hook already wired into `MetricLogger` (`src/rubik/training/metric_logger.py:32-90`).
