@@ -4,6 +4,19 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-05 — W&B integration: opt-in sink alongside JSONL 🟡 in-progress
+**Goal:** Add Weights & Biases as a parallel metrics sink so long runs (kmax28-class, 30k+ steps) can be watched in near real-time with the same charts the local analyzer produces. JSONL stays the source of truth; W&B is opt-in via config flag. No changes to trainer/oracle/eval logic — purely a sink addition leveraging the duck-typed `wandb_run` hook already wired into `MetricLogger` (`src/rubik/training/metric_logger.py:32-90`).
+**Milestone:** drive-by (infra)
+**Approach:** Branch `wandb-integration` from `main` HEAD `e304837`, parallel to the in-flight kmax28 cycle-4 work on `m5-cycle-4-kmax28-curriculum` (which keeps running untouched). Five small steps:
+- **S1** — Config: add `wandb_enabled: bool`, `wandb_project: str`, `wandb_entity: str | None` to `DAVIConfig` (`src/rubik/training/config.py`). Update YAML round-trip + `from_yaml` schema. Tests for round-trip + default-disabled behavior. Confirm `wandb` package isn't yet a dep — `uv add wandb` once, with user approval (Installation Policy).
+- **S2** — Init in `experiments/davi-2x2/run.py`: when `config.wandb_enabled`, lazy-import wandb, call `wandb.init(project=..., entity=..., name=<out_dir-stem>, dir=out_dir, config=asdict(config))`, pass `wandb.run` into `MetricLogger`. `wandb.finish()` on exit (try/finally).
+- **S3** — Field-shape compat in the `MetricLogger` forward path: flatten dict-valued fields (e.g. `per_depth_mae`) into namespaced keys (`per_depth_mae/d1`, `per_depth_mae/d2`, ...) before calling `wandb_run.log()`. Local JSONL still gets the nested form (zero churn for existing analyzers).
+- **S4** — Key namespacing for wandb auto-grouping: route metrics under `train/`, `eval/`, `eval/solve_rate/`, `eval/per_depth_mae/` prefixes keyed on the existing `event=` field. JSONL untouched.
+- **S5** — Reproduce analyzer charts: doc the wandb workspace setup (panel groups matching `experiments/davi-2x2/analysis/analyze.py`'s 4 chart types — train-loss, macro-MAE, per-depth-MAE, solve-rate trajectories) in a checked-in `experiments/davi-2x2/wandb_workspace.md` so the layout can be recreated in <2 min on a fresh wandb account.
+**Next:** S1 — extend `DAVIConfig` with the three wandb fields + round-trip tests. Ask user before `uv add wandb`.
+**In progress:**
+- Block opened. Branch `wandb-integration` from `main` HEAD `e304837`. Parallel to kmax28 cycle-4 (still running on `m5-cycle-4-kmax28-curriculum`, untouched). Out-of-scope: sweeps, artifact uploads, historical JSONL backfill — all noted as backlog candidates if W&B becomes the long-term home.
+
 ## 2026-05-05 — Restructure experiment dirs ✅ done
 **Goal:** Give every `experiments/<name>/` dir the same shape — `analysis/` for post-hoc scripts (`analyze.py`, `render_*.py`, `audit_*.py`, `capture_*.py`), `results/` for writeups + artifacts (`results.md`, `intuition.md`, `*.html`, derived data files), top-level reserved for entry points (`run*`, `configs/`, `runs/`, `README.md`). Flatten `davi-2x2/davi-baseline/` up — the nested layer was speculative shared-infra ergonomics for a second davi experiment that never materialized.
 **Milestone:** drive-by
