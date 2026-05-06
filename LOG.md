@@ -22,7 +22,7 @@ ahead, `SPEC.md` for the full project spec. Process docs at
 - **Subagent flagged one pre-existing bug, untouched.** `experiments/beam-search-2x2/analysis/analyze.py` line 151 fails on `--acceptance-dir` with a relative path (`Path.relative_to(REPO_ROOT)` requires absolute input). Pre-existing — same code, same issue, before the restructure. Left unfixed; recorded here for whoever next runs that flow.
 - **Run-dir artifacts under `runs/*/config.yaml` etc. still embed old `davi-baseline/` paths.** These are run-time records (the actual paths used at run time), not active config — left untouched. New runs will use the new paths automatically.
 - **No `src/` changes.** Restructure stayed within `experiments/`; package code untouched.
-**Commits:** `<filled at commit time>`
+**Commits:** `8cec7ee`
 
 ## 2026-05-05 — M6 beam search (2x2) ✅ done with documented gap
 **Goal:** Land batched beam search using V_θ as scorer with within-beam dedup, parametric on `CubeSpec`. Acceptance per SPEC: 100% solve on 1000 depth-≤14 scrambles at beam_width=256, mean solve length within 1 move of BFS-optimal. Bet: cycle-3's `sync500_kmax20-30k` net has good ordering signal (pred_std=1.51) even though greedy fails the M5 calibration gate — beam should consume that ordering. M5 declared done by user this session despite the gate; M6 either closes the capability gap or surfaces a substantive ordering-quality finding worth retraining for.
