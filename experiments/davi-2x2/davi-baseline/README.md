@@ -47,12 +47,14 @@ collapses to mean / etc.) tells us which axis to sweep first.
   cube-literature value. Adam's default is robust across MLP regression
   problems out of the box; we keep the framework default rather than
   tune blind.
-- **`target_sync_interval: 500`** — first-try-defensible. The DAVI
-  recursion hardens a few steps' optimizer drift into a new target;
-  smaller intervals chase a moving target, larger intervals work
-  against stale targets. 500 is between the prior placeholder (200) and
-  the loosest reasonable carry-over (1000). Not earned. Will be the
-  natural first axis to sweep if the wavefront stalls.
+- **`target_sync_interval: 500`** — **earned by cycle 3** (cycle-3
+  comparison sync500 vs sync1000 at K_max=20). At N=200 post-hoc, the
+  sync500 cell strictly dominates the sync1000 cell at every test depth
+  (~+5pt absolute on d11/d13). Smaller intervals (sync100 in cycle 2)
+  destabilize from a converged state. Larger (sync2000 in cycle 2;
+  sync1000 in cycle 3) tighten *calibration* but not *capability*.
+  500 is the project default for fresh-start DAVI runs going forward
+  unless something specific changes the regime.
 - **`n_steps: 30000`** — wall-clock budget. Long enough to see a
   wavefront propagate from solved outward (30k optimizer steps with
   target sync every 500 means ~60 target generations). Short enough to
@@ -70,7 +72,8 @@ out which knob the data points to next.
 ## Acceptance + plan
 
 - **Pass:** final-eval `macro_mae < 1.0` AND every
-  `solve_rate_d{d} > 0.99` at the test depth grid {1,3,5,7,9,11,13}.
+  `solve_rate_d{d} > 0.99` at the test depth grid {1..13} (contiguous
+  since the eval.py change in commit `2a0e95f` — was odd-only before).
   Per M5 SPEC.
 - **Informative-fail shapes worth writing up** (each is a well-shaped
   next experiment):

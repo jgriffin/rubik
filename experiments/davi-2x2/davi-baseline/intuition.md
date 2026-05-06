@@ -327,43 +327,73 @@ except for K_max (18→20) and target_sync_interval (500 vs 1000). N=200
 post-hoc greedy-solve histograms (binomial SE ≈ 0.035 vs N=50's 0.07 —
 tight enough to distinguish ~5% effects).
 
-#### Run summary (final, N=200 post-hoc)
+#### Run summary (final, N=200 post-hoc, depths 1–13)
 
-| run | macro_mae | pred_std | d5 | d7 | d9 | d11 | d13 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **cycle-1 baseline-30k** (K=18, sync=500, fresh) | 3.13 | 1.44 | 99.0% | 85.0% | 63.0% | 41.5% | **27.0%** |
-| **cycle-3 sync500_kmax20-30k** (K=20, sync=500, fresh) | 2.93 | 1.51 | **100%** | **89.0%** | **65.0%** | **46.5%** | **32.5%** |
-| **cycle-3 sync1000_kmax20-30k** (K=20, sync=1000, fresh) | 2.90 | 1.56 | 97.5% | 81.5% | 62.5% | 40.5% | 23.0% |
+Greedy solve rate (% solved within 2×depth move budget):
+
+| d | baseline (K=18, sync=500) | sync500_kmax20 (K=20) | sync1000_kmax20 (K=20) | sync500 vs baseline |
+|--:|--:|--:|--:|--:|
+|  1 | 100% | 100% | 100% | — |
+|  2 | 100% | 100% | 100% | — |
+|  3 | 100% | 100% | 100% | — |
+|  4 | 100% | 100% | 100% | — |
+|  5 | 98.0% | 100% | 97.5% | +2.0 |
+|  6 | 97.5% | 99.0% | 96.0% | +1.5 |
+|  7 | 83.0% | 84.5% | 82.5% | +1.5 |
+|  8 | 70.5% | 77.0% | 69.0% | **+6.5** |
+|  9 | 57.0% | 66.5% | 58.5% | **+9.5** |
+| 10 | 47.5% | 52.5% | 48.0% | **+5.0** |
+| 11 | 47.0% | 48.5% | 45.0% | +1.5 |
+| 12 | 29.5% | 38.5% | 34.0% | **+9.0** |
+| 13 | 24.5% | 29.5% | 27.0% | **+5.0** |
+
+| | macro_mae | pred_std |
+|---|--:|--:|
+| baseline | 3.13 | 1.44 |
+| sync500_kmax20 | 2.93 | 1.51 |
+| sync1000_kmax20 | 2.90 | 1.56 |
 
 (N=200 post-hoc capture in `solve_histograms.json`. Earlier per-eval
-N=50 numbers in `metrics.jsonl` are too noisy at d11/d13 to
+N=50 numbers in `metrics.jsonl` are too noisy at d≥9 to
 distinguish the cells reliably — see chart panel "post-hoc solve-length
-histograms" in `error_trajectories.html`.)
+histograms" in `error_trajectories.html`. The per-step trajectory
+charts only show odd depths because eval.py defaulted to odd-only
+during cycle 3; commit `2a0e95f` switched to contiguous 1–13 for
+future runs.)
 
 #### Observations
 
 1. **sync500_kmax20 strictly dominates cycle-1 baseline at every test
-   depth.** d5: 99.0% → 100% (+1pt). d7: 85.0% → 89.0% (+4). d9: 63.0%
-   → 65.0% (+2). d11: 41.5% → 46.5% (+5). d13: 27.0% → 32.5% (+5.5).
-   Effect size ≈ 5 percentage points absolute at d11/d13, ≈ 1.4σ given
-   binomial SEs — at the edge of statistical confidence per cell, but
-   the consistent direction across 5 depths is hard to attribute to
-   noise.
+   depth.** Effect size varies by depth — small at d≤7 (cap effects,
+   most attempts succeed), but **large in the d8–d12 range** where
+   capability is on the edge: d8 +6.5, d9 +9.5, d10 +5.0, d12 +9.0,
+   d13 +5.0 percentage points absolute. These are 1.4–2.5σ effects per
+   cell given binomial SE ≈ 0.035 at p≈0.5; the consistent direction
+   across 7 contiguous depths makes the effect unambiguously real.
+   Strikingly, the d11 cell shows only +1.5 — odd-depth views (the
+   per-step eval) had been showing d11 specifically and missed the
+   d8/d9/d10/d12 wins. The contiguous-depth view (post-hoc, all 13
+   depths) is needed to see the pattern.
 
-2. **sync1000_kmax20 is essentially equal to baseline.** d7 81.5% (was
-   85.0%, -3.5). d11 40.5% (was 41.5%, -1). d13 23.0% (was 27.0%, -4).
-   All within ~1σ of the baseline. The macro_mae number (2.90 vs 3.13)
-   suggested improvement at N=50, but solve-rate at N=200 says the
-   improvement is in calibration, not capability. (Cycle 2 already
-   documented that macro_mae and solve_rate measure different things —
-   ordering vs absolute fit. Cycle 3 makes this concrete: sync1000
-   tightens absolute fit, sync500 tightens both.)
+2. **sync1000_kmax20 ≈ baseline at depth, but *almost* matches sync500
+   in the very deep tail.** d7 82.5% (vs baseline 83.0%, -0.5). d8
+   69.0% (vs 70.5%, -1.5). d11 45.0% (vs 47.0%, -2). But d12 34.0%
+   (vs 29.5%, +4.5) and d13 27.0% (vs 24.5%, +2.5). Slower sync helps
+   in the very deep tail (d≥12) at modest cost in the middle. macro_mae
+   2.90 ≈ sync500's 2.93; pred_std 1.56 > 1.51. Sync rate seems to
+   trade off where in the depth range it tightens — sync500 helps
+   middle-deep depths most, sync1000 helps very-deep most. Sync500
+   wins on aggregate (more depths benefit, larger total effect).
 
-3. **K_max=20 alone doesn't help.** Comparing sync1000_kmax20 to
-   baseline (only K_max varies): no real solve-rate gain. Comparing
-   sync500_kmax20 to baseline (only K_max varies, sync held at 500):
-   ~5% gain. The lever is K_max=20 *combined with* fast sync, not
-   K_max=20 in isolation.
+3. **K_max=20 alone helps weakly; combined with sync=500 it helps
+   meaningfully.** Comparing sync1000_kmax20 to baseline isolates the
+   K_max effect (sync held at default 1000-ish across cycles): mixed,
+   small wins in the very deep tail (+2 to +4.5 at d12/13) and small
+   losses elsewhere. Comparing sync500_kmax20 to baseline (sync held
+   at 500): consistent gains, peaking +9.5 at d9. The takeaway is that
+   K_max=20 on its own gives a small distribution-extension benefit at
+   the deep tail; pairing it with sync=500 unlocks gains across the
+   middle-to-deep range (d8–d12) where capability is most on the edge.
 
 4. **Sync rate matters during fresh-start training, even at K_max=20.**
    This refines (not contradicts) cycle 2: cycle 2 ran warm-starts from

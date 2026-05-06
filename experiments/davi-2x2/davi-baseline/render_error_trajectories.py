@@ -1,16 +1,43 @@
-"""Render the four DAVI runs' error trajectories as a static HTML/SVG page.
+"""Render DAVI runs' error trajectories as a static HTML/SVG page.
 
-Reads each run's metrics.jsonl, extracts every ``event="eval"`` record
-(step, macro_mae, per_depth_mae[1..14]), and produces three visualizations
-co-located at ``error_trajectories.html``:
+Reads each run's metrics.jsonl, extracts every ``event="eval"`` record,
+and produces a stack of charts at ``error_trajectories.html``:
 
-1. **Macro-MAE trajectory** — 4 overlaid line charts, x=step, y=macro_mae.
-2. **Per-depth small multiples** — 14 mini-charts (one per depth 1..14),
-   each showing per-depth MAE across training, all 4 runs overlaid.
-3. **Per-run depth-step heatmap** — 4 heatmaps, x=step, y=depth, color=MAE.
-   The wavefront-stall picture is most visible here.
+1. **Macro-MAE trajectory** — overlaid line charts, x=step, y=macro_mae.
+2. **Per-depth MAE small multiples** — one mini-chart per depth (1..14),
+   grouped into rows by depth range so cells in a row share a y-cap.
+3. **Greedy solve-rate small multiples** — same shape as #2.
+4. **Avg solve-length small multiples** — same shape as #2.
+5. **Solve-length histograms** (post-hoc, N=200 per depth per run) —
+   same depth-range grouping as #2–4.
+6. **Per-run depth-step heatmap** — depth × step → MAE per run.
 
-Pure stdlib + inline SVG. Open with ``open experiments/davi-2x2/davi-baseline/error_trajectories.html``.
+## Chart layout convention (project-wide)
+
+When a per-depth metric needs to be charted across the full {1..14} depth
+range, use **per-depth small multiples grouped by depth range**, not
+multi-depth-overlay-on-one-axis. The grouping is:
+
+- **Shallow** (depths 1–5): 5 cells per row, y-cap tight to the shallow
+  scale.
+- **Mid** (depths 6–10): 5 cells per row, y-cap tight to the mid scale.
+- **Deep** (depths 11–14): 4 cells per row, y-cap tight to the deep
+  scale.
+
+Why grouped: depths 1–5 and depths 11–14 have very different natural
+scales (e.g. avg solve length of d=2 is ~2, d=13 is ~7; squashing both
+onto a single y-axis flattens the shallow detail or wastes the deep
+range). Why per-depth: visual overlays of multiple depths on one axis
+make per-depth trends hard to read; small multiples let each depth's
+trajectory be inspected independently while keeping nearby depths
+visually adjacent.
+
+This convention applies to MAE, solve-rate, avg-solve-length, and
+histograms below — and should apply to any future per-depth chart
+added here.
+
+Pure stdlib + inline SVG. Open with
+``open experiments/davi-2x2/davi-baseline/error_trajectories.html``.
 """
 
 from __future__ import annotations
@@ -309,15 +336,17 @@ def chart_per_depth_banded(runs_data: dict[str, list[dict]]) -> str:
 
 
 def chart_solve_rate_banded(runs_data: dict[str, list[dict]]) -> str:
-    """Three banded solve-rate charts. y always 0..1.
+    """Solve-rate small multiples grouped Shallow / Mid / Deep (5/5/4).
 
-    Greedy solve_rate is captured at odd depths only (eval set parity).
-    Reference lines: 1.0 (acceptance gate), 0.5 (better-than-coinflip).
+    Y-scale 0..1 across all bands. Reference lines: 0.99 (acceptance
+    gate, solid black), 0.5 (better-than-coinflip, light grey). Cells
+    with no data render as empty plots — when a run's eval cycle didn't
+    sample that depth, the line is absent.
     """
     bands = [
-        ("Shallow solve-rate — depths 1, 3, 5", [1, 3, 5]),
-        ("Mid solve-rate — depths 7, 9", [7, 9]),
-        ("Deep solve-rate — depths 11, 13", [11, 13]),
+        ("Shallow solve-rate — depths 1–5", [1, 2, 3, 4, 5]),
+        ("Mid solve-rate — depths 6–10", [6, 7, 8, 9, 10]),
+        ("Deep solve-rate — depths 11–14", [11, 12, 13, 14]),
     ]
     return "\n".join(
         _band_chart(
@@ -334,29 +363,25 @@ def chart_solve_rate_banded(runs_data: dict[str, list[dict]]) -> str:
 
 
 def chart_avg_solve_len_banded(runs_data: dict[str, list[dict]]) -> str:
-    """Three banded avg-solve-length charts.
+    """Avg-solve-length small multiples grouped Shallow / Mid / Deep (5/5/4).
 
-    Reference line at y = depth (the random-walk length used to scramble
-    the test cube). When avg_solve_len < depth, the solver is finding
-    a shorter path than the random walk took — i.e., the random walk had
-    cycles and the cube's true V* depth is shorter than `d`.
+    Per-cell horizontal reference at ``y = depth`` (the random-walk
+    length used to scramble the test cube). When avg_solve_len < depth,
+    the solver is finding a path shorter than the random walk took —
+    confirming the audit finding that length-d random walks usually
+    produce true-V*-depth states well below d. Y-cap rises by band so
+    each band is tight to its natural scale.
     """
     bands = [
-        ("Shallow avg solve-length — depths 1, 3, 5  (y 0..6)", [1, 3, 5], 6.0,
-         [0, 1, 2, 3, 4, 5, 6]),
-        ("Mid avg solve-length — depths 7, 9  (y 0..12)", [7, 9], 12.0,
-         [0, 2, 4, 6, 8, 10, 12]),
-        ("Deep avg solve-length — depths 11, 13  (y 0..14)", [11, 13], 14.0,
-         [0, 2, 4, 6, 8, 10, 12, 14]),
+        ("Shallow avg solve-length — depths 1–5  (y 0..6)",
+         [1, 2, 3, 4, 5], 6.0, [0, 1, 2, 3, 4, 5, 6]),
+        ("Mid avg solve-length — depths 6–10  (y 0..12)",
+         [6, 7, 8, 9, 10], 12.0, [0, 2, 4, 6, 8, 10, 12]),
+        ("Deep avg solve-length — depths 11–14  (y 0..14)",
+         [11, 12, 13, 14], 14.0, [0, 2, 4, 6, 8, 10, 12, 14]),
     ]
     out = []
     for title, depths, y_cap, ticks in bands:
-        # Reference line at y = depth_value for each cell. Encoded as a
-        # per-cell horizontal but _band_chart's ref_lines is global to the
-        # band — for now, use the average-of-band as a single ref. Or we
-        # could special-case; simplest: draw at d for the *first* cell.
-        # Keep it simple — a faint dotted "y = d" needs cell-local refs.
-        # Implementing inline since the helper assumes shared refs:
         out.append(_band_chart_with_per_cell_ref(
             runs_data,
             title=title,
@@ -471,26 +496,32 @@ def _band_chart_with_per_cell_ref(
 
 
 def chart_solve_histograms(hist_data: dict) -> str:
-    """Banded histogram charts: per-depth solve-length distributions.
+    """Solve-length histograms grouped Shallow / Mid / Deep (5/5/4).
 
     For each (run, depth), shows the empirical distribution of solve
-    lengths (200 attempts each), as overlaid step-lines per run. Failed
-    attempts are shown as a separate "F" marker on the right side of
-    each cell (count printed; vertical band sized by fraction).
+    lengths over N attempts (typically 200) at the run's terminal
+    checkpoint. Bars dodged side-by-side per length bucket per run.
+    Right strip shows the failed-attempt fraction. Cells without
+    histogram data (depth not captured) render as empty plots —
+    capture_solve_histograms.py's ``DEPTHS`` controls coverage.
     """
     bands = [
-        ("Solve-length histograms — depths 1, 3, 5", [1, 3, 5]),
-        ("Solve-length histograms — depths 7, 9", [7, 9]),
-        ("Solve-length histograms — depths 11, 13", [11, 13]),
+        ("Solve-length histograms — depths 1–5", [1, 2, 3, 4, 5]),
+        ("Solve-length histograms — depths 6–10", [6, 7, 8, 9, 10]),
+        ("Solve-length histograms — depths 11–14", [11, 12, 13, 14]),
     ]
     return "\n".join(_hist_band(hist_data, title, depths) for title, depths in bands)
 
 
 def _hist_band(hist_data: dict, title: str, depths: list[int]) -> str:
-    cell_w, cell_h = 380, 220
+    # Cell width chosen so 5 cells per row fit in roughly the same visual
+    # footprint as the MAE/solve-rate/avg-len bands above. Plot area is
+    # tight at d=14 (28 buckets × 3 runs ≈ 2 px per bar) but legible —
+    # bars use stroke + opacity so neighbours stay distinguishable.
+    cell_w, cell_h = 280, 220
     cols = len(depths)
     pad = 16
-    fail_zone_w = 50  # right strip for failed bar
+    fail_zone_w = 40  # right strip for failed bar
     total_w = cols * cell_w + pad * (cols + 1)
     total_h = cell_h + pad * 2 + 40
     pad_l, pad_t, pad_r, pad_b = 36, 26, 8 + fail_zone_w, 30

@@ -11,7 +11,7 @@ This script:
    the last ``net_step_*.pt``). Handles both the legacy bare-state-dict
    format (M5 baseline-30k) and the new dict format ({net_state, ...}).
 2. Runs a high-sample-size greedy solve (``n_per_depth=200``) at each
-   test depth (1, 3, 5, 7, 9, 11, 13).
+   test depth (1..13 contiguous, matching eval.py's default depth set).
 3. Writes per-(run, depth) raw solve-length arrays to
    ``solve_histograms.json`` in the run's parent dir
    (experiments/davi-2x2/davi-baseline/) so the renderer can read one file.
@@ -49,7 +49,7 @@ BODY_WIDTHS = [4096, 1024]
 N_RESIDUAL_BLOCKS = 4
 NORMALIZATION = "bn"
 
-DEPTHS = (1, 3, 5, 7, 9, 11, 13)
+DEPTHS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 N_PER_DEPTH = 200
 DEPTH_BUDGET_FACTOR = 2  # matches eval.py default
 SEED = 17  # different from training-eval seed; just reproducibility
