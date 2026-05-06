@@ -1,0 +1,2 @@
+{"ts": "2026-05-06T06:03:02.021863+00:00", "event": "run_start", "n_params": 13213697, "device": "mps", "body_widths": [4096, 1024], "n_residual_blocks": 4, "normalization": "bn", "batch_size": 4096, "max_scramble_depth": 28, "max_scramble_depth_initial": 14, "max_scramble_depth_ramp_steps": 15000, "target_sync_interval": 500, "learning_rate": 0.001, "n_steps": 30000, "eval_set_size": 1400}
+{"ts": "2026-05-06T06:03:02.022204+00:00", "event": "resume", "source": "experiments/davi-2x2/runs/sync500_kmax20-30k/net_final.pt", "mode": "full", "prior_step": 30000}
