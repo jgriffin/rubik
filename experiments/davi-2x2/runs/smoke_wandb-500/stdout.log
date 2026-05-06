@@ -1,0 +1,84 @@
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /Users/griff/.netrc.
+wandb: Currently logged in as: johngrif (griffin-enterprises) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.26.1
+wandb: Run data is saved locally in experiments/davi-2x2/runs/smoke_wandb-500/wandb/run-20260505_232205-puj0oydj
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run smoke_wandb-500
+wandb: ⭐️ View project at https://wandb.ai/griffin-enterprises/rubik
+wandb: 🚀 View run at https://wandb.ai/griffin-enterprises/rubik/runs/puj0oydj
+run dir:                experiments/davi-2x2/runs/smoke_wandb-500
+device:                 mps
+params:                 0.47M
+body_widths:            (512, 256)
+n_residual_blocks:      2
+normalization:          bn
+batch_size:             1024
+max_scramble_depth:     14
+target_sync_interval:   100
+learning_rate:          0.001
+n_steps:                500
+eval_set:               experiments/davi-2x2/eval_set.npz (1400 states)
+
+step      25/500  loss 0.0906  step 15.8 ms
+step      50/500  loss 0.0659  step 15.3 ms
+step      75/500  loss 0.0666  step 15.5 ms
+step     100/500  loss 0.0591  step 15.6 ms
+  eval @ step     100  macro_mae 6.4687  val_mae 6.4687  pred_std 0.240  solve: d1=1.00 d10=0.00 d11=0.00 d12=0.00 d13=0.00 d2=0.30 d3=0.10 d4=0.04 d5=0.02 d6=0.00 d7=0.00 d8=0.02 d9=0.00
+step     125/500  loss 0.0238  step 10.7 ms
+step     150/500  loss 0.0168  step 15.7 ms
+step     175/500  loss 0.0130  step 15.2 ms
+step     200/500  loss 0.0113  step 15.7 ms
+  eval @ step     200  macro_mae 5.8552  val_mae 5.8552  pred_std 0.205  solve: d1=1.00 d10=0.06 d11=0.04 d12=0.02 d13=0.00 d2=1.00 d3=0.60 d4=0.44 d5=0.36 d6=0.06 d7=0.06 d8=0.06 d9=0.02
+step     225/500  loss 0.0395  step 17.6 ms
+step     250/500  loss 0.0157  step 16.3 ms
+step     275/500  loss 0.0104  step 16.5 ms
+step     300/500  loss 0.0074  step 15.6 ms
+  eval @ step     300  macro_mae 5.2086  val_mae 5.2086  pred_std 0.359  solve: d1=1.00 d10=0.06 d11=0.04 d12=0.00 d13=0.00 d2=1.00 d3=1.00 d4=0.68 d5=0.44 d6=0.28 d7=0.20 d8=0.18 d9=0.10
+step     325/500  loss 0.0369  step 15.9 ms
+step     350/500  loss 0.0215  step 15.7 ms
+step     375/500  loss 0.0166  step 17.9 ms
+step     400/500  loss 0.0142  step 15.4 ms
+  eval @ step     400  macro_mae 4.6597  val_mae 4.6597  pred_std 0.588  solve: d1=1.00 d10=0.08 d11=0.18 d12=0.10 d13=0.06 d2=1.00 d3=1.00 d4=0.98 d5=0.76 d6=0.54 d7=0.32 d8=0.28 d9=0.20
+step     425/500  loss 0.0578  step 15.6 ms
+step     450/500  loss 0.0375  step 15.3 ms
+step     475/500  loss 0.0380  step 17.9 ms
+step     500/500  loss 0.0333  step 15.9 ms
+  eval @ step     500  macro_mae 4.2969  val_mae 4.2969  pred_std 0.816  solve: d1=1.00 d10=0.16 d11=0.06 d12=0.14 d13=0.14 d2=1.00 d3=1.00 d4=1.00 d5=0.84 d6=0.68 d7=0.54 d8=0.40 d9=0.22
+wandb: updating run metadata
+wandb: uploading history steps 24-29, summary, console lines 35-42
+wandb: 
+wandb: Run history:
+wandb:  eval/avg_solve_len/d1 ▁▁▁▁▁▁
+wandb: eval/avg_solve_len/d10 ▄▁█▇▇
+wandb: eval/avg_solve_len/d11 ▁▆▄▄█
+wandb: eval/avg_solve_len/d12 █▁▄▁
+wandb: eval/avg_solve_len/d13 ▁▆█
+wandb:  eval/avg_solve_len/d2 ▁▁▁▁▁▁
+wandb:  eval/avg_solve_len/d3 ███▅█▁
+wandb:  eval/avg_solve_len/d4 ▁█▇▇▇▇
+wandb:  eval/avg_solve_len/d5 ▁▇▆▇██
+wandb:  eval/avg_solve_len/d6 ▁▇██▇
+wandb:                    +75 ...
+wandb: 
+wandb: Run summary:
+wandb:        checkpoint/path net_step_500.pt
+wandb:  eval/avg_solve_len/d1 1
+wandb: eval/avg_solve_len/d10 5.6
+wandb: eval/avg_solve_len/d11 6.55556
+wandb: eval/avg_solve_len/d12 4.5
+wandb: eval/avg_solve_len/d13 6
+wandb:  eval/avg_solve_len/d2 2
+wandb:  eval/avg_solve_len/d3 2.92
+wandb:  eval/avg_solve_len/d4 3.92
+wandb:  eval/avg_solve_len/d5 4.69231
+wandb:                    +81 ...
+wandb: 
+wandb: 🚀 View run smoke_wandb-500 at: https://wandb.ai/griffin-enterprises/rubik/runs/puj0oydj
+wandb: ⭐️ View project at: https://wandb.ai/griffin-enterprises/rubik
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: experiments/davi-2x2/runs/smoke_wandb-500/wandb/run-20260505_232205-puj0oydj/logs
+
+final macro_mae: 4.2969
+final val_mae:   4.2969
+final solve:     d1=1.00 d10=0.20 d11=0.18 d12=0.16 d13=0.16 d2=1.00 d3=1.00 d4=1.00 d5=0.78 d6=0.64 d7=0.50 d8=0.40 d9=0.26
+done. metrics:   experiments/davi-2x2/runs/smoke_wandb-500/metrics.jsonl
