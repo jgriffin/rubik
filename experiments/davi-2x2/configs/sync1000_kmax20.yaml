@@ -1,4 +1,6 @@
 max_scramble_depth: 20
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
 batch_size: 4096
 n_steps: 30000
 learning_rate: 0.001

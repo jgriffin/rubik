@@ -27,7 +27,13 @@ _VALID_NORMALIZATIONS = ("bn", "none", "ln")
 @dataclass(frozen=True)
 class DAVIConfig:
     # Curriculum
-    max_scramble_depth: int
+    max_scramble_depth: int  # final / steady-state K_max
+    # Curriculum schedule. When ramp_steps == 0: flat — K_max = max_scramble_depth
+    # always (initial is ignored). When ramp_steps > 0: K_max linearly grows from
+    # max_scramble_depth_initial at step 1 up to max_scramble_depth at step
+    # max_scramble_depth_ramp_steps; clamped at max_scramble_depth thereafter.
+    max_scramble_depth_initial: int
+    max_scramble_depth_ramp_steps: int
 
     # Optimizer
     batch_size: int
@@ -55,6 +61,41 @@ class DAVIConfig:
                 f"normalization must be one of {_VALID_NORMALIZATIONS!r}, "
                 f"got {self.normalization!r}"
             )
+        if self.max_scramble_depth_ramp_steps < 0:
+            raise ValueError(
+                "max_scramble_depth_ramp_steps must be >= 0; "
+                f"got {self.max_scramble_depth_ramp_steps}"
+            )
+        if self.max_scramble_depth_ramp_steps > 0:
+            if self.max_scramble_depth_initial < 1:
+                raise ValueError(
+                    "max_scramble_depth_initial must be >= 1 when ramp_steps > 0; "
+                    f"got {self.max_scramble_depth_initial}"
+                )
+            if self.max_scramble_depth_initial > self.max_scramble_depth:
+                raise ValueError(
+                    "max_scramble_depth_initial must be <= max_scramble_depth; "
+                    f"got initial={self.max_scramble_depth_initial}, "
+                    f"final={self.max_scramble_depth}"
+                )
+
+    def current_k_max(self, step: int) -> int:
+        """K_max active at training step ``step`` (1-indexed).
+
+        Flat (ramp_steps == 0): always ``max_scramble_depth``.
+        Ramp: linear interpolation from ``max_scramble_depth_initial`` at
+        step 1 to ``max_scramble_depth`` at step ``max_scramble_depth_ramp_steps``,
+        clamped at ``max_scramble_depth`` thereafter. Floored to int.
+        """
+        if step < 1:
+            raise ValueError(f"step must be >= 1; got {step}")
+        if self.max_scramble_depth_ramp_steps == 0:
+            return self.max_scramble_depth
+        if step >= self.max_scramble_depth_ramp_steps:
+            return self.max_scramble_depth
+        span = self.max_scramble_depth - self.max_scramble_depth_initial
+        frac = (step - 1) / max(self.max_scramble_depth_ramp_steps - 1, 1)
+        return int(self.max_scramble_depth_initial + frac * span)
 
     def to_dict(self) -> dict:
         d = asdict(self)

@@ -1,8 +1,8 @@
-max_scramble_depth: 18
-max_scramble_depth_initial: 0
-max_scramble_depth_ramp_steps: 0
+max_scramble_depth: 28
+max_scramble_depth_initial: 14
+max_scramble_depth_ramp_steps: 15000
 batch_size: 4096
-n_steps: 7000
+n_steps: 30000
 learning_rate: 0.001
 target_sync_interval: 500
 body_widths:

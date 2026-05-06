@@ -203,6 +203,12 @@ def main() -> None:
     print(f"normalization:          {config.normalization}")
     print(f"batch_size:             {config.batch_size}")
     print(f"max_scramble_depth:     {config.max_scramble_depth}")
+    if config.max_scramble_depth_ramp_steps > 0:
+        print(
+            f"k_max curriculum:       {config.max_scramble_depth_initial}"
+            f"→{config.max_scramble_depth} over "
+            f"{config.max_scramble_depth_ramp_steps} steps"
+        )
     print(f"target_sync_interval:   {config.target_sync_interval}")
     print(f"learning_rate:          {config.learning_rate}")
     print(f"n_steps:                {config.n_steps}")
@@ -233,6 +239,8 @@ def main() -> None:
             normalization=config.normalization,
             batch_size=config.batch_size,
             max_scramble_depth=config.max_scramble_depth,
+            max_scramble_depth_initial=config.max_scramble_depth_initial,
+            max_scramble_depth_ramp_steps=config.max_scramble_depth_ramp_steps,
             target_sync_interval=config.target_sync_interval,
             learning_rate=config.learning_rate,
             n_steps=config.n_steps,
@@ -249,10 +257,11 @@ def main() -> None:
 
         for step in range(1, config.n_steps + 1):
             t0 = time.perf_counter()
+            current_k_max = config.current_k_max(step)
             states, _depths, _last_faces = generate_adi_batch(
                 spec,
                 batch_size=config.batch_size,
-                max_depth=config.max_scramble_depth,
+                max_depth=current_k_max,
                 generator=generator,
             )
             states = states.to(device)
@@ -268,6 +277,7 @@ def main() -> None:
                     step=step,
                     loss=loss,
                     step_seconds=step_seconds,
+                    k_max=current_k_max,
                 )
                 print(
                     f"step {step:>7d}/{config.n_steps}  "
