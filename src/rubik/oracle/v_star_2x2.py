@@ -225,16 +225,22 @@ def sample_states_at_v_star(
     n: int,
     *,
     rng: np.random.Generator,
-    rotate: bool = True,
+    rotate: bool = False,
 ) -> np.ndarray:
     """Uniformly sample ``n`` states with ``V*[state] == target_v_star``.
 
     The V* table stores canonical (lex-min over the 24-rotation orbit)
-    representatives. Whole-cube rotations preserve V*, so when ``rotate=True``
-    each sampled row gets a random rotation applied — this matches the
-    training input distribution (``random_scrambles`` returns un-canonicalized
-    states), so eval inputs aren't artificially biased toward the canonical
-    basis the network sees only rarely during training.
+    representatives. Whole-cube rotations preserve V*, so ``rotate=True`` can
+    apply a random rotation per row — useful when a downstream consumer
+    cares about the input distribution (e.g. comparing net predictions
+    directly).
+
+    **Default is ``rotate=False`` because the solver path
+    (``greedy_solve_batch`` / ``beam_solve_batch``) tests ``is_solved``
+    against ``spec.solved_state`` exactly — rotated solved states fail
+    that equality check, so a rotated V*=k state cannot be recognized as
+    solved when it reaches its rotated-solved target.** When using this
+    sampler to feed the solver, leave rotation off.
 
     Args:
         states: ``(N, 24)`` int8 — from ``load_v_star_arrays``.
