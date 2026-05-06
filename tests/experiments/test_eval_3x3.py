@@ -1,0 +1,235 @@
+"""Tests for the lean three-function eval API in experiments/davi-3x3/eval.py.
+
+The K=6 oracle is loaded once per module via fixture (mirrors
+``tests/oracle/test_v_star_bounded_3x3.py``'s pattern). Tests use
+random-init ValueNets at tiny dims and CPU-only to keep each test fast
+and free of MPS dependence — these tests cover the eval *API shape*,
+not the eval's downstream numerical quality.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+
+from rubik.cube.spec import CUBE_3X3
+from rubik.model.network import ValueNet
+from rubik.oracle.v_star_bounded_3x3 import (
+    compute_v_star_bounded_3x3,
+    load_v_star_bounded_3x3,
+    load_v_star_bounded_3x3_arrays,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CACHE_PATH = REPO_ROOT / "data" / "v_star_bounded_3x3_k6.npz"
+EXPERIMENT_DIR = REPO_ROOT / "experiments" / "davi-3x3"
+
+# Make experiments/davi-3x3/eval.py importable. Tests live outside the
+# experiment dir, so we splice it in here on first import. The shadow over
+# the stdlib ``eval`` builtin is intentional and isolated to this module.
+if str(EXPERIMENT_DIR) not in sys.path:
+    sys.path.insert(0, str(EXPERIMENT_DIR))
+
+from eval import beam_eval_v_star, beam_eval_walk, value_eval  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Module-scoped oracle fixture: prefer disk cache, fall back to building
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def oracle_dict_k6() -> dict[bytes, int]:
+    if CACHE_PATH.exists():
+        return load_v_star_bounded_3x3(CACHE_PATH)
+    return compute_v_star_bounded_3x3(CUBE_3X3, max_depth=6, verbose=False)
+
+
+@pytest.fixture(scope="module")
+def oracle_arrays_k6() -> tuple[np.ndarray, np.ndarray]:
+    if CACHE_PATH.exists():
+        return load_v_star_bounded_3x3_arrays(CACHE_PATH)
+    # Fallback: build dict, materialize arrays.
+    v = compute_v_star_bounded_3x3(CUBE_3X3, max_depth=6, verbose=False)
+    n = len(v)
+    states = np.empty((n, 54), dtype=np.int8)
+    depths = np.empty(n, dtype=np.int8)
+    for i, (key, d) in enumerate(v.items()):
+        states[i] = np.frombuffer(key, dtype=np.int8)
+        depths[i] = d
+    return states, depths
+
+
+def _tiny_net() -> ValueNet:
+    """Tiny random-init ValueNet on CPU for shape-only tests."""
+    net = ValueNet(
+        CUBE_3X3,
+        body_widths=(64, 32),
+        n_residual_blocks=1,
+        normalization="bn",
+    )
+    net.eval()  # avoid BN-train-on-batch-1 errors when callers poke directly
+    return net
+
+
+# ---------------------------------------------------------------------------
+# value_eval
+# ---------------------------------------------------------------------------
+
+
+def test_value_eval_keys_and_shapes(oracle_dict_k6):
+    net = _tiny_net()
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    out = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=10,
+        walk_depths=(1, 2, 3, 4, 5, 6),
+        eval_batch_size=64,
+        generator=gen,
+    )
+
+    # per_walk_depth keys for every walk depth
+    for d in (1, 2, 3, 4, 5, 6):
+        assert f"per_walk_depth/d{d}/pred_mean" in out
+        assert f"per_walk_depth/d{d}/pred_std" in out
+        assert np.isfinite(out[f"per_walk_depth/d{d}/pred_mean"])
+        assert np.isfinite(out[f"per_walk_depth/d{d}/pred_std"])
+
+    # v_star_mae keys for every V* layer present (1..6)
+    # All walk-depths d≤6 should land at least some endpoints inside the K=6
+    # oracle, so we expect every layer 1..6 to be populated. (V*=0 is only
+    # the solved state — random walks of length ≥1 don't return to it
+    # reliably in a 10-state sample, so we don't require it.)
+    for d in (1, 2, 3, 4, 5, 6):
+        assert f"v_star_mae/d{d}" in out, (
+            f"expected v_star_mae/d{d} key; got {sorted(out)}"
+        )
+        assert np.isfinite(out[f"v_star_mae/d{d}"])
+
+    assert "macro_v_star_mae" in out
+    assert np.isfinite(out["macro_v_star_mae"])
+    assert "pred_mean" in out and np.isfinite(out["pred_mean"])
+    assert "pred_std" in out and np.isfinite(out["pred_std"])
+
+
+def test_value_eval_oracle_lookup_filtering(oracle_dict_k6):
+    """Walks beyond K=6 still produce per_walk_depth stats but contribute
+    nothing to v_star_mae (the oracle returns -1 for those endpoints)."""
+    net = _tiny_net()
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    out = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=8,
+        walk_depths=(1, 2, 7, 10),
+        eval_batch_size=64,
+        generator=gen,
+    )
+
+    # per_walk_depth populated for every supplied walk depth, including >K
+    for d in (1, 2, 7, 10):
+        assert f"per_walk_depth/d{d}/pred_mean" in out
+        assert f"per_walk_depth/d{d}/pred_std" in out
+
+    # v_star_mae keys are bounded by what the oracle has — never > 6.
+    v_star_keys = [k for k in out if k.startswith("v_star_mae/d")]
+    for key in v_star_keys:
+        v = int(key.split("d")[-1])
+        assert v <= 6, f"v_star_mae key beyond K=6: {key}"
+
+
+# ---------------------------------------------------------------------------
+# beam_eval_walk
+# ---------------------------------------------------------------------------
+
+
+def test_beam_eval_walk_shape():
+    net = _tiny_net()
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    out = beam_eval_walk(
+        net,
+        CUBE_3X3,
+        n_per_depth=5,
+        walk_depths=(1, 2),
+        beam_width=4,
+        depth_budget_factor=2,
+        generator=gen,
+    )
+    for d in (1, 2):
+        assert f"solve_rate_d{d}" in out
+        rate = out[f"solve_rate_d{d}"]
+        assert 0.0 <= rate <= 1.0, f"solve_rate_d{d}={rate} out of [0, 1]"
+        # avg_solve_len is float-or-None depending on whether anything solved
+        assert f"avg_solve_len_d{d}" in out
+
+
+# ---------------------------------------------------------------------------
+# beam_eval_v_star
+# ---------------------------------------------------------------------------
+
+
+def test_beam_eval_v_star_shape(oracle_arrays_k6):
+    net = _tiny_net()
+    rng = np.random.default_rng(0)
+    out = beam_eval_v_star(
+        net,
+        CUBE_3X3,
+        oracle_arrays_k6,
+        n_per_layer=5,
+        beam_width=4,
+        depth_budget_factor=2,
+        max_v_star=2,
+        rng=rng,
+    )
+    for v in (1, 2):
+        assert f"solve_rate_v{v}" in out
+        rate = out[f"solve_rate_v{v}"]
+        assert 0.0 <= rate <= 1.0
+        assert f"avg_solve_len_v{v}" in out
+        assert f"mae_v{v}" in out
+        assert np.isfinite(out[f"mae_v{v}"])
+
+    # V*=0 must NOT appear — skipped by design (the lone solved state).
+    assert "solve_rate_v0" not in out
+    assert "mae_v0" not in out
+    # Layers above max_v_star must NOT appear.
+    assert "solve_rate_v3" not in out
+
+
+# ---------------------------------------------------------------------------
+# scripts/post_run_beam_eval.py smoke
+# ---------------------------------------------------------------------------
+
+
+def test_post_run_beam_eval_smoke(tmp_path):
+    """Empty checkpoints dir → script writes empty JSON and exits 0.
+
+    Documents the chosen empty-dir behavior: write ``{}`` rather than
+    skip-write, so downstream readers never have to special-case a
+    missing file. See ``scripts/post_run_beam_eval.py`` docstring.
+    """
+    run_dir = tmp_path / "empty-run"
+    run_dir.mkdir()
+    # Script-level config.yaml is unnecessary when there are zero checkpoints.
+
+    script = REPO_ROOT / "scripts" / "post_run_beam_eval.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--run-dir", str(run_dir)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"post_run_beam_eval failed: stderr={result.stderr!r}"
+    )
+    out_path = run_dir / "results" / "post_run_beam_eval.json"
+    assert out_path.exists(), f"expected {out_path} to be written"
+    assert json.loads(out_path.read_text()) == {}
