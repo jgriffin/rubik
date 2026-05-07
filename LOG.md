@@ -4,6 +4,14 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-07 — Diagnostic: dense beam-eval over warm_continue collapse window 🟡 in-progress
+**Goal:** Resolve the open question from the prior block — *when* did capability begin eroding in the warm_continue run? The prior block beam-evaled at steps 20k/30k/50k/70k/90k/110k/120k. Step 20k (4k post-warm-start) was already at d=14=0.64 (down 14pp from full_train's 0.78). We don't yet know if the regression hit in the first 2k post-warm steps (Adam moments thrashing → catastrophic single-window destabilization) or built gradually across the early window. Beam-eval at steps 18k, 22k, 24k, 26k, 28k fills in the gap. Cheap (~25 min wall), self-contained, no codebase changes.
+**Milestone:** drive-by diagnostic following `1b1727f` (M8 phase 3)
+**Approach:** Branch `m8-warm-collapse-diagnostic` from main HEAD `1b1727f`. Run `scripts/post_run_beam_eval.py --checkpoint-steps "18000,22000,24000,26000,28000"` against the warm_continue run dir. The `--checkpoint-steps` flag's merge-mode appends to the existing trajectory JSON. Regenerate the analysis HTML. Pull the trajectory and judge.
+**Next:** Beam-eval running in background. When done, regenerate HTML, write outcome, close block, merge.
+**In progress:**
+- Block opened. Branch `m8-warm-collapse-diagnostic` from main HEAD `1b1727f`.
+
 ## 2026-05-06 — Instrumentation cleanup + warm-start overnight rerun ✅ done — capability collapse
 **Goal:** Land four instrumentation fixes that emerged from today's full_train run, then kick off an overnight rerun that **warm-starts from today's `net_final.pt`** (step 16,000) and continues training. The full_train beam-eval revealed deep-d capability climbing monotonically through what `macro_v_star_mae` called a "regression" — d=14 went 0.59 → 0.78 across the steps macro called bad. Warm-starting from that checkpoint and running another ~100k steps tests whether the climb continues, plateaus, or inverts — the exact question early-stop terminated before answering. Same arch as today (`[5120, 1024] × 4 BN`), K_max=20 unchanged, no early-stop. Instrumentation fixes: (1) wandb panel namespacing into ~6 sections instead of one giant `eval/` blob, (2) zero-pad `dN` keys to `dNN` so wandb sorts them naturally instead of `d1, d10, d11, d12, d2, d3, ...`, (3) `wandb.define_metric("*", step_metric="step")` so future panels default to training-step on x-axis instead of wandb's `_step` log-call counter, (4) banded aggregate metrics (shallow d=1..5 / mid d=6..10 / deep d=11..14 means) alongside per-d keys for at-a-glance trend reads. Plus remove early-stop wiring (kept config fields for backwards compat).
 **Milestone:** drive-by + M8 phase 3 ([plan](plans/m8-3x3-davi.md))
