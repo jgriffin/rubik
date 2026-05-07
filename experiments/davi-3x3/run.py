@@ -13,12 +13,17 @@ Eval cadence: every ``config.eval_every`` steps, calls the lean
 ``value_eval`` (forward pass only, no search) against a deterministic
 fresh random-walk eval set generated from the bounded-V* oracle's depth
 range, and logs the resulting flat dict as one ``event="eval"`` record.
-``macro_v_star_mae`` drives the early-stop monitor.
 
-Early-stop: when ``config.early_stop_enabled`` is True, the monitor
-tracks ``macro_v_star_mae`` across evals and fires as a clean exit from
-the training loop when the plateau criterion is met (``patience_evals``
-consecutive non-improving evals after a warmup of ``min_evals``).
+Early-stop is **disabled** in this script as of 2026-05-06: the
+``macro_v_star_mae`` signal that previously drove it is wrong as a stop
+trigger when ``max_scramble_depth >> K_oracle=6`` — the bounded oracle
+only measures shallow calibration, while the network's natural
+prediction range expands far beyond d=6 mid-training. See LOG.md "M8
+full 3x3 training run" outcome for the full diagnosis (beam capability
+at d=14 climbed +19pp through the macro's claimed plateau). The
+``early_stop_*`` ``DAVIConfig`` fields are kept for backwards
+compatibility with historical run configs but are no longer acted on
+by this script.
 
 Usage::
 
@@ -49,7 +54,6 @@ from rubik.model.network import ValueNet
 from rubik.oracle.v_star_bounded_3x3 import load_v_star_bounded_3x3
 from rubik.training.config import DAVIConfig
 from rubik.training.davi import davi_step, sync_target
-from rubik.training.early_stop import EarlyStopMonitor
 from rubik.training.metric_logger import MetricLogger
 from rubik.training.scrambles import generate_adi_batch
 from rubik.training.wandb_sink import WandbAdapter
@@ -200,6 +204,11 @@ def main() -> None:
                 config=config.to_dict(),
                 tags=["cube=3x3", "phase=smoke"],
             )
+            # Default x-axis on every panel = training step (not W&B's
+            # internal `_step` log-call counter). With this set once at
+            # init time, every key gets the right x-axis without per-key
+            # configuration. See experiments/davi-3x3/wandb_workspace.md.
+            wandb.define_metric("*", step_metric="step")
             wandb_run = WandbAdapter(wandb.run)
             wandb_started = True
         except Exception as e:
@@ -253,19 +262,15 @@ def main() -> None:
     # consumes; ``lookup_v_star_bounded_3x3_batch`` does the bulk lookups.
     oracle_dict = _load_oracle_dict()
 
-    # Early-stop monitor — only used when config.early_stop_enabled.
-    early_stop_monitor: EarlyStopMonitor | None = None
-    if config.early_stop_enabled:
-        if config.early_stop_metric != "macro_v_star_mae":
-            raise ValueError(
-                "early_stop_metric currently only supports 'macro_v_star_mae'; "
-                f"got {config.early_stop_metric!r}"
-            )
-        early_stop_monitor = EarlyStopMonitor(
-            patience_evals=config.early_stop_patience_evals,
-            min_evals=config.early_stop_min_evals,
-            min_delta=config.early_stop_min_delta,
-        )
+    # Early-stop wiring removed 2026-05-06: macro_v_star_mae is the wrong
+    # signal at K_max >> K_oracle (=6). The bounded oracle only measures
+    # shallow calibration, while the network's natural prediction range
+    # expands far beyond d=6 mid-training, so macro rising at deep
+    # training depths is by design, not regression. See LOG.md "M8 full
+    # 3x3 training run" outcome and `tests/training/test_early_stop.py`
+    # — the EarlyStopMonitor itself stays for future use; only its
+    # wiring into this run loop is removed. DAVIConfig.early_stop_*
+    # fields are kept for backwards compat with historical run configs.
 
     n_params = sum(p.numel() for p in net.parameters())
     try:
@@ -293,12 +298,14 @@ def main() -> None:
         f"oracle:                 {ORACLE_PATH.relative_to(REPO_ROOT)} "
         f"({len(oracle_dict)} states)"
     )
+    # Early-stop wiring removed 2026-05-06 (see comment above) — config
+    # fields preserved but not acted on. Print a notice so it's obvious
+    # at the run banner that legacy `early_stop_enabled: true` configs
+    # are silently ignored by this script.
     if config.early_stop_enabled:
         print(
-            f"early_stop:             on, metric={config.early_stop_metric}, "
-            f"patience_evals={config.early_stop_patience_evals}, "
-            f"min_evals={config.early_stop_min_evals}, "
-            f"min_delta={config.early_stop_min_delta}"
+            "early_stop:             ignored (wiring removed 2026-05-06; "
+            "macro_v_star_mae is wrong signal at K_max >> K_oracle)"
         )
     else:
         print("early_stop:             off")
@@ -413,42 +420,6 @@ def main() -> None:
                         flush=True,
                     )
 
-                    # NaN safety: until the network's first prediction
-                    # falls into a populated v_star_mae bucket the macro
-                    # could be NaN. Skip the update in that case — the
-                    # patience window doesn't advance until we have a
-                    # real number.
-                    if early_stop_monitor is not None and macro == macro:
-                        should_stop = early_stop_monitor.update(macro)
-                        if should_stop:
-                            snap = early_stop_monitor.state()
-                            logger.log(
-                                event="early_stop",
-                                step=step,
-                                n_evals=snap.n_updates,
-                                best_macro_v_star_mae=snap.best_value,
-                                # convert 0-indexed history idx → the
-                                # training step at which the best eval
-                                # was logged.
-                                best_eval_step=(
-                                    ((snap.best_index or 0) + 1) * config.eval_every
-                                ),
-                                current_macro_v_star_mae=macro,
-                                patience_evals=config.early_stop_patience_evals,
-                                min_evals=config.early_stop_min_evals,
-                                min_delta=config.early_stop_min_delta,
-                            )
-                            print(
-                                f"  early-stop fired @ step {step}  "
-                                f"best_macro_v_star_mae "
-                                f"{snap.best_value:.4f} "
-                                f"(eval idx {snap.best_index})  "
-                                f"current {macro:.4f}",
-                                flush=True,
-                            )
-                            early_stopped = True
-                            break
-
                 if config.checkpoint_every and step % config.checkpoint_every == 0:
                     ckpt_path = out_dir / f"net_step_{step}.pt"
                     _save_checkpoint(ckpt_path, net, target_net, optimizer, step)
@@ -489,8 +460,9 @@ def main() -> None:
                 f"final macro_v_star_mae: "
                 f"{last_eval_metrics.get('macro_v_star_mae', float('nan')):.4f}"
             )
-        if early_stopped:
-            print(f"early-stopped at step {final_step}")
+        # `early_stopped` always False here as of 2026-05-06 (wiring
+        # removed), but the field is kept on run_end for downstream-
+        # reader backwards compat.
         metrics_path = out_dir / "metrics.jsonl"
         try:
             metrics_display = metrics_path.relative_to(REPO_ROOT)
