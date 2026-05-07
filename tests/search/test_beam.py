@@ -284,6 +284,95 @@ def test_rejects_zero_beam_width():
         beam_solve_batch(net, CUBE_2X2, states, beam_width=0, max_steps=1)
 
 
+def test_beam_solve_batch_no_early_exit_same_solve_lens():
+    """Run-to-completion produces the same first-solve step as early-exit.
+
+    C2 removes the ``done_mask.all().item()`` early-exit check; the loop now
+    runs ``max(max_steps_per_state)`` iterations regardless. The contract a
+    caller reads — ``solve_lens`` records the *first* step at which a goal
+    child was emitted — must be unchanged. We assert this by mixing easy
+    (d=1) and hard (d=4) scrambles in a single batch with a generous
+    ``max_steps``: the easy rows would have triggered early-exit on every
+    one of them under the old code; the deep ones would have kept the loop
+    running to its budget. Their reported solve_lens should equal V*(state)
+    when the V*-oracle is the scoring net, regardless of when other rows in
+    the batch finished.
+    """
+    v_phys = _physical_v_star_2x2(max_depth=4)
+    net = _VStarNet(v_phys)
+
+    rng = torch.Generator().manual_seed(424242)
+    easy, _ = random_scrambles(
+        CUBE_2X2, batch_size=10, depth=1, generator=rng, prune_same_face=True
+    )
+    hard, _ = random_scrambles(
+        CUBE_2X2, batch_size=10, depth=4, generator=rng, prune_same_face=True
+    )
+    states = torch.cat([easy, hard], dim=0)
+
+    truth = np.array(
+        [v_phys[s.numpy().astype(np.int8).tobytes()] for s in states],
+        dtype=np.int64,
+    )
+
+    # max_steps=8 is well past the easiest rows' V*; old code would have
+    # stopped as soon as every row solved. New code runs all 8 steps.
+    result = beam_solve_batch(net, CUBE_2X2, states, beam_width=4, max_steps=8)
+    assert torch.all(result.solve_lens >= 0), (
+        f"some rows failed: {result.solve_lens.tolist()}"
+    )
+    assert np.array_equal(result.solve_lens.cpu().numpy(), truth), (
+        f"run-to-completion solve_lens {result.solve_lens.cpu().tolist()} "
+        f"!= V*(state) {truth.tolist()} — first-solve tracking is broken"
+    )
+
+
+def test_beam_solve_batch_per_state_max_steps():
+    """Per-state budgets gate verdicts independently per row.
+
+    With a V*-oracle scoring net and a depth-3 scramble, V*=3 — the row
+    needs 3 beam steps to emit goal. Pass two such scrambles with budgets
+    ``[2, 5]``: the budget-2 row's first-solve step (==2, 0-indexed) lands
+    AT its budget and is excluded; the budget-5 row solves comfortably.
+    Verdict shape: ``[-1, 3]``. This is the correctness gate for the
+    additive ``max_steps_per_state`` API — uniform ``max_steps=5`` would
+    solve both, so the per-state semantics are observable.
+    """
+    v_phys = _physical_v_star_2x2(max_depth=3)
+    net = _VStarNet(v_phys)
+
+    rng = torch.Generator().manual_seed(99)
+    states, _ = random_scrambles(
+        CUBE_2X2, batch_size=2, depth=3, generator=rng, prune_same_face=True
+    )
+
+    # Sanity: with uniform max_steps=5 both should solve in 3 moves.
+    uniform = beam_solve_batch(
+        net, CUBE_2X2, states, beam_width=4, max_steps=5
+    )
+    assert uniform.solve_lens.tolist() == [3, 3]
+
+    # With per-state budgets [2, 5]: row 0 cannot solve in 2 steps (V*=3),
+    # row 1 has budget 5 and solves in 3.
+    budgets = torch.tensor([2, 5], dtype=torch.int64)
+    per_state = beam_solve_batch(
+        net,
+        CUBE_2X2,
+        states,
+        beam_width=4,
+        max_steps_per_state=budgets,
+    )
+    assert per_state.solve_lens.tolist() == [-1, 3], (
+        f"per-state budgets [2, 5] produced {per_state.solve_lens.tolist()}; "
+        f"expected [-1, 3]"
+    )
+    # Row 0 has no path; row 1 has a 3-move path that reaches solved.
+    assert per_state.solve_paths[0] == []
+    assert len(per_state.solve_paths[1]) == 3
+    end = apply_move_sequence(states[1], per_state.solve_paths[1], CUBE_2X2)
+    assert bool(is_solved(end, CUBE_2X2).item())
+
+
 def test_beam_solve_batch_n_invariant_to_split():
     """Cross-scramble batching is order/N-invariant.
 
