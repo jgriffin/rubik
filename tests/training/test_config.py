@@ -24,10 +24,15 @@ def _base_kwargs(**overrides) -> dict:
         "n_residual_blocks": 2,
         "normalization": "bn",
         "log_every": 10,
-        "eval_every": 50,
+        "eval_every": 500,
         "checkpoint_every": 100,
         "seed": 0,
         "device": "cpu",
+        "early_stop_enabled": False,
+        "early_stop_metric": "macro_v_star_mae",
+        "early_stop_patience_evals": 0,
+        "early_stop_min_evals": 0,
+        "early_stop_min_delta": 0.0,
     }
     base.update(overrides)
     return base
@@ -163,3 +168,111 @@ def test_yaml_missing_curriculum_field_raises(tmp_path: Path) -> None:
     yaml_path.write_text(yaml.safe_dump(minimal))
     with pytest.raises(TypeError):
         DAVIConfig.from_yaml(yaml_path)
+
+
+# ---------------------------------------------------------------------------
+# Early-stop fields (P2a)
+# ---------------------------------------------------------------------------
+
+
+def test_early_stop_fields_round_trip(tmp_path: Path) -> None:
+    """All 5 early-stop fields survive yaml round-trip."""
+    cfg = DAVIConfig(
+        **_base_kwargs(
+            target_sync_interval=500,
+            eval_every=500,
+            early_stop_enabled=True,
+            early_stop_metric="macro_v_star_mae",
+            early_stop_patience_evals=12,
+            early_stop_min_evals=4,
+            early_stop_min_delta=0.001,
+        )
+    )
+    yaml_path = tmp_path / "cfg.yaml"
+    cfg.to_yaml(yaml_path)
+    loaded = DAVIConfig.from_yaml(yaml_path)
+    assert loaded == cfg
+    assert loaded.early_stop_enabled is True
+    assert loaded.early_stop_metric == "macro_v_star_mae"
+    assert loaded.early_stop_patience_evals == 12
+    assert loaded.early_stop_min_evals == 4
+    assert loaded.early_stop_min_delta == 0.001
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "early_stop_enabled",
+        "early_stop_metric",
+        "early_stop_patience_evals",
+        "early_stop_min_evals",
+        "early_stop_min_delta",
+    ],
+)
+def test_yaml_missing_early_stop_field_raises(
+    tmp_path: Path, missing_field: str
+) -> None:
+    """Each new early-stop field must be present in yaml (no defaults)."""
+    kwargs = _base_kwargs(
+        target_sync_interval=500,
+        eval_every=500,
+        early_stop_enabled=True,
+        early_stop_patience_evals=12,
+        early_stop_min_evals=4,
+        early_stop_min_delta=0.001,
+    )
+    # Convert tuple → list for yaml safe_dump.
+    kwargs["body_widths"] = list(kwargs["body_widths"])
+    del kwargs[missing_field]
+    yaml_path = tmp_path / "stale.yaml"
+    yaml_path.write_text(yaml.safe_dump(kwargs))
+    with pytest.raises(TypeError):
+        DAVIConfig.from_yaml(yaml_path)
+
+
+def test_early_stop_alignment_passes_when_equal() -> None:
+    """eval_every == target_sync_interval is the canonical aligned case."""
+    cfg = DAVIConfig(
+        **_base_kwargs(
+            target_sync_interval=500,
+            eval_every=500,
+            early_stop_enabled=True,
+        )
+    )
+    assert cfg.eval_every == cfg.target_sync_interval
+
+
+def test_early_stop_alignment_passes_when_clean_multiple() -> None:
+    """eval_every a clean multiple of target_sync_interval is also allowed."""
+    cfg = DAVIConfig(
+        **_base_kwargs(
+            target_sync_interval=500,
+            eval_every=1000,
+            early_stop_enabled=True,
+        )
+    )
+    assert cfg.eval_every % cfg.target_sync_interval == 0
+
+
+def test_early_stop_alignment_fails_when_misaligned() -> None:
+    """Misaligned eval_every / target_sync_interval errors at load time."""
+    with pytest.raises(ValueError, match="eval_every"):
+        DAVIConfig(
+            **_base_kwargs(
+                target_sync_interval=500,
+                eval_every=750,  # not a multiple of 500
+                early_stop_enabled=True,
+            )
+        )
+
+
+def test_early_stop_alignment_skipped_when_disabled() -> None:
+    """Misalignment is fine when early-stop is disabled."""
+    cfg = DAVIConfig(
+        **_base_kwargs(
+            target_sync_interval=500,
+            eval_every=750,
+            early_stop_enabled=False,
+        )
+    )
+    assert cfg.early_stop_enabled is False

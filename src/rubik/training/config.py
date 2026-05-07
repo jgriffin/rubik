@@ -55,6 +55,17 @@ class DAVIConfig:
     seed: int
     device: str
 
+    # Early-stop on a live eval metric. Patience is in *evals* (= sync periods
+    # when ``eval_every == target_sync_interval``). The sync-aligned cadence is
+    # the real progress signal: between target-net syncs the Bellman target is
+    # frozen, so loss is just settling toward a stationary target — step-to-step
+    # patience would fool itself. The alignment rule below enforces that.
+    early_stop_enabled: bool
+    early_stop_metric: str  # currently only "macro_v_star_mae" supported
+    early_stop_patience_evals: int  # = N evals of no improvement → stop
+    early_stop_min_evals: int  # warmup: don't even check until N evals in
+    early_stop_min_delta: float  # absolute min improvement to count as progress
+
     def __post_init__(self) -> None:
         if self.normalization not in _VALID_NORMALIZATIONS:
             raise ValueError(
@@ -77,6 +88,30 @@ class DAVIConfig:
                     "max_scramble_depth_initial must be <= max_scramble_depth; "
                     f"got initial={self.max_scramble_depth_initial}, "
                     f"final={self.max_scramble_depth}"
+                )
+        if self.early_stop_enabled:
+            # Patience-in-evals must equal patience-in-syncs. Between syncs the
+            # Bellman target is frozen — sync-to-sync is the real progress
+            # signal. Require eval cadence to align with sync cadence: equal,
+            # or eval_every a clean multiple of target_sync_interval.
+            if self.target_sync_interval <= 0:
+                raise ValueError(
+                    "early_stop_enabled requires target_sync_interval > 0; "
+                    f"got target_sync_interval={self.target_sync_interval}"
+                )
+            if self.eval_every <= 0:
+                raise ValueError(
+                    "early_stop_enabled requires eval_every > 0; "
+                    f"got eval_every={self.eval_every}"
+                )
+            if self.eval_every % self.target_sync_interval != 0:
+                raise ValueError(
+                    "early_stop_enabled requires eval_every to be a clean "
+                    "multiple of target_sync_interval (or equal). Between syncs "
+                    "the Bellman target is frozen — patience-in-evals must "
+                    "equal patience-in-syncs. "
+                    f"Got eval_every={self.eval_every}, "
+                    f"target_sync_interval={self.target_sync_interval}."
                 )
 
     def current_k_max(self, step: int) -> int:

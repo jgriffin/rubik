@@ -13,3 +13,10 @@ eval_every: 100
 checkpoint_every: 250
 seed: 0
 device: mps
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
+early_stop_enabled: false
+early_stop_metric: macro_mae
+early_stop_patience_evals: 0
+early_stop_min_evals: 0
+early_stop_min_delta: 0.0

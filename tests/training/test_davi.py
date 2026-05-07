@@ -148,6 +148,11 @@ def _full_davi_config_kwargs() -> dict:
         checkpoint_every=10_000,
         seed=42,
         device="cpu",
+        early_stop_enabled=False,
+        early_stop_metric="macro_v_star_mae",
+        early_stop_patience_evals=0,
+        early_stop_min_evals=0,
+        early_stop_min_delta=0.0,
     )
 
 

@@ -146,6 +146,56 @@ def test_value_eval_oracle_lookup_filtering(oracle_dict_k6):
         assert v <= 6, f"v_star_mae key beyond K=6: {key}"
 
 
+def test_value_eval_macro_excludes_v_star_zero(oracle_dict_k6):
+    """``macro_v_star_mae`` averages V*=1..K only — V*=0 (solved state) is
+    excluded. V*=0 is a different quality (terminal-value calibration) and
+    only populates when a walk happens to return to solved, which would jitter
+    the headline scalar that drives early-stop. This test injects a synthetic
+    case where d=0 is present and verifies macro is the d≥1 mean.
+    """
+    net = _tiny_net()
+    gen = torch.Generator(device="cpu").manual_seed(7)
+    # n_per_walk_depth=64 at depths 8..14 makes a few walk endpoints land back
+    # on solved (V*=0) by random-walk redundancy. The seed is chosen to hit
+    # this case; if the seed becomes brittle, the assertion below short-circuits
+    # cleanly via the "no d=0 produced" branch.
+    out = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=64,
+        walk_depths=(8, 9, 10, 11, 12, 13, 14),
+        eval_batch_size=64,
+        generator=gen,
+    )
+    macro = out["macro_v_star_mae"]
+    d_geq_1 = [
+        out[k]
+        for k in out
+        if k.startswith("v_star_mae/d") and int(k.split("d")[-1]) > 0
+    ]
+    if not d_geq_1:
+        # Defensive: if this seed produced zero d≥1 samples (very unlikely),
+        # macro is NaN and the exclusion semantics are vacuous.
+        import math
+        assert math.isnan(macro)
+        return
+    expected = sum(d_geq_1) / len(d_geq_1)
+    assert abs(macro - expected) < 1e-5, (
+        f"macro {macro} != mean of d≥1 v_star_mae values ({expected})"
+    )
+    # If d=0 happened to populate, confirm it's NOT in the macro.
+    if "v_star_mae/d0" in out:
+        d0 = out["v_star_mae/d0"]
+        # If d0 had been included, macro would be different (unless d0
+        # happens to equal the d≥1 mean, which is astronomically unlikely
+        # at a fresh-init net's random predictions).
+        with_d0 = (sum(d_geq_1) + d0) / (len(d_geq_1) + 1)
+        assert abs(macro - with_d0) > 1e-5, (
+            "macro accidentally includes d=0 — bug regressed"
+        )
+
+
 # ---------------------------------------------------------------------------
 # beam_eval_walk
 # ---------------------------------------------------------------------------

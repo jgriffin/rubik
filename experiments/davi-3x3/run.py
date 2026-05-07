@@ -8,15 +8,17 @@ from its output directory alone.
 
 Mirrors ``experiments/davi-2x2/run.py`` cell-for-cell, swapping
 ``CUBE_2X2`` → ``CUBE_3X3`` and adjusting paths to ``experiments/davi-3x3``.
-The eval set is built by ``experiments/davi-3x3/build_eval_set_3x3.py``
-(P1c work — not yet implemented; ``run.py`` will fail fast with a
-helpful error if the eval set is absent at training time).
 
-Eval cadence: every ``config.eval_every`` steps, evaluates against the
-depth-stratified eval set and runs a greedy-policy solve check across
-the configured depth grid. Both metrics are logged as one
-``event="eval"`` record per cycle plus a ``event="run_end"`` record with
-the final values.
+Eval cadence: every ``config.eval_every`` steps, calls the lean
+``value_eval`` (forward pass only, no search) against a deterministic
+fresh random-walk eval set generated from the bounded-V* oracle's depth
+range, and logs the resulting flat dict as one ``event="eval"`` record.
+``macro_v_star_mae`` drives the early-stop monitor.
+
+Early-stop: when ``config.early_stop_enabled`` is True, the monitor
+tracks ``macro_v_star_mae`` across evals and fires as a clean exit from
+the training loop when the plateau criterion is met (``patience_evals``
+consecutive non-improving evals after a warmup of ``min_evals``).
 
 Usage::
 
@@ -39,21 +41,22 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch.optim import Adam
 
 from rubik.cube.spec import CUBE_3X3
 from rubik.model.network import ValueNet
+from rubik.oracle.v_star_bounded_3x3 import load_v_star_bounded_3x3
 from rubik.training.config import DAVIConfig
 from rubik.training.davi import davi_step, sync_target
+from rubik.training.early_stop import EarlyStopMonitor
 from rubik.training.metric_logger import MetricLogger
 from rubik.training.scrambles import generate_adi_batch
 from rubik.training.wandb_sink import WandbAdapter
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNS_DIR = REPO_ROOT / "experiments" / "davi-3x3" / "runs"
-EVAL_SET_PATH = REPO_ROOT / "experiments" / "davi-3x3" / "eval_set_3x3.npz"
+ORACLE_PATH = REPO_ROOT / "data" / "v_star_bounded_3x3_k6.npz"
 
 # Make the experiment directory importable so this script can `from eval
 # import ...` regardless of where it's launched from.
@@ -61,14 +64,7 @@ _EXPERIMENT_DIR = Path(__file__).resolve().parent
 if str(_EXPERIMENT_DIR) not in sys.path:
     sys.path.insert(0, str(_EXPERIMENT_DIR))
 
-# P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-# The legacy ``eval_against_v_star`` + ``greedy_solve`` were removed from
-# experiments/davi-3x3/eval.py in P1c when the three-function API landed.
-# P2a wires the new ``value_eval`` into the training loop and replaces the
-# call sites below; until then this script is broken end-to-end by design
-# (the eval set was killed) and the imports / call sites are commented out
-# rather than deleted so reviewers can see exactly where wiring slots in.
-# from eval import eval_against_v_star, greedy_solve  # noqa: E402
+from eval import value_eval  # noqa: E402
 
 
 def _resolve_out_dir(arg: Path | None, config_stem: str) -> Path:
@@ -78,39 +74,18 @@ def _resolve_out_dir(arg: Path | None, config_stem: str) -> Path:
     return DEFAULT_RUNS_DIR / f"{ts}_{config_stem}"
 
 
-def _load_eval_set(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
-    """Load the depth-stratified eval set; return states-on-device + cpu depths.
+def _load_oracle_dict() -> dict[bytes, int]:
+    """Load the bounded V* oracle dict for ``value_eval``.
 
-    The 3x3 eval set's ``v_star`` field uses a ``-1`` sentinel for states
-    whose true V* exceeds the bounded oracle's K (see plan P1c). For
-    eval purposes this loader returns the ``walk_depth`` field as the
-    depth label — the bin used by the depth-stratified solver. Hazard
-    analysis using the ``v_star`` side channel is a separate read.
+    Errors with a clear pointer to the build script if the cache is
+    missing.
     """
-    if not EVAL_SET_PATH.exists():
+    if not ORACLE_PATH.exists():
         raise FileNotFoundError(
-            f"eval set not found at {EVAL_SET_PATH}. Run "
-            "`uv run python experiments/davi-3x3/build_eval_set_3x3.py` first."
+            f"bounded V* oracle cache not found at {ORACLE_PATH}. "
+            "Run `uv run python scripts/build_v_star_bounded_3x3.py` first."
         )
-    with np.load(EVAL_SET_PATH) as data:
-        # Per plan P1c: 3x3 eval set fields are states[D, N, 54] uint8 +
-        # walk_depth[D, N] int8 + v_star[D, N] int8. Flatten the leading
-        # two dims here so callers see the same (N_total, n_stickers) /
-        # (N_total,) shape that the 2x2 path produces from
-        # `eval_set.npz`'s already-flat states/depths fields.
-        states_np = data["states"].reshape(-1, data["states"].shape[-1]).copy()
-        depths_np = data["walk_depth"].reshape(-1).copy()
-    eval_states_dev = torch.from_numpy(states_np).to(device)
-    eval_depths_cpu = torch.from_numpy(depths_np)
-    return eval_states_dev, eval_depths_cpu
-
-
-def _format_solve_rates(metrics: dict) -> str:
-    parts = []
-    for key in sorted(k for k in metrics if k.startswith("solve_rate_d")):
-        d = key[len("solve_rate_d") :]
-        parts.append(f"d{d}={metrics[key]:.2f}")
-    return " ".join(parts)
+    return load_v_star_bounded_3x3(ORACLE_PATH)
 
 
 def _load_checkpoint(
@@ -186,8 +161,8 @@ def main() -> None:
     parser.add_argument(
         "--wandb-project",
         type=str,
-        default="rubik",
-        help="W&B project name. Default: 'rubik'.",
+        default="rubik-3x3",
+        help="W&B project name. Default: 'rubik-3x3'.",
     )
     parser.add_argument(
         "--wandb-entity",
@@ -223,6 +198,7 @@ def main() -> None:
                 name=out_dir.name,
                 dir=str(out_dir),
                 config=config.to_dict(),
+                tags=["cube=3x3", "phase=smoke"],
             )
             wandb_run = WandbAdapter(wandb.run)
             wandb_started = True
@@ -239,8 +215,11 @@ def main() -> None:
 
     torch.manual_seed(config.seed)
     generator = torch.Generator(device="cpu").manual_seed(config.seed)
-    # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-    # eval_solve_generator = torch.Generator(device="cpu").manual_seed(config.seed + 1)
+    # Deterministic eval generator: regenerates fresh walk states each call
+    # but seed-anchored so two runs with the same config produce the same
+    # eval distribution. Offset from training-data seed so the eval sample
+    # is independent of any given training batch.
+    eval_generator = torch.Generator(device="cpu").manual_seed(config.seed + 17)
 
     net = ValueNet(
         spec,
@@ -264,10 +243,24 @@ def main() -> None:
             args.resume, net, target_net, optimizer, device
         )
 
-    # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-    # The frozen ``eval_set_3x3.npz`` was deprecated in P1c; ``value_eval``
-    # regenerates a deterministic eval set from ``generator`` per call.
-    # eval_states_dev, eval_depths_cpu = _load_eval_set(device)
+    # Bounded V* oracle: lookup table for ``value_eval`` per-V* MAE. The
+    # dict-shaped form ``dict[bytes, int]`` is what ``value_eval``
+    # consumes; ``lookup_v_star_bounded_3x3_batch`` does the bulk lookups.
+    oracle_dict = _load_oracle_dict()
+
+    # Early-stop monitor — only used when config.early_stop_enabled.
+    early_stop_monitor: EarlyStopMonitor | None = None
+    if config.early_stop_enabled:
+        if config.early_stop_metric != "macro_v_star_mae":
+            raise ValueError(
+                "early_stop_metric currently only supports 'macro_v_star_mae'; "
+                f"got {config.early_stop_metric!r}"
+            )
+        early_stop_monitor = EarlyStopMonitor(
+            patience_evals=config.early_stop_patience_evals,
+            min_evals=config.early_stop_min_evals,
+            min_delta=config.early_stop_min_delta,
+        )
 
     n_params = sum(p.numel() for p in net.parameters())
     try:
@@ -291,13 +284,19 @@ def main() -> None:
     print(f"target_sync_interval:   {config.target_sync_interval}")
     print(f"learning_rate:          {config.learning_rate}")
     print(f"n_steps:                {config.n_steps}")
-    # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-    # eval_set printout removed alongside the frozen npz; value_eval logs
-    # its own per-call shape inside the training loop.
-    # print(
-    #     f"eval_set:               {EVAL_SET_PATH.relative_to(REPO_ROOT)} "
-    #     f"({eval_states_dev.shape[0]} states)"
-    # )
+    print(
+        f"oracle:                 {ORACLE_PATH.relative_to(REPO_ROOT)} "
+        f"({len(oracle_dict)} states)"
+    )
+    if config.early_stop_enabled:
+        print(
+            f"early_stop:             on, metric={config.early_stop_metric}, "
+            f"patience_evals={config.early_stop_patience_evals}, "
+            f"min_evals={config.early_stop_min_evals}, "
+            f"min_delta={config.early_stop_min_delta}"
+        )
+    else:
+        print("early_stop:             off")
     if resume_mode is not None:
         try:
             resume_display = args.resume.relative_to(REPO_ROOT)
@@ -308,6 +307,13 @@ def main() -> None:
             f"(mode={resume_mode}, prior_step={resume_prior_step})"
         )
     print()
+
+    # Track the most recent eval payload + the step it was logged at, so
+    # run_end can surface the canonical "final" metrics regardless of
+    # whether the loop exited via early-stop or hit the n_steps cap.
+    last_eval_metrics: dict | None = None
+    last_eval_step: int | None = None
+    early_stopped = False
 
     try:
         with MetricLogger(out_dir / "metrics.jsonl", wandb_run=wandb_run) as logger:
@@ -327,10 +333,12 @@ def main() -> None:
                 target_sync_interval=config.target_sync_interval,
                 learning_rate=config.learning_rate,
                 n_steps=config.n_steps,
-                # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-                # eval_set_size is now per-call (n_per_walk_depth × |walk_depths|)
-                # rather than a single fixed npz length.
-                # eval_set_size=int(eval_states_dev.shape[0]),
+                oracle_size=len(oracle_dict),
+                early_stop_enabled=config.early_stop_enabled,
+                early_stop_metric=config.early_stop_metric,
+                early_stop_patience_evals=config.early_stop_patience_evals,
+                early_stop_min_evals=config.early_stop_min_evals,
+                early_stop_min_delta=config.early_stop_min_delta,
             )
 
             if resume_mode is not None:
@@ -375,50 +383,109 @@ def main() -> None:
                         flush=True,
                     )
 
-                # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-                # The legacy eval_against_v_star + greedy_solve calls were
-                # removed in P1c when the three-function API landed; P2a
-                # wires the new ``value_eval`` here at every eval_every step
-                # and logs ``macro_v_star_mae`` (the early-stop driver) plus
-                # the per_walk_depth and v_star_mae views to wandb.
-                # if config.eval_every and step % config.eval_every == 0:
-                #     vstar_metrics = eval_against_v_star(
-                #         net, eval_states_dev, eval_depths_cpu
-                #     )
-                #     solve_metrics = greedy_solve(
-                #         net, spec, generator=eval_solve_generator
-                #     )
-                #     logger.log(
-                #         event="eval",
-                #         step=step,
-                #         **vstar_metrics,
-                #         **solve_metrics,
-                #     )
-                #     print(...)
+                if config.eval_every and step % config.eval_every == 0:
+                    eval_metrics = value_eval(
+                        net,
+                        spec=spec,
+                        oracle_dict=oracle_dict,
+                        generator=eval_generator,
+                    )
+                    logger.log(
+                        event="eval",
+                        step=step,
+                        **eval_metrics,
+                    )
+                    last_eval_metrics = eval_metrics
+                    last_eval_step = step
+                    macro = eval_metrics.get("macro_v_star_mae", float("nan"))
+                    pred_mean = eval_metrics.get("pred_mean", float("nan"))
+                    pred_std = eval_metrics.get("pred_std", float("nan"))
+                    print(
+                        f"  eval @ step {step:>7d}  "
+                        f"macro_v_star_mae {macro:.4f}  "
+                        f"pred_mean {pred_mean:.3f}  "
+                        f"pred_std {pred_std:.3f}",
+                        flush=True,
+                    )
+
+                    # NaN safety: until the network's first prediction
+                    # falls into a populated v_star_mae bucket the macro
+                    # could be NaN. Skip the update in that case — the
+                    # patience window doesn't advance until we have a
+                    # real number.
+                    if early_stop_monitor is not None and macro == macro:
+                        should_stop = early_stop_monitor.update(macro)
+                        if should_stop:
+                            snap = early_stop_monitor.state()
+                            logger.log(
+                                event="early_stop",
+                                step=step,
+                                n_evals=snap.n_updates,
+                                best_macro_v_star_mae=snap.best_value,
+                                # convert 0-indexed history idx → the
+                                # training step at which the best eval
+                                # was logged.
+                                best_eval_step=(
+                                    ((snap.best_index or 0) + 1) * config.eval_every
+                                ),
+                                current_macro_v_star_mae=macro,
+                                patience_evals=config.early_stop_patience_evals,
+                                min_evals=config.early_stop_min_evals,
+                                min_delta=config.early_stop_min_delta,
+                            )
+                            print(
+                                f"  early-stop fired @ step {step}  "
+                                f"best_macro_v_star_mae "
+                                f"{snap.best_value:.4f} "
+                                f"(eval idx {snap.best_index})  "
+                                f"current {macro:.4f}",
+                                flush=True,
+                            )
+                            early_stopped = True
+                            break
 
                 if config.checkpoint_every and step % config.checkpoint_every == 0:
                     ckpt_path = out_dir / f"net_step_{step}.pt"
                     _save_checkpoint(ckpt_path, net, target_net, optimizer, step)
                     logger.log(event="checkpoint", step=step, path=str(ckpt_path.name))
 
-            # P2a: replaced by value_eval — see plans/m8-3x3-davi.md.
-            # Final-eval block is wired to value_eval + post-training beam
-            # eval (beam_eval_walk + beam_eval_v_star) by P2a. Until then
-            # the final eval / run_end logging is disabled with this stub
-            # so the loop closes cleanly without a NameError.
-            # final_vstar = eval_against_v_star(...)
-            # final_solve = greedy_solve(...)
+            # Final checkpoint regardless of stop reason. Use the last step
+            # actually trained (= ``step`` from the loop variable, which
+            # holds either the early-stop step or n_steps).
+            final_step = step  # noqa: F821 — bound by the loop above
             _save_checkpoint(
-                out_dir / "net_final.pt", net, target_net, optimizer, config.n_steps
-            )
-            logger.log(
-                event="run_end",
-                step=config.n_steps,
-                # P2a: final_* metric fields slot in here.
+                out_dir / "net_final.pt", net, target_net, optimizer, final_step
             )
 
+            # run_end carries finals so downstream analysis doesn't need to
+            # re-read every eval record. Surface the most recent eval if
+            # one exists; otherwise emit a slim record.
+            run_end_fields: dict = {
+                "step": final_step,
+                "early_stopped": early_stopped,
+                "n_steps_planned": config.n_steps,
+            }
+            if last_eval_metrics is not None and last_eval_step is not None:
+                run_end_fields["final_eval_step"] = last_eval_step
+                run_end_fields["final_macro_v_star_mae"] = last_eval_metrics.get(
+                    "macro_v_star_mae", float("nan")
+                )
+                run_end_fields["final_pred_mean"] = last_eval_metrics.get(
+                    "pred_mean", float("nan")
+                )
+                run_end_fields["final_pred_std"] = last_eval_metrics.get(
+                    "pred_std", float("nan")
+                )
+            logger.log(event="run_end", **run_end_fields)
+
         print()
-        # P2a: final-metric printout slots in here once value_eval is wired.
+        if last_eval_metrics is not None:
+            print(
+                f"final macro_v_star_mae: "
+                f"{last_eval_metrics.get('macro_v_star_mae', float('nan')):.4f}"
+            )
+        if early_stopped:
+            print(f"early-stopped at step {final_step}")
         metrics_path = out_dir / "metrics.jsonl"
         try:
             metrics_display = metrics_path.relative_to(REPO_ROOT)
