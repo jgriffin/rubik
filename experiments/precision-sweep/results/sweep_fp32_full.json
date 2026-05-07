@@ -1,0 +1,641 @@
+{
+  "checkpoint": "/Users/griff/dev/ml/rubik/experiments/davi-3x3/runs/20260507T043533Z_full_train/net_final.pt",
+  "config_path": "/Users/griff/dev/ml/rubik/experiments/davi-3x3/runs/20260507T043533Z_full_train/config.yaml",
+  "device": "mps",
+  "precision": "fp32",
+  "max_walk_depth": 14,
+  "n_per_depth": 100,
+  "seed": 0,
+  "results": {
+    "8": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 0.99,
+          "avg_solve_len": 6.7373738288879395,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 0.98,
+          "avg_solve_len": 8.714285850524902,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 0.9,
+          "avg_solve_len": 9.577777862548828,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 0.83,
+          "avg_solve_len": 10.807229042053223,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.63,
+          "avg_solve_len": 11.492063522338867,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.29,
+          "avg_solve_len": 12.241379737854004,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.19,
+          "avg_solve_len": 12.8421049118042,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 4.979229999706149,
+      "states_scored": 1400
+    },
+    "16": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 0.97,
+          "avg_solve_len": 9.608247756958008,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 0.88,
+          "avg_solve_len": 10.818181991577148,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.73,
+          "avg_solve_len": 11.50684928894043,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.44,
+          "avg_solve_len": 12.272727012634277,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.26,
+          "avg_solve_len": 13.076923370361328,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 7.757762083783746,
+      "states_scored": 1400
+    },
+    "32": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 0.99,
+          "avg_solve_len": 9.616161346435547,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 0.96,
+          "avg_solve_len": 10.833333015441895,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.82,
+          "avg_solve_len": 11.560976028442383,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.58,
+          "avg_solve_len": 12.379310607910156,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.4,
+          "avg_solve_len": 13.199999809265137,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 15.473371124826372,
+      "states_scored": 1400
+    },
+    "64": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 1.0,
+          "avg_solve_len": 9.619999885559082,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 0.99,
+          "avg_solve_len": 10.858586311340332,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.92,
+          "avg_solve_len": 11.586956977844238,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.7,
+          "avg_solve_len": 12.399999618530273,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.49,
+          "avg_solve_len": 13.26530647277832,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 29.57625887496397,
+      "states_scored": 1400
+    },
+    "128": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 1.0,
+          "avg_solve_len": 9.619999885559082,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 1.0,
+          "avg_solve_len": 10.859999656677246,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.97,
+          "avg_solve_len": 11.587629318237305,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.82,
+          "avg_solve_len": 12.560976028442383,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.64,
+          "avg_solve_len": 13.34375,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 74.93074670806527,
+      "states_scored": 1400
+    },
+    "256": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 1.0,
+          "avg_solve_len": 9.619999885559082,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 1.0,
+          "avg_solve_len": 10.859999656677246,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.99,
+          "avg_solve_len": 11.595959663391113,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.86,
+          "avg_solve_len": 12.581395149230957,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.71,
+          "avg_solve_len": 13.605633735656738,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 578.2485974999145,
+      "states_scored": 1400
+    },
+    "512": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 1.0,
+          "avg_solve_len": 9.619999885559082,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 1.0,
+          "avg_solve_len": 10.84000015258789,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.99,
+          "avg_solve_len": 11.595959663391113,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.93,
+          "avg_solve_len": 12.612903594970703,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.79,
+          "avg_solve_len": 13.670886039733887,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 818.4953615828417,
+      "states_scored": 1400
+    }
+  }
+}

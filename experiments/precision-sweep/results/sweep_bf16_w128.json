@@ -1,0 +1,101 @@
+{
+  "checkpoint": "/Users/griff/dev/ml/rubik/experiments/davi-3x3/runs/20260507T043533Z_full_train/net_final.pt",
+  "config_path": "/Users/griff/dev/ml/rubik/experiments/davi-3x3/runs/20260507T043533Z_full_train/config.yaml",
+  "device": "mps",
+  "precision": "bf16",
+  "max_walk_depth": 14,
+  "n_per_depth": 100,
+  "seed": 0,
+  "results": {
+    "128": {
+      "per_walk_depth": [
+        {
+          "d": 1,
+          "solve_rate": 1.0,
+          "avg_solve_len": 1.0,
+          "n": 100
+        },
+        {
+          "d": 2,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.0,
+          "n": 100
+        },
+        {
+          "d": 3,
+          "solve_rate": 1.0,
+          "avg_solve_len": 2.9000000953674316,
+          "n": 100
+        },
+        {
+          "d": 4,
+          "solve_rate": 1.0,
+          "avg_solve_len": 3.859999895095825,
+          "n": 100
+        },
+        {
+          "d": 5,
+          "solve_rate": 1.0,
+          "avg_solve_len": 4.880000114440918,
+          "n": 100
+        },
+        {
+          "d": 6,
+          "solve_rate": 1.0,
+          "avg_solve_len": 5.699999809265137,
+          "n": 100
+        },
+        {
+          "d": 7,
+          "solve_rate": 1.0,
+          "avg_solve_len": 6.739999771118164,
+          "n": 100
+        },
+        {
+          "d": 8,
+          "solve_rate": 1.0,
+          "avg_solve_len": 7.800000190734863,
+          "n": 100
+        },
+        {
+          "d": 9,
+          "solve_rate": 1.0,
+          "avg_solve_len": 8.720000267028809,
+          "n": 100
+        },
+        {
+          "d": 10,
+          "solve_rate": 1.0,
+          "avg_solve_len": 9.619999885559082,
+          "n": 100
+        },
+        {
+          "d": 11,
+          "solve_rate": 1.0,
+          "avg_solve_len": 10.859999656677246,
+          "n": 100
+        },
+        {
+          "d": 12,
+          "solve_rate": 0.97,
+          "avg_solve_len": 11.587629318237305,
+          "n": 100
+        },
+        {
+          "d": 13,
+          "solve_rate": 0.82,
+          "avg_solve_len": 12.560976028442383,
+          "n": 100
+        },
+        {
+          "d": 14,
+          "solve_rate": 0.64,
+          "avg_solve_len": 13.34375,
+          "n": 100
+        }
+      ],
+      "wall_time_seconds": 43.583499875385314,
+      "states_scored": 1400
+    }
+  }
+}
