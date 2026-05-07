@@ -425,3 +425,38 @@ def test_beam_solve_batch_n_invariant_to_split():
     for i in range(states.shape[0]):
         assert len(split_paths[i]) == int(split_lens[i].item())
         assert len(full.solve_paths[i]) == int(full.solve_lens[i].item())
+
+
+def test_beam_top_k_handles_short_beam():
+    """Beam wider than step-0 fan-out runs without error.
+
+    At step 0 ``cur_beam=1`` so only ``n_moves=12`` children exist on the
+    2x2. A ``beam_width > 12`` therefore has fewer unique survivors than
+    slots — the C4 ``torch.topk`` swap requires explicit handling for this
+    (``k`` must be ``<= dim_size``). The solver clamps ``k`` to the
+    available fan-out and pads remaining slots with duplicates of the
+    smallest-V winner; duplicates dedup naturally on the next step.
+
+    Verdict: solve_lens for depth-1 scrambles is exactly 1 (the goal-child
+    is in the 12-children fan-out regardless of how the pad slots are
+    filled), and any wider-than-fan-out beam_width runs cleanly.
+    """
+    net = _ConstantNet()  # constant net keeps the test policy-independent
+    rng = torch.Generator().manual_seed(99)
+    states, _ = random_scrambles(
+        CUBE_2X2, batch_size=8, depth=1, generator=rng, prune_same_face=True
+    )
+
+    # beam_width=20 > 12 (n_moves), forcing the short-beam branch at step 0.
+    # max_steps=2 is enough — depth-1 scrambles solve in 1 step.
+    result = beam_solve_batch(net, CUBE_2X2, states, beam_width=20, max_steps=2)
+
+    # Every row solves in exactly 1 move (the goal child is among the 12
+    # fan-out children of any depth-1 scramble; the pad slots don't
+    # interfere with first-solve tracking).
+    assert result.solve_lens.tolist() == [1] * 8
+
+    # Paths apply correctly — no sentinel state leaked into the beam.
+    for i in range(8):
+        end = apply_move_sequence(states[i], result.solve_paths[i], CUBE_2X2)
+        assert bool(is_solved(end, CUBE_2X2).item())

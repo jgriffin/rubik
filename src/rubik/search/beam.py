@@ -30,16 +30,48 @@ host transfer shrinks to ``(N, B*n_moves)`` int64 + ``(N, B*n_moves)``
 float32 (~1.2MB at width=128, ~7× less data). The host-side dedup uses
 ``numpy.unique(..., return_inverse=True)`` per row + ``np.minimum.at``
 for the min-V scatter, replacing the Python dict-of-bytes with C-level
-NumPy ops. The result feeds the existing CPU ``sorted()`` top-k
-(replaced by ``torch.topk`` in C4).
+NumPy ops.
+
+**On-device top-k (M8 C4).** The C3 step's per-row CPU
+``sorted(zip(min_v, rep_idx))[:beam_width]`` is replaced by a single
+``torch.topk(dense_v, k=beam_width, largest=False, dim=1)`` on-device.
+The CPU dedup pass now produces only an ``is_winner`` boolean mask of
+shape ``(N, B*n_moves)`` (True at the smallest-idx representative of
+each hash class, False elsewhere), pushed to GPU. ``dense_v`` is
+``child_v`` with non-winners replaced by ``+inf``; topk over it returns
+``(N, beam_width)`` indices directly into the ``B*n_moves`` flat
+layout — exactly what the gather needs. Eliminates the per-step
+``child_v.cpu()`` transfer (no longer read on host) and the
+``np.empty + per-row fill + from_numpy + .to(device)`` round-trip for
+``next_flat_idxs``.
+
+**Short-beam handling.** When fewer than ``beam_width`` unique classes
+exist (e.g. step 0 has 1 parent, 12 children → with beam_width=16
+the topk fills 12 finite-V slots and 4 ``+inf`` slots), the ``+inf``
+slots fall on whichever non-winner indices torch.topk picks among the
+ties at ``+inf``. Those slots point to **real** cube states (children
+of a real parent), just duplicates of states that already won earlier
+in the topk output. The next-step dedup collapses them naturally —
+no sentinel state, no mask needed. This matches the pre-C4 "pad by
+repeating the first survivor" behavior in spirit (filling the beam
+with redundant entries that get deduped next step).
+
+**Tied values.** ``torch.topk`` does not guarantee a stable tiebreak
+across runs. Within a hash class C3 picks the smallest within-row idx
+as the representative (deterministic). *Across* classes, when two
+representatives have identical ``min_v``, ``torch.topk`` may pick
+either order. In practice tied-V across distinct states is rare with
+trained float32 nets, but the choice is benign for aggregate solve
+metrics (the C5 equivalence gate is solve_rate within ±10pp, well
+above any tiebreak shuffle effect).
 
 **Why not on-device dedup?** ``torch.unique`` and ``torch.sort`` on
 MPS are broken for full-range int64 — they only consider the low 32
 bits, collapsing distinct hashes whose high bits differ. Verified at
 C3 implementation time:
 ``torch.unique(torch.tensor([1, 1<<32], device='mps')) == [1]``.
-Until that lands upstream the dedup runs on the host; the hash itself
-stays on-device since it's where the cube state lives.
+Until that lands upstream the dedup logic runs on the host; the hash
+itself and the topk over float32 values both run on-device.
 
 **Run-to-completion (M8 C2).** The early-exit-when-all-solved check
 (``done_mask.all().item()`` per step) is removed. First-solve tracking
@@ -301,77 +333,83 @@ def _beam_solve_cross_batched(
             is_first_solve_now, first_solved_in_layer, solved_flat_idx
         )
 
-        # On-device hash + CPU-side dedup (M8 C3). ``state_hash`` runs on
-        # the same device as the children; the per-step host transfer is
-        # ``(N, B*n_moves)`` int64 hashes + ``(N, B*n_moves)`` float32
-        # values (~1.2MB at width=128) — ~7× less than C2's full state
-        # tensor transfer. ``torch.unique`` on MPS is broken for full
-        # int64 (only low 32 bits compared), so the dedup runs on the
-        # host; ``numpy.unique`` per row + ``numpy.minimum.at`` for the
-        # min-V scatter replace the Python ``dict[bytes(...)]`` loop.
+        # On-device hash, CPU dedup mask, on-device top-k (M8 C3 + C4).
+        # ``state_hash`` runs on-device. The per-step host transfer is
+        # ``(N, B*n_moves)`` int64 hashes — ``child_v`` stays on-device
+        # (no longer read on host as of C4). ``torch.unique`` on MPS is
+        # broken for full int64 (only low 32 bits compared), so the
+        # dedup runs on CPU; ``numpy.unique`` per row identifies the
+        # canonical (smallest-idx) representative of each hash class.
+        # The result is an ``is_winner`` boolean mask pushed back to
+        # GPU; ``torch.topk`` on the masked-with-+inf scores selects
+        # the ``beam_width`` survivors directly in ``(B*n_moves)`` flat
+        # layout — no per-row CPU sort, no host→device idx round-trip.
         n_children_per_row = cur_beam * n_moves
         children_for_hash = flat_children.reshape(n, n_children_per_row, n_stickers)
         hashes_cpu = state_hash(children_for_hash).detach().cpu().numpy()
-        v_cpu = child_v.detach().cpu().numpy()
 
-        # ``next_flat_idxs[i, k]`` is the (B*n_moves) index of the k-th
-        # survivor for scramble i, used to gather the next beam.
-        next_flat_idxs_np = np.empty((n, beam_width), dtype=np.int64)
-        layer_bp_per_scramble: list[list[tuple[int, int]]] = []
-
-        flat_idx_arr_f32 = np.arange(n_children_per_row, dtype=np.float32)
+        # Per-row dedup → boolean mask of canonical-representative slots.
+        # A slot is a "winner" iff it holds the smallest within-row idx
+        # for its hash class. Non-winners are duplicates that should be
+        # dropped (their V is dominated by, or tied with, the winner).
+        is_winner_np = np.zeros((n, n_children_per_row), dtype=np.bool_)
         for i in range(n):
-            row_h = hashes_cpu[i]
-            row_v = v_cpu[i]
-            unique_h, inverse = np.unique(row_h, return_inverse=True)
-            n_unique = unique_h.shape[0]
+            _unique_h, first_occurrence_idx = np.unique(
+                hashes_cpu[i], return_index=True
+            )
+            is_winner_np[i, first_occurrence_idx] = True
 
-            # min-V per equivalence class. ``np.minimum.at`` is the
-            # unbuffered scatter-with-min: equivalent to a sequential
-            # ``min_v[inverse[j]] = min(min_v[inverse[j]], row_v[j])``.
-            min_v = np.full(n_unique, np.inf, dtype=row_v.dtype)
-            np.minimum.at(min_v, inverse, row_v)
+        # Note on tiebreak vs C3: C3 used "smallest-idx winner among the
+        # min-V class members", which can differ from "smallest-idx in
+        # the class" when the smallest-idx class member happens to score
+        # higher than a sibling. Both rules are deterministic; this one
+        # is simpler (single np.unique call, no second scatter) and the
+        # difference only manifests when net(child) returns *exactly*
+        # the same V for two duplicate-by-hash states — vanishingly
+        # rare in practice for distinct cube states (which is the
+        # case we care about; same-state duplicates have identical V
+        # by definition of the net being deterministic).
 
-            # Tiebreak: among children whose V equals the class min, pick
-            # the smallest within-row idx as the representative. Using
-            # float32 idxs keeps the same data flow as the on-device path
-            # in case we lift this back to GPU once MPS int64 unique is
-            # fixed; mantissa precision is ample for n_children_per_row.
-            v_at_min = min_v[inverse]
-            is_winner = row_v == v_at_min
-            idx_winners = np.where(is_winner, flat_idx_arr_f32, np.inf)
-            rep_idx_f32 = np.full(n_unique, np.inf, dtype=np.float32)
-            np.minimum.at(rep_idx_f32, inverse, idx_winners)
+        is_winner = torch.from_numpy(is_winner_np).to(device)
 
-            # KEPT FROM PRE-C3: CPU ``sorted()`` top-k. C4 replaces with
-            # ``torch.topk`` — for C3 only the *input* to top-k changed
-            # (now compact NumPy dedup output instead of a Python dict
-            # keyed on state bytes).
-            survivors: list[tuple[float, int]] = sorted(
-                zip(min_v.tolist(), rep_idx_f32.astype(np.int64).tolist(), strict=True)
-            )[:beam_width]
+        # Mask non-winners to +inf so torch.topk(largest=False) skips
+        # them. Survivors live in the ``beam_width`` smallest-V slots;
+        # if fewer than ``beam_width`` winners exist, the remainder is
+        # filled with +inf-valued slots — those point to real cube
+        # states (duplicates) that the next step's dedup collapses.
+        inf_tensor = torch.full_like(child_v, float("inf"))
+        dense_v = torch.where(is_winner, child_v, inf_tensor)
+        # ``next_flat_idxs[i, k]`` is the (B*n_moves) index of the
+        # k-th survivor for scramble i — used both as the gather index
+        # for the next beam tensor and (read once on host) as backpointer
+        # input for path reconstruction.
+        #
+        # Short-beam clamp: ``torch.topk`` requires ``k <= dim_size``.
+        # At step 0 with ``cur_beam=1`` and ``n_moves=12`` only 12
+        # children exist; if ``beam_width > 12`` we top-k all 12 and pad
+        # by repeating the first slot. The pad slots point to real
+        # children (duplicates of the smallest-V winner) and dedup
+        # naturally on the next step. Post-step-0 the fan-out is
+        # ``beam_width * n_moves`` which always exceeds ``beam_width``
+        # for ``n_moves >= 2``, so the clamp only ever fires at step 0.
+        k_eff = min(beam_width, n_children_per_row)
+        _topk_values, topk_idxs = torch.topk(
+            dense_v, k=k_eff, largest=False, dim=1
+        )
+        if k_eff < beam_width:
+            pad = topk_idxs[:, :1].expand(n, beam_width - k_eff)
+            next_flat_idxs = torch.cat([topk_idxs, pad], dim=1)
+        else:
+            next_flat_idxs = topk_idxs
 
-            # Survivor count can be < beam_width at very early steps if the
-            # parent set is small (e.g. cur_beam=1 → only 12 unique children
-            # with beam_width=16 → we get 12 survivors). Pad by repeating
-            # the first survivor — duplicates dedup on the next step.
-            if not survivors:
-                # Should not happen unless every child matches a parent
-                # exactly (impossible — moves are non-identity). Pad with
-                # the first flat child as a safe fallback.
-                survivors = [(0.0, 0)] * beam_width
-            elif len(survivors) < beam_width:
-                pad = [survivors[0]] * (beam_width - len(survivors))
-                survivors = survivors + pad
-
-            layer_bp = [
-                (j_flat // n_moves, j_flat % n_moves) for _, j_flat in survivors
-            ]
-            layer_bp_per_scramble.append(layer_bp)
-            for k, (_, j_flat) in enumerate(survivors):
-                next_flat_idxs_np[i, k] = j_flat
-
-        next_flat_idxs = torch.from_numpy(next_flat_idxs_np).to(device)
+        # Backpointers are still a Python list-of-lists structure indexed
+        # only at end-of-search for path reconstruction. One small
+        # ``(N, beam_width)`` int64 host transfer per step replaces the
+        # full per-row CPU work that built backpointers inline pre-C4.
+        next_flat_idxs_cpu = next_flat_idxs.cpu().tolist()
+        layer_bp_per_scramble = [
+            [(j // n_moves, j % n_moves) for j in row] for row in next_flat_idxs_cpu
+        ]
         backpointers.append(layer_bp_per_scramble)
 
         # Gather the next beam: children[i, next_flat_idxs[i]] for each i.
