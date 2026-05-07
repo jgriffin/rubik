@@ -4,6 +4,14 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-06 — Instrumentation cleanup + smaller-net overnight rerun 🟡 in-progress
+**Goal:** Land four instrumentation fixes that emerged from today's full_train run, then kick off an overnight rerun on a slightly smaller arch for a comparison data point. Fixes: (1) wandb panel namespacing into ~6 sections instead of one giant `eval/` blob, (2) zero-pad `dN` keys to `dNN` so wandb sorts them naturally instead of `d1, d10, d11, d12, d2, d3, ...`, (3) `wandb.define_metric("*", step_metric="step")` so future panels default to training-step on x-axis instead of wandb's `_step` log-call counter, (4) banded aggregate metrics (shallow d=1..5 / mid d=6..10 / deep d=11..14 means) alongside per-d keys for at-a-glance trend reads. Plus remove early-stop wiring (kept config fields for backwards compat). Then config + launch overnight: K_max=20 unchanged, 50,000 steps, no early-stop, `[2048, 1024] × 4 BN` arch (~25% fewer params than full_train's hand-picked `[5120, 1024] × 4 BN`).
+**Milestone:** drive-by + M8 phase 3 ([plan](plans/m8-3x3-davi.md))
+**Approach:** Branch `m8-instrumentation-cleanup` from main HEAD `da50495`. Three atomic commits: (A) wandb cleanup in `src/rubik/training/wandb_sink.py` + tests + workspace doc, (B) remove early-stop wiring in `experiments/davi-3x3/run.py` + define_metric call, (C) new config `experiments/davi-3x3/configs/smaller_net.yaml` for the overnight run. Resumability infrastructure deferred to its own block (~half day; would be premature to land it under time pressure).
+**Next:** Land A, B, C; parent kicks off the overnight run.
+**In progress:**
+- Block opened. Branch `m8-instrumentation-cleanup` from main HEAD `da50495`.
+
 ## 2026-05-06 — M8 full 3x3 training run: K_max=20, 100k steps ✅ done
 **Goal:** First full-budget 3x3 DAVI training run. K_max=20 flat from random init (NOT warm-start), 100,000 steps, same arch as smoke (`[5120, 1024] × 4 BN`). Goal is to see how far a single long run pushes 3x3 capability — does macro_v_star_mae descend further past smoke's plateau at 0.73, and does deep-d beam capability climb past smoke's d=10..14 numbers? Early-stop on (patience=12 evals, warmup=4, min_delta=0.001) — fires if signal plateaus.
 **Milestone:** M8 phase 3 ([plan](plans/m8-3x3-davi.md))
