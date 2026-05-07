@@ -113,7 +113,9 @@ class ValueNet(nn.Module):
                 f"states last dim {states.shape[-1]} does not match"
                 f" spec.n_stickers ({self.spec.n_stickers})"
             )
-        one_hot = F.one_hot(states.long(), num_classes=self.spec.n_colors).float()
+        one_hot = F.one_hot(states.long(), num_classes=self.spec.n_colors).to(
+            self.fc_in.weight.dtype
+        )
         x = one_hot.flatten(start_dim=-2)  # (..., n_stickers · n_colors)
         if x.dim() == 1:
             x = x.unsqueeze(0)  # BN requires (B, F) shape

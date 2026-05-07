@@ -30,6 +30,7 @@ Output JSON schema::
       "checkpoint": "<absolute path>",
       "config_path": "<absolute path>",
       "device": "mps",
+      "precision": "fp32",
       "max_walk_depth": 14,
       "n_per_depth": 100,
       "seed": 0,
@@ -226,6 +227,18 @@ def main(argv: list[str] | None = None) -> int:
         default=0,
         help="Seed for the per-width torch.Generator (deterministic across widths).",
     )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="fp32",
+        choices=("fp32", "bf16", "fp16"),
+        help=(
+            "Inference precision for the loaded checkpoint. fp32 (default) "
+            "preserves bit-exact behavior vs. prior runs; bf16/fp16 cast the "
+            "loaded weights to the chosen dtype before eval. Training is "
+            "untouched — checkpoint weights are stored in fp32 on disk."
+        ),
+    )
     args = parser.parse_args(argv)
 
     checkpoint: Path = args.checkpoint
@@ -243,6 +256,17 @@ def main(argv: list[str] | None = None) -> int:
     n_per_depth = int(args.n_per_depth)
 
     net = _load_net(checkpoint, config, device)
+
+    # Precision cast: weights load in fp32, then cast to the requested dtype
+    # for inference. Input one-hot follows ``self.fc_in.weight.dtype`` so
+    # the whole forward runs in the chosen precision.
+    precision_dtype = {
+        "fp32": torch.float32,
+        "bf16": torch.bfloat16,
+        "fp16": torch.float16,
+    }[args.precision]
+    if precision_dtype is not torch.float32:
+        net = net.to(precision_dtype)
 
     # Optional V*-stratified eval needs the bounded oracle arrays.
     oracle_arrays = None
@@ -316,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         "checkpoint": str(checkpoint.resolve()),
         "config_path": str(config_path.resolve()),
         "device": str(device),
+        "precision": args.precision,
         "max_walk_depth": max_walk_depth,
         "n_per_depth": n_per_depth,
         "seed": int(args.seed),
