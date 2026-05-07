@@ -54,6 +54,12 @@ BASELINE_DIR = EXPERIMENT_DIR / "runs"
 # when adding subsequent runs (e.g. "#2ca02c", "#ff7f0e", "#d62728").
 RUNS: list[tuple[str, str, str, str]] = [
     ("smoke 10k (K=8, sync=500)", "20260506T203408Z_smoke", "#1f77b4", ""),
+    (
+        "full_train 16k early-stop (K=20, sync=500)",
+        "20260507T043533Z_full_train",
+        "#ff7f0e",
+        "",
+    ),
 ]
 
 # Walk-depth bins for per-walk-depth charts.
@@ -130,12 +136,25 @@ def load_run(run_dir: str) -> list[dict]:
 
 
 def load_beam_capability(run_dir: str) -> dict | None:
-    """Return parsed beam_eval_focused.json, or None if absent."""
-    path = BASELINE_DIR / run_dir / "results" / "beam_eval_focused.json"
-    if not path.exists():
-        return None
-    with path.open() as f:
-        return json.load(f)
+    """Return parsed post-hoc beam-eval JSON, or None if absent.
+
+    Two filenames are accepted for backward compatibility:
+    - ``post_run_beam_eval.json`` — written by ``scripts/post_run_beam_eval.py``
+      (the canonical post-hoc tool used for cycle-2 onward).
+    - ``beam_eval_focused.json`` — legacy filename used by the smoke
+      run (committed in 2b6814d). Same schema; we accept it so the smoke
+      run keeps showing up in the overlaid charts without re-running the
+      eval.
+
+    If both are present, ``post_run_beam_eval.json`` wins.
+    """
+    base = BASELINE_DIR / run_dir / "results"
+    for fname in ("post_run_beam_eval.json", "beam_eval_focused.json"):
+        path = base / fname
+        if path.exists():
+            with path.open() as f:
+                return json.load(f)
+    return None
 
 
 def line_path(points: list[tuple[float, float]]) -> str:
