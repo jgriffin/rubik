@@ -74,13 +74,32 @@ Until that lands upstream the dedup logic runs on the host; the hash
 itself and the topk over float32 values both run on-device.
 
 **Run-to-completion (M8 C2).** The early-exit-when-all-solved check
-(``done_mask.all().item()`` per step) is removed. First-solve tracking
-(``solved_at_step``, ``solved_flat_idx``) is kept on-device and updated
-each step via ``torch.where`` against an ``is_first_solve_now`` mask;
-expansions for already-solved or out-of-budget rows are excluded from the
-``n_expansions`` accounting via an on-device active-row count summed
-once at loop end. The host-side path-reconstruction read is deferred to
-a single ``.cpu()`` call after the loop.
+(``done_mask.all().item()`` per step) was removed in C2. First-solve
+tracking (``solved_at_step``, ``solved_flat_idx``) is kept on-device and
+updated each step via ``torch.where`` against an ``is_first_solve_now``
+mask; expansions for already-solved or out-of-budget rows are excluded
+from the ``n_expansions`` accounting via an on-device active-row count
+summed once at loop end. The host-side path-reconstruction read is
+deferred to a single ``.cpu()`` call after the loop.
+
+**Smart early-exit (M8 C5a).** C2's run-to-completion choice was
+correct *if* the post-loop dedup/topk path was the bottleneck
+(it was at C2, when the dedup loop ran on host-side bytes). After
+C3 + C4 the dedup is cheap and the ``net(...)`` forward dominates
+(~98% of width=128 wall in profile data). Re-introducing early-exit
+on the *active-row* condition — break the step loop the moment every
+scramble has either solved or exhausted its budget — saves the entire
+per-step forward for any cell that converges before its budget. The
+``.all().item()`` per-step sync is the same one C2 deleted; it costs
+~1-5ms × ~max_budget steps per cell and is dwarfed by the saved
+forward (one width=128 forward over 153k rows is ~7-8s on this MPS
+device, so a single skipped step pays for hundreds of ``.item()``
+syncs). ``solved_at_step`` semantics unchanged: it's still "first
+step at which any beam slot of scramble i emitted goal", and the
+post-loop ``solved_within_budget`` gate is unchanged. The break is
+correctness-preserving because every active row has either solved
+already (work won't change) or exceeded its budget (won't be
+credited as a solve regardless of further steps).
 
 **Per-state budgets (M8 C2).** ``max_steps_per_state`` is an optional
 ``(N,)`` int tensor letting each scramble set its own step budget. The
@@ -417,6 +436,30 @@ def _beam_solve_cross_batched(
         gather_idx = next_flat_idxs.unsqueeze(-1).expand(n, beam_width, n_stickers)
         beam_states = torch.gather(children, dim=1, index=gather_idx)
         cur_beam = beam_width
+
+        # Smart early-exit (C5a): break when every scramble has either
+        # solved (``solved_at_step != -1``) or exhausted its budget
+        # (``next_step >= budget`` — the *next* iteration would not be
+        # credited as a solve). One ``.all().item()`` per step, ~1-5ms
+        # on MPS; payoff is the entire per-step forward for cells that
+        # converge before their budget. Note ``initial_solved`` rows
+        # are also marked done — their ``solved_at_step`` is set on the
+        # first step they emit goal (initial-solved rows trivially do at
+        # step 0, since ``apply_all_moves`` of the goal includes the
+        # goal among its 12 children for any QTM... actually, no: from
+        # solved state the 12 children are the 12 single-move neighbors,
+        # none of which are the goal. So ``initial_solved`` rows aren't
+        # marked done by ``solved_at_step != -1``, only by the budget
+        # branch. Including the explicit ``initial_solved`` term keeps
+        # the mask honest for max_steps=0 callers and shallow budgets.)
+        next_step = step_idx + 1
+        is_done = (
+            initial_solved
+            | (solved_at_step != -1)
+            | (next_step >= budget)
+        )
+        if bool(is_done.all().item()):
+            break
 
     # Single host transfer for path reconstruction. The on-device tensors
     # live unchanged for callers reading ``solve_lens`` afterward.
