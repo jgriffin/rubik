@@ -40,6 +40,7 @@ INTUITION_PATH = EXPERIMENT_DIR / "results" / "intuition.md"
 RUNS: list[tuple[str, str]] = [
     ("smoke", "20260506T203408Z_smoke"),
     ("full_train", "20260507T043533Z_full_train"),
+    ("warm_continue", "20260507T064517Z_warm_continue"),
 ]
 
 # V* layer range emitted by the bounded oracle (K=6). Layer 0 is dropped

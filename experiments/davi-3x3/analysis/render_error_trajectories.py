@@ -60,6 +60,12 @@ RUNS: list[tuple[str, str, str, str]] = [
         "#ff7f0e",
         "",
     ),
+    (
+        "warm_continue 16k→120k (K=20, no early-stop)",
+        "20260507T064517Z_warm_continue",
+        "#2ca02c",
+        "",
+    ),
 ]
 
 # Walk-depth bins for per-walk-depth charts.
@@ -270,7 +276,7 @@ def chart_macro(runs_data: dict[str, list[dict]]) -> str:
         f'<text x="{14}" y="{pad_t + plot_h / 2}" text-anchor="middle" '
         f'font-size="12" fill="#333" '
         f'transform="rotate(-90 14 {pad_t + plot_h / 2})">'
-        f'corrected_macro (V*=1..6 mean)</text>'
+        f"corrected_macro (V*=1..6 mean)</text>"
     )
 
     parts.append("</svg>")
@@ -423,25 +429,39 @@ def chart_pred_mean_banded(runs_data: dict[str, list[dict]]) -> str:
     catches up to the random-walk distance.
     """
     bands = [
-        ("Shallow pred_mean — walk-depths 1–5  (y 0..6)",
-         [1, 2, 3, 4, 5], 6.0, [0, 1, 2, 3, 4, 5, 6]),
-        ("Mid pred_mean — walk-depths 6–10  (y 0..10)",
-         [6, 7, 8, 9, 10], 10.0, [0, 2, 4, 6, 8, 10]),
-        ("Deep pred_mean — walk-depths 11–14  (y 0..14)",
-         [11, 12, 13, 14], 14.0, [0, 2, 4, 6, 8, 10, 12, 14]),
+        (
+            "Shallow pred_mean — walk-depths 1–5  (y 0..6)",
+            [1, 2, 3, 4, 5],
+            6.0,
+            [0, 1, 2, 3, 4, 5, 6],
+        ),
+        (
+            "Mid pred_mean — walk-depths 6–10  (y 0..10)",
+            [6, 7, 8, 9, 10],
+            10.0,
+            [0, 2, 4, 6, 8, 10],
+        ),
+        (
+            "Deep pred_mean — walk-depths 11–14  (y 0..14)",
+            [11, 12, 13, 14],
+            14.0,
+            [0, 2, 4, 6, 8, 10, 12, 14],
+        ),
     ]
     out = []
     for title, depths, y_cap, ticks in bands:
-        out.append(_band_chart_with_per_cell_ref(
-            runs_data,
-            title=title,
-            depths=depths,
-            y_cap=y_cap,
-            y_ticks=ticks,
-            value_for=_pred_mean_value,
-            per_cell_ref=lambda d: float(d),
-            per_cell_ref_color="#888",
-        ))
+        out.append(
+            _band_chart_with_per_cell_ref(
+                runs_data,
+                title=title,
+                depths=depths,
+                y_cap=y_cap,
+                y_ticks=ticks,
+                value_for=_pred_mean_value,
+                per_cell_ref=lambda d: float(d),
+                per_cell_ref_color="#888",
+            )
+        )
     return "\n".join(out)
 
 
@@ -548,7 +568,7 @@ def _band_chart_with_per_cell_ref(
             parts.append(
                 f'<text x="{ox + pad_l + plot_w - 4}" y="{ref_y - 3:.1f}" '
                 f'text-anchor="end" font-size="9" fill="#888">'
-                f'y = depth ({depth})</text>'
+                f"y = depth ({depth})</text>"
             )
 
         for _label, run_dir, color, _ in RUNS:
@@ -580,7 +600,7 @@ def chart_beam_capability(runs_beam: dict[str, dict]) -> str:
     if not any(runs_beam.values()):
         return (
             '<p class="note">_(no beam_eval_focused.json found in any run\'s '
-            'results/ directory)_</p>'
+            "results/ directory)_</p>"
         )
 
     parts: list[str] = []
@@ -591,7 +611,7 @@ def chart_beam_capability(runs_beam: dict[str, dict]) -> str:
         ckpt_keys = sorted(beam.keys(), key=lambda k: int(k))
         parts.append(
             f'<h3 style="font-size:13px;margin:14px 0 6px 0;color:#444">'
-            f'{label} — beam capability</h3>'
+            f"{label} — beam capability</h3>"
         )
         parts.append(_beam_capability_svg(beam, ckpt_keys, color))
     return "\n".join(parts)
@@ -637,7 +657,7 @@ def _beam_capability_svg(beam: dict, ckpt_keys: list[str], base_color: str) -> s
         )
         parts.append(
             f'<text x="{legend_x + 18}" y="19" font-size="11" fill="#333">'
-            f'step {ck}</text>'
+            f"step {ck}</text>"
         )
         legend_x += 110
 
@@ -695,7 +715,7 @@ def _beam_capability_svg(beam: dict, ckpt_keys: list[str], base_color: str) -> s
                 parts.append(
                     f'<rect x="{bx:.2f}" y="{by:.2f}" width="{bar_w:.2f}" '
                     f'height="{bh:.2f}" fill="{col}">'
-                    f'<title>step={ck} d{d} solve_rate={rate:.3f}</title></rect>'
+                    f"<title>step={ck} d{d} solve_rate={rate:.3f}</title></rect>"
                 )
 
         # Axis labels
@@ -762,8 +782,10 @@ def main() -> None:
 
     hist_path = EXPERIMENT_DIR / "results" / "solve_histograms.json"
     if hist_path.exists():
-        print(f"note: {hist_path.relative_to(REPO_ROOT)} present "
-              "(but the 3x3 histogram renderer is TBD — placeholder section)")
+        print(
+            f"note: {hist_path.relative_to(REPO_ROOT)} present "
+            "(but the 3x3 histogram renderer is TBD — placeholder section)"
+        )
     else:
         print(f"note: histogram file not found at {hist_path} (placeholder section)")
 
