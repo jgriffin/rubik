@@ -215,11 +215,16 @@ def main() -> None:
 
     torch.manual_seed(config.seed)
     generator = torch.Generator(device="cpu").manual_seed(config.seed)
-    # Deterministic eval generator: regenerates fresh walk states each call
-    # but seed-anchored so two runs with the same config produce the same
-    # eval distribution. Offset from training-data seed so the eval sample
-    # is independent of any given training batch.
-    eval_generator = torch.Generator(device="cpu").manual_seed(config.seed + 17)
+    # Eval determinism is keyed on a fixed ``seed`` int (config.seed + 17),
+    # passed into ``value_eval`` which constructs a fresh torch generator
+    # internally per call. Same seed at every eval call → identical eval
+    # set across training steps — what changes between calls is the network
+    # weights, not the eval distribution. Offset from training-data seed so
+    # the eval sample is independent of any given training batch. (This
+    # replaces the smoke-run pattern of a single shared generator advanced
+    # across calls; that was H4 — per-V* MAE bounced eval-to-eval because
+    # the eval distribution drifted with the generator state.)
+    eval_seed = config.seed + 17
 
     net = ValueNet(
         spec,
@@ -388,7 +393,7 @@ def main() -> None:
                         net,
                         spec=spec,
                         oracle_dict=oracle_dict,
-                        generator=eval_generator,
+                        seed=eval_seed,
                     )
                     logger.log(
                         event="eval",

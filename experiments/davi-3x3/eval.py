@@ -17,10 +17,12 @@ The three functions:
 
 - ``value_eval(net, spec, oracle_dict, *, ...)`` — LIVE during training,
   one forward pass on a freshly-generated random-walk eval set per call
-  (deterministic from ``generator``). Returns per-walk-depth predicted-V*
-  stats (the "forever metric" that survives K-bounding) plus per-V* MAE
-  for the d≤K subset where the oracle has ground truth, plus a uniform
-  ``macro_v_star_mae`` scalar — the planned early-stop driver. No search.
+  (deterministic from ``seed`` — the generator is re-seeded each call so
+  back-to-back invocations evaluate the network on identical states).
+  Returns per-walk-depth predicted-V* stats (the "forever metric" that
+  survives K-bounding) plus per-V* MAE for the d≤K subset where the
+  oracle has ground truth, plus a uniform ``macro_v_star_mae`` scalar —
+  the planned early-stop driver. No search.
 
 - ``beam_eval_walk(net, spec, *, ...)`` — POST-TRAINING capability eval
   on random-walk states across a depth grid. Forever-eval: scales to
@@ -63,13 +65,16 @@ def value_eval(
     n_per_walk_depth: int = 100,
     walk_depths: tuple[int, ...] = tuple(range(1, 15)),
     eval_batch_size: int = 1024,
-    generator: torch.Generator | None = None,
+    seed: int = 0,
 ) -> dict:
     """Live forward-pass eval: per-walk-depth pred stats + per-V* MAE.
 
     Generates ``n_per_walk_depth`` fresh random-walk scrambles per
-    walk-depth in ``walk_depths`` (deterministic given ``generator``),
-    forwards everything through ``net`` in a single batched pass on the
+    walk-depth in ``walk_depths`` (deterministic given ``seed`` —
+    constructed fresh each call so back-to-back invocations evaluate the
+    network on **identical** states; this is what makes the eval
+    trajectory comparable across training steps), forwards everything
+    through ``net`` in a single batched pass on the
     network's device, and reports two views of the same predictions:
 
     - **per_walk_depth/d{d}/pred_{mean,std}** — predicted-V* statistics
@@ -102,7 +107,12 @@ def value_eval(
             ``per_walk_depth`` stats but contribute nothing to
             ``v_star_mae``.
         eval_batch_size: chunk size for forward passes (memory bound).
-        generator: torch CPU generator for scramble determinism.
+        seed: anchor for the per-call torch generator. Pass the SAME
+            seed at every eval call so the eval set is fixed across
+            training steps — what changes between calls is the network
+            weights, not the eval distribution. Pass ``config.seed +
+            17`` (or similar) from callers; offset from the training-data
+            seed to keep eval samples independent of any training batch.
 
     Returns:
         Flat dict with the keys described above plus overall ``pred_mean``
@@ -110,6 +120,15 @@ def value_eval(
     """
     n_stickers = spec.n_stickers
     device = next(net.parameters()).device
+
+    # Construct the eval generator FRESH per call (re-seeded from ``seed``).
+    # The point of this function is to evaluate the same network on the same
+    # eval set, varying only the network's parameters across training steps —
+    # so the generator must be re-seeded each call rather than advanced from
+    # a single shared instance. (Using a single shared generator is the H4
+    # bug from the smoke run: per-V* MAE bounced eval-to-eval because the
+    # eval distribution drifted with the generator state.)
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
 
     # Generate all walks first; concat into one (D * n_per_walk_depth, n_stickers)
     # tensor so we get one batched forward pass instead of D separate passes.
@@ -192,9 +211,7 @@ def value_eval(
     # the headline scalar that drives early-stop.
     non_terminal_maes = [mae for v, mae in v_star_mae.items() if v > 0]
     if non_terminal_maes:
-        out["macro_v_star_mae"] = float(
-            sum(non_terminal_maes) / len(non_terminal_maes)
-        )
+        out["macro_v_star_mae"] = float(sum(non_terminal_maes) / len(non_terminal_maes))
     else:
         out["macro_v_star_mae"] = float("nan")
 
