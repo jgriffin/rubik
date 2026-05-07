@@ -1,0 +1,53 @@
+# Phase 3 full training config — 3x3 DAVI.
+#
+# First full-budget 3x3 training run after the M8 P2 smoke validated
+# the surface (10k-step smoke at K_max=8 → macro_v_star_mae 3.48 → 0.73
+# plateau). This run pushes both the curriculum (K_max=8 → 20, flat
+# from random init — no warm-start, no ramp) and the budget (10k →
+# 100k steps) to see how far a single long run takes 3x3 capability.
+#
+# Architecture: hand-picked guess (per CLAUDE.md "earn every
+# hyperparameter — do not borrow"). 5120 = 5x1024, MPS-aligned;
+# acknowledges 3x3's wider input (324 vs 144 one-hot dims) without
+# over-scaling. NOT borrowed from any prior published net. Same shape
+# as the smoke config — this run isolates curriculum + budget effects
+# from arch effects. T0 capacity sweep is still backlog.
+#
+# Scrambles: max_scramble_depth=20 — well past the bounded V* oracle
+# reach (K=6), so live macro_v_star_mae only covers d=1..6 (accepted
+# signal limitation per project decision). Beam capability evals
+# post-training cover the full d=1..14 range.
+#
+# Early-stop: 12 sync-period patience + 4-sync warmup + 0.001 min_delta
+# on macro_v_star_mae. Same settings as smoke. At sync_interval=500,
+# 12 patience = 6000 steps of plateau before stopping. Generous for
+# a 100k-step budget — early-stop fires only on a clear plateau.
+#
+# Estimated wall: ~6-7h on M4 Max at smoke pace (235 ms/step).
+
+max_scramble_depth: 20
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
+
+batch_size: 4096
+n_steps: 100000
+learning_rate: 0.001
+target_sync_interval: 500
+
+body_widths:
+  - 5120
+  - 1024
+n_residual_blocks: 4
+normalization: bn
+
+log_every: 100
+eval_every: 500
+checkpoint_every: 5000
+seed: 0
+device: mps
+
+early_stop_enabled: true
+early_stop_metric: macro_v_star_mae
+early_stop_patience_evals: 12
+early_stop_min_evals: 4
+early_stop_min_delta: 0.001
