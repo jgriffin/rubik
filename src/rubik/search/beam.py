@@ -405,7 +405,9 @@ def _beam_solve_cross_batched(
         active_idx_cpu = active_idx.cpu().tolist()
         layer_bp: dict[int, list[tuple[int, int]]] = {
             scr_i: [(j // n_moves, j % n_moves) for j in row]
-            for scr_i, row in zip(active_idx_cpu, next_flat_idxs_cpu)
+            for scr_i, row in zip(
+                active_idx_cpu, next_flat_idxs_cpu, strict=True
+            )
         }
         backpointers.append(layer_bp)
 
