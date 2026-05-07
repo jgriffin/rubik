@@ -48,16 +48,45 @@ from rubik.oracle.v_star_bounded_3x3 import (  # noqa: E402
 from rubik.training.config import DAVIConfig  # noqa: E402
 
 # Match ``net_step_<int>.pt`` and ``net_final.pt``. Final maps to the
-# config's n_steps so it always sorts after intermediates.
+# actual final step (early-stop-aware: parsed from metrics.jsonl) when
+# available, falling back to the config's n_steps.
 _STEP_RE = re.compile(r"^net_step_(\d+)\.pt$")
+
+
+def _final_step_from_metrics(run_dir: Path, fallback: int) -> int:
+    """Return the highest step recorded in metrics.jsonl, or ``fallback``.
+
+    With early-stop, the run can terminate before ``config.n_steps``; in
+    that case ``net_final.pt`` corresponds to the early-stop step, not
+    ``n_steps``. Reading metrics.jsonl gives the truthful step label so
+    legends and trajectories don't compress the final checkpoint to the
+    far right of the x-axis.
+    """
+    metrics_path = run_dir / "metrics.jsonl"
+    if not metrics_path.exists():
+        return int(fallback)
+    max_step = 0
+    for line in metrics_path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        s = rec.get("step")
+        if isinstance(s, int) and s > max_step:
+            max_step = s
+    return max_step or int(fallback)
 
 
 def _list_checkpoints(run_dir: Path, n_steps: int) -> list[tuple[int, Path]]:
     """Return ``[(step, path), ...]`` sorted ascending by step."""
     out: list[tuple[int, Path]] = []
+    final_step = _final_step_from_metrics(run_dir, fallback=n_steps)
     for p in sorted(run_dir.iterdir() if run_dir.exists() else []):
         if p.name == "net_final.pt":
-            out.append((int(n_steps), p))
+            out.append((int(final_step), p))
             continue
         m = _STEP_RE.match(p.name)
         if m:

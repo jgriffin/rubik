@@ -84,7 +84,6 @@ def _tiny_net() -> ValueNet:
 
 def test_value_eval_keys_and_shapes(oracle_dict_k6):
     net = _tiny_net()
-    gen = torch.Generator(device="cpu").manual_seed(0)
     out = value_eval(
         net,
         CUBE_3X3,
@@ -92,7 +91,7 @@ def test_value_eval_keys_and_shapes(oracle_dict_k6):
         n_per_walk_depth=10,
         walk_depths=(1, 2, 3, 4, 5, 6),
         eval_batch_size=64,
-        generator=gen,
+        seed=0,
     )
 
     # per_walk_depth keys for every walk depth
@@ -123,7 +122,6 @@ def test_value_eval_oracle_lookup_filtering(oracle_dict_k6):
     """Walks beyond K=6 still produce per_walk_depth stats but contribute
     nothing to v_star_mae (the oracle returns -1 for those endpoints)."""
     net = _tiny_net()
-    gen = torch.Generator(device="cpu").manual_seed(0)
     out = value_eval(
         net,
         CUBE_3X3,
@@ -131,7 +129,7 @@ def test_value_eval_oracle_lookup_filtering(oracle_dict_k6):
         n_per_walk_depth=8,
         walk_depths=(1, 2, 7, 10),
         eval_batch_size=64,
-        generator=gen,
+        seed=0,
     )
 
     # per_walk_depth populated for every supplied walk depth, including >K
@@ -154,7 +152,6 @@ def test_value_eval_macro_excludes_v_star_zero(oracle_dict_k6):
     case where d=0 is present and verifies macro is the d≥1 mean.
     """
     net = _tiny_net()
-    gen = torch.Generator(device="cpu").manual_seed(7)
     # n_per_walk_depth=64 at depths 8..14 makes a few walk endpoints land back
     # on solved (V*=0) by random-walk redundancy. The seed is chosen to hit
     # this case; if the seed becomes brittle, the assertion below short-circuits
@@ -166,7 +163,7 @@ def test_value_eval_macro_excludes_v_star_zero(oracle_dict_k6):
         n_per_walk_depth=64,
         walk_depths=(8, 9, 10, 11, 12, 13, 14),
         eval_batch_size=64,
-        generator=gen,
+        seed=7,
     )
     macro = out["macro_v_star_mae"]
     d_geq_1 = [
@@ -178,6 +175,7 @@ def test_value_eval_macro_excludes_v_star_zero(oracle_dict_k6):
         # Defensive: if this seed produced zero d≥1 samples (very unlikely),
         # macro is NaN and the exclusion semantics are vacuous.
         import math
+
         assert math.isnan(macro)
         return
     expected = sum(d_geq_1) / len(d_geq_1)
@@ -193,6 +191,58 @@ def test_value_eval_macro_excludes_v_star_zero(oracle_dict_k6):
         with_d0 = (sum(d_geq_1) + d0) / (len(d_geq_1) + 1)
         assert abs(macro - with_d0) > 1e-5, (
             "macro accidentally includes d=0 — bug regressed"
+        )
+
+
+def test_value_eval_deterministic_across_calls(oracle_dict_k6):
+    """Two back-to-back ``value_eval`` calls on the same net with the same
+    seed must produce bit-identical per-V* MAE values. This is the H4 fix:
+    ``value_eval`` re-seeds its internal generator each call rather than
+    advancing a shared one, so the eval distribution is fixed across
+    training steps and the macro_v_star_mae trajectory is comparable
+    across time. Regression-guarding the smoke-run pattern of "eval-set
+    drifts call-to-call".
+    """
+    net = _tiny_net()
+    out_a = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=16,
+        walk_depths=(1, 2, 3, 4, 5, 6),
+        eval_batch_size=64,
+        seed=42,
+    )
+    out_b = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=16,
+        walk_depths=(1, 2, 3, 4, 5, 6),
+        eval_batch_size=64,
+        seed=42,
+    )
+    # Per-V* MAE values must be bit-identical across calls.
+    v_star_keys_a = sorted(k for k in out_a if k.startswith("v_star_mae/"))
+    v_star_keys_b = sorted(k for k in out_b if k.startswith("v_star_mae/"))
+    assert v_star_keys_a == v_star_keys_b, (
+        f"v_star_mae keys diverged: {v_star_keys_a} vs {v_star_keys_b}"
+    )
+    for key in v_star_keys_a:
+        assert out_a[key] == out_b[key], (
+            f"{key} diverged between calls: {out_a[key]} vs {out_b[key]}"
+        )
+    # macro_v_star_mae must also be bit-identical.
+    assert out_a["macro_v_star_mae"] == out_b["macro_v_star_mae"]
+    # And per_walk_depth pred stats — same eval set means same predictions.
+    for d in (1, 2, 3, 4, 5, 6):
+        assert (
+            out_a[f"per_walk_depth/d{d}/pred_mean"]
+            == out_b[f"per_walk_depth/d{d}/pred_mean"]
+        )
+        assert (
+            out_a[f"per_walk_depth/d{d}/pred_std"]
+            == out_b[f"per_walk_depth/d{d}/pred_std"]
         )
 
 

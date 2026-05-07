@@ -51,3 +51,65 @@ _Run dir: `experiments/davi-3x3/runs/20260506T203408Z_smoke`. Records: 126 total
 ### Beam capability
 
 _(Live solve_rate / avg_solve_len are not captured during 3x3 training. See `<run>/results/beam_eval_focused.json` and the Beam capability section of `error_trajectories.html`.)_
+
+## full_train
+
+_Run dir: `experiments/davi-3x3/runs/20260507T043533Z_full_train`. Records: 198 total, 32 eval cycles._
+
+### Train loss
+
+- start: 0.1492
+- end:   0.0623
+- min:   0.0030 (step 1800)
+
+### Eval corrected-macro trajectory
+
+| step | corrected_macro | pred_mean | pred_std |
+|-----:|-----:|-----:|-----:|
+| 500 | 3.4995 | 0.007 | 0.287 |
+| 1000 | 2.9435 | 0.615 | 0.215 |
+| 1500 | 2.2476 | 1.365 | 0.217 |
+| 2000 | 1.5927 | 2.158 | 0.387 |
+| 2500 | 1.1400 | 2.845 | 0.707 |
+| 3000 | 0.8643 | 3.486 | 1.082 |
+| 3500 | 0.8916 | 3.940 | 1.500 |
+| 4000 | 0.9416 | 4.294 | 1.798 |
+| 4500 | 0.9137 | 4.583 | 2.012 |
+| 5000 | 0.8612 | 4.750 | 2.160 |
+| 5500 | 0.8112 | 4.813 | 2.213 |
+| 6000 | 0.7483 | 4.885 | 2.219 |
+| 6500 | 0.6811 | 4.915 | 2.216 |
+| 7000 | 0.6637 | 4.960 | 2.260 |
+| 7500 | 0.7182 | 5.008 | 2.338 |
+| 8000 | 0.7680 | 5.049 | 2.385 |
+| 8500 | 0.7750 | 5.124 | 2.440 |
+| 9000 | 0.7352 | 5.097 | 2.410 |
+| 9500 | 0.6845 | 5.110 | 2.414 |
+| 10000 | 0.6393 | 5.146 | 2.420 |
+| 10500 | 0.7219 | 5.121 | 2.462 |
+| 11000 | 0.7778 | 5.143 | 2.514 |
+| 11500 | 0.8715 | 5.127 | 2.566 |
+| 12000 | 0.9240 | 5.106 | 2.592 |
+| 12500 | 0.8918 | 5.059 | 2.556 |
+| 13000 | 0.8200 | 5.059 | 2.495 |
+| 13500 | 0.7692 | 5.070 | 2.423 |
+| 14000 | 0.7293 | 5.072 | 2.406 |
+| 14500 | 0.6868 | 5.091 | 2.388 |
+| 15000 | 0.6548 | 5.134 | 2.402 |
+| 15500 | 0.7164 | 5.154 | 2.445 |
+| 16000 | 0.7607 | 5.184 | 2.487 |
+
+### Per-V*-layer MAE — start / middle / end (bounded oracle, d=1..6)
+
+| V* depth | start (step 500) | middle (step 8500) | end (step 16000) |
+|------:|------:|------:|------:|
+| 1 | 1.011 | 0.094 | 0.062 |
+| 2 | 2.095 | 0.293 | 0.322 |
+| 3 | 3.004 | 0.586 | 0.594 |
+| 4 | 3.986 | 0.900 | 0.912 |
+| 5 | 4.982 | 1.195 | 1.212 |
+| 6 | 5.919 | 1.582 | 1.462 |
+
+### Beam capability
+
+_(Live solve_rate / avg_solve_len are not captured during 3x3 training. See `<run>/results/beam_eval_focused.json` and the Beam capability section of `error_trajectories.html`.)_

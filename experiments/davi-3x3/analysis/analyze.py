@@ -39,6 +39,7 @@ INTUITION_PATH = EXPERIMENT_DIR / "results" / "intuition.md"
 # (label, run_subdir) — keep in sync with the renderer.
 RUNS: list[tuple[str, str]] = [
     ("smoke", "20260506T203408Z_smoke"),
+    ("full_train", "20260507T043533Z_full_train"),
 ]
 
 # V* layer range emitted by the bounded oracle (K=6). Layer 0 is dropped
