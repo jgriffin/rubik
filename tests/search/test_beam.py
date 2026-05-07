@@ -282,3 +282,57 @@ def test_rejects_zero_beam_width():
     states = CUBE_2X2.solved_state.unsqueeze(0).expand(2, -1).clone()
     with pytest.raises(ValueError, match="beam_width"):
         beam_solve_batch(net, CUBE_2X2, states, beam_width=0, max_steps=1)
+
+
+def test_beam_solve_batch_n_invariant_to_split():
+    """Cross-scramble batching is order/N-invariant.
+
+    The C1 rewrite folds all N input scrambles into a single shared beam
+    tensor of shape ``(N, B, S)``. Correctness requires that running the
+    full corpus in one call produces the same per-row ``solve_lens`` as
+    splitting it into chunks and concatenating — i.e. row i's outcome is
+    independent of whether row j is also in the batch. This guards against
+    subtle ordering bugs (e.g. a per-step reduction that accidentally
+    couples scrambles together).
+    """
+    v_phys = _physical_v_star_2x2(max_depth=4)
+    net = _VStarNet(v_phys)
+
+    rng = torch.Generator().manual_seed(2026)
+    # 100 scrambles drawn from a mix of depths to exercise both early-solve
+    # and deeper-solve paths within the same call.
+    parts = []
+    for d in (1, 2, 3, 4):
+        s, _ = random_scrambles(
+            CUBE_2X2, batch_size=25, depth=d, generator=rng, prune_same_face=True
+        )
+        parts.append(s)
+    # Add a couple of pre-solved rows to verify the already-solved short
+    # circuit interacts correctly with the batched layout.
+    solved = CUBE_2X2.solved_state.unsqueeze(0).expand(2, -1).clone()
+    states = torch.cat([solved] + parts, dim=0)
+    assert states.shape[0] == 102
+
+    full = beam_solve_batch(
+        net, CUBE_2X2, states, beam_width=4, max_steps=8
+    )
+    head = beam_solve_batch(
+        net, CUBE_2X2, states[:50], beam_width=4, max_steps=8
+    )
+    tail = beam_solve_batch(
+        net, CUBE_2X2, states[50:], beam_width=4, max_steps=8
+    )
+
+    split_lens = torch.cat([head.solve_lens, tail.solve_lens])
+    assert split_lens.tolist() == full.solve_lens.tolist(), (
+        "split solve_lens diverged from full-batch solve_lens — "
+        "cross-scramble batching introduced row coupling"
+    )
+
+    # Paths must reach solved when applied (the per-row path is allowed to
+    # differ between split and full runs only if both still solve in the
+    # same number of moves; the length invariance is what we gate on).
+    split_paths = head.solve_paths + tail.solve_paths
+    for i in range(states.shape[0]):
+        assert len(split_paths[i]) == int(split_lens[i].item())
+        assert len(full.solve_paths[i]) == int(full.solve_lens[i].item())
