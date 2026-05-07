@@ -81,6 +81,11 @@ def value_eval(
       bucketed by the random-walk length used to generate the scramble.
       The "forever metric": works at any depth, no oracle needed. Walk
       redundancy means this is biased toward smaller true V* than ``d``.
+    - **per_walk_depth/{shallow,mid,deep}/pred_{mean,std}** — banded
+      aggregates over the per-d keys (Shallow d=1..5 / Mid d=6..10 /
+      Deep d=11..14, matching the project's 5/5/4 small-multiples
+      convention). At-a-glance trend reads. ``pred_std`` aggregate is
+      the mean of per-d stds, NOT pooled std — simpler interpretation.
     - **v_star_mae/d{d}** — true MAE against ``oracle_dict`` for the
       subset of walk endpoints whose true V* is in the bounded oracle.
       Endpoints with V* > K (oracle returns ``-1`` sentinel) are
@@ -164,15 +169,47 @@ def value_eval(
     out: dict = {}
 
     # Per-walk-depth predicted-V* stats — forever metric, no oracle needed.
+    per_walk_depth_means: dict[int, float] = {}
+    per_walk_depth_stds: dict[int, float] = {}
     for d in walk_depths:
         mask = walk_depth_arr == int(d)
         bucket = all_preds[torch.from_numpy(mask)]
-        out[f"per_walk_depth/d{int(d)}/pred_mean"] = float(bucket.mean().item())
+        m = float(bucket.mean().item())
         # std with unbiased=False matches eval_against_v_star's 2x2 convention
         # and avoids NaN at n=1.
-        out[f"per_walk_depth/d{int(d)}/pred_std"] = float(
-            bucket.std(unbiased=False).item()
-        )
+        s = float(bucket.std(unbiased=False).item())
+        per_walk_depth_means[int(d)] = m
+        per_walk_depth_stds[int(d)] = s
+        out[f"per_walk_depth/d{int(d)}/pred_mean"] = m
+        out[f"per_walk_depth/d{int(d)}/pred_std"] = s
+
+    # Banded aggregates over per_walk_depth for at-a-glance trend reads.
+    # Decision: emit these from `value_eval` (option a) rather than only in
+    # the WandbAdapter, so the JSONL captures them too and downstream
+    # analyzers can read them without recomputation. The bands match the
+    # project's 5/5/4 small-multiples convention (Shallow d=1..5 / Mid
+    # d=6..10 / Deep d=11..14) — see render_error_trajectories.py.
+    # Aggregate of std is the mean-of-stds (NOT pooled std) — simpler
+    # interpretation, fine for at-a-glance.
+    _BANDS: tuple[tuple[str, range], ...] = (
+        ("shallow", range(1, 6)),
+        ("mid", range(6, 11)),
+        ("deep", range(11, 15)),
+    )
+    for band_name, band_range in _BANDS:
+        band_means = [
+            per_walk_depth_means[d] for d in band_range if d in per_walk_depth_means
+        ]
+        band_stds = [
+            per_walk_depth_stds[d] for d in band_range if d in per_walk_depth_stds
+        ]
+        if band_means:
+            out[f"per_walk_depth/{band_name}/pred_mean"] = float(
+                sum(band_means) / len(band_means)
+            )
+            out[f"per_walk_depth/{band_name}/pred_std"] = float(
+                sum(band_stds) / len(band_stds)
+            )
 
     # Per-V* MAE for the d≤K subset where the oracle has ground truth.
     # lookup_v_star_bounded_3x3_batch consumes (N, 54) int8 numpy; convert

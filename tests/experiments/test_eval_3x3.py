@@ -246,6 +246,67 @@ def test_value_eval_deterministic_across_calls(oracle_dict_k6):
         )
 
 
+def test_value_eval_emits_banded_per_walk_depth_aggregates(oracle_dict_k6):
+    """Banded aggregates (Shallow d=1..5 / Mid d=6..10 / Deep d=11..14) are
+    computed in ``value_eval`` itself so the JSONL captures them too. The
+    aggregate ``pred_mean`` is the mean of per-d ``pred_mean`` (NOT a
+    pooled re-mean over raw preds); aggregate ``pred_std`` is the mean of
+    per-d ``pred_std`` (NOT pooled std).
+    """
+    net = _tiny_net()
+    out = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=8,
+        walk_depths=tuple(range(1, 15)),  # d=1..14
+        eval_batch_size=64,
+        seed=0,
+    )
+
+    # All three banded aggregate keys present.
+    for band in ("shallow", "mid", "deep"):
+        assert f"per_walk_depth/{band}/pred_mean" in out
+        assert f"per_walk_depth/{band}/pred_std" in out
+        assert np.isfinite(out[f"per_walk_depth/{band}/pred_mean"])
+        assert np.isfinite(out[f"per_walk_depth/{band}/pred_std"])
+
+    # Numerical correctness: shallow aggregate = mean of per-d means over d=1..5.
+    shallow_means = [out[f"per_walk_depth/d{d}/pred_mean"] for d in (1, 2, 3, 4, 5)]
+    assert abs(out["per_walk_depth/shallow/pred_mean"] - sum(shallow_means) / 5) < 1e-5
+    shallow_stds = [out[f"per_walk_depth/d{d}/pred_std"] for d in (1, 2, 3, 4, 5)]
+    assert abs(out["per_walk_depth/shallow/pred_std"] - sum(shallow_stds) / 5) < 1e-5
+
+    # Mid aggregate = mean of d=6..10.
+    mid_means = [out[f"per_walk_depth/d{d}/pred_mean"] for d in (6, 7, 8, 9, 10)]
+    assert abs(out["per_walk_depth/mid/pred_mean"] - sum(mid_means) / 5) < 1e-5
+
+    # Deep aggregate = mean of d=11..14 (4 bins).
+    deep_means = [out[f"per_walk_depth/d{d}/pred_mean"] for d in (11, 12, 13, 14)]
+    assert abs(out["per_walk_depth/deep/pred_mean"] - sum(deep_means) / 4) < 1e-5
+
+
+def test_value_eval_banded_aggregates_handle_missing_bins(oracle_dict_k6):
+    """If a band has zero per-d members in the supplied walk_depths, that
+    band's aggregate keys are omitted (rather than NaN-padded). E.g.
+    walk_depths=(1, 2) populates only the shallow band.
+    """
+    net = _tiny_net()
+    out = value_eval(
+        net,
+        CUBE_3X3,
+        oracle_dict_k6,
+        n_per_walk_depth=8,
+        walk_depths=(1, 2),
+        eval_batch_size=64,
+        seed=0,
+    )
+    assert "per_walk_depth/shallow/pred_mean" in out
+    # Mid (d=6..10) and deep (d=11..14) have no members in this walk_depths.
+    assert "per_walk_depth/mid/pred_mean" not in out
+    assert "per_walk_depth/deep/pred_mean" not in out
+
+
 # ---------------------------------------------------------------------------
 # beam_eval_walk
 # ---------------------------------------------------------------------------
