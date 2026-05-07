@@ -145,6 +145,17 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Override device (default: read from run config.yaml).",
     )
+    parser.add_argument(
+        "--checkpoint-steps",
+        type=str,
+        default=None,
+        help=(
+            "Optional comma-separated list of step labels to evaluate "
+            "(e.g. '20000,30000,120000,final'). The literal 'final' selects "
+            "net_final.pt (label resolved from metrics.jsonl). When omitted, "
+            "every net_step_*.pt and net_final.pt is evaluated."
+        ),
+    )
     args = parser.parse_args(argv)
 
     run_dir: Path = args.run_dir
@@ -165,6 +176,27 @@ def main(argv: list[str] | None = None) -> int:
     # uses it as the "final" step label, and an empty dir won't surface one.
     n_steps = config.n_steps if config is not None else 0
     checkpoints = _list_checkpoints(run_dir, n_steps)
+
+    if args.checkpoint_steps is not None:
+        # Build the requested-step set. 'final' selects whatever step
+        # net_final.pt resolves to via metrics.jsonl.
+        requested_raw = [
+            s.strip() for s in args.checkpoint_steps.split(",") if s.strip()
+        ]
+        final_step = _final_step_from_metrics(run_dir, fallback=n_steps)
+        requested: set[int] = set()
+        for s in requested_raw:
+            if s == "final":
+                requested.add(int(final_step))
+            else:
+                requested.add(int(s))
+        filtered = [(step, path) for step, path in checkpoints if step in requested]
+        missing = requested - {step for step, _ in filtered}
+        if missing:
+            raise ValueError(
+                f"requested checkpoint steps not found in {run_dir}: {sorted(missing)}"
+            )
+        checkpoints = filtered
 
     if not checkpoints:
         out_path.write_text(json.dumps({}, indent=2))
@@ -188,7 +220,18 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device(args.device or config.device)
     states_arr, depths_arr = load_v_star_bounded_3x3_arrays(CACHE_PATH)
 
+    # When subsampling via --checkpoint-steps, merge into any existing
+    # trajectory so successive subsample passes accumulate without
+    # clobbering prior results.
     trajectory: dict[str, dict] = {}
+    if args.checkpoint_steps is not None and out_path.exists():
+        try:
+            existing = json.loads(out_path.read_text())
+            if isinstance(existing, dict):
+                trajectory.update(existing)
+        except json.JSONDecodeError:
+            pass
+
     for step, ckpt_path in checkpoints:
         print(f"evaluating {ckpt_path.name} (step={step}) ...", flush=True)
         net = _load_net(ckpt_path, config, device)

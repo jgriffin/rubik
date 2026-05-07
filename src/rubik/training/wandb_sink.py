@@ -21,15 +21,26 @@ Why the transform lives here, not in MetricLogger:
 
 Field-routing policy (per ``event``):
 
-- ``event="step"``  → ``train/<field>`` (e.g. ``train/loss``,
-  ``train/step_seconds``, ``train/k_max``)
-- ``event="eval"``  → ``eval/<field>`` for scalars; nested
-  ``per_depth_mae`` flattened slash-separated; ``solve_rate_d<N>`` and
-  ``avg_solve_len_d<N>`` regex-regrouped to ``eval/solve_rate/d<N>`` and
-  ``eval/avg_solve_len/d<N>`` so W&B groups them as multi-line panels
+- ``event="step"``  → ``train/<field>``
+- ``event="eval"``  → ``value/<field>`` (forward-pass value-net eval —
+  records emitted by ``value_eval``; this is the "value" panel group,
+  separate from beam-search capability evals)
+- ``event="beam_eval_walk"`` → ``beam_walk/<field>``
+- ``event="beam_eval_v_star"`` → ``beam_v_star/<field>``
 - ``event="checkpoint"`` → ``checkpoint/<field>``
 - ``event="run_start"`` / ``event="run_end"`` → ``run/<field>``
 - No ``event`` → fields pass through unchanged
+
+Within each eval-shaped record, the same per-depth handling applies:
+nested dicts get flattened slash-separated; per-depth scalar suffixes
+``_d<N>`` get regex-regrouped to ``<base>/d<N>`` paths.
+
+**Zero-padding of d-keys.** All ``d{N}`` segments inside the resulting
+W&B keys are zero-padded to two digits (``d1`` → ``d01``, ``d14`` stays
+``d14``). This is purely for W&B's natural-sort behavior in panel
+legends — without padding the panels go ``d1, d10, d11, d12, d13, d14,
+d2, d3, ..., d9``. The on-disk JSONL records keep the unpadded keys
+(unchanged shape) so existing analyzers don't break.
 
 ``step`` and ``event`` are **always** kept top-level (never namespaced):
 W&B uses ``step`` as the x-axis for line plots, and ``event`` is useful
@@ -46,6 +57,26 @@ if TYPE_CHECKING:
 
 
 _PER_DEPTH_RE = re.compile(r"^(.+)_d(\d+)$")
+
+# Match a `d{digits}` token that appears as a path segment (preceded by
+# `/`) and is followed by `/` or end of string. Used to zero-pad the
+# digit run for natural sort in W&B.
+_D_KEY_PAD_RE = re.compile(r"(?<=/)d(\d+)(?=/|$)")
+
+
+def _pad_d_keys(key: str) -> str:
+    """Zero-pad ``d{N}`` path segments in ``key`` to two digits.
+
+    ``"value/v_star_mae/d1"`` → ``"value/v_star_mae/d01"``
+    ``"value/per_walk_depth/d1/pred_mean"`` → ``"value/per_walk_depth/d01/pred_mean"``
+    ``"value/per_walk_depth/d14/pred_mean"`` → unchanged (already 2+ digits)
+    """
+    return _D_KEY_PAD_RE.sub(lambda m: f"d{int(m.group(1)):02d}", key)
+
+
+def _pad_dict_d_keys(d: dict[str, Any]) -> dict[str, Any]:
+    """Apply ``_pad_d_keys`` to every key in ``d``."""
+    return {_pad_d_keys(k): v for k, v in d.items()}
 
 
 def _flatten_dicts(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -91,11 +122,38 @@ def _namespace_under(d: dict[str, Any], prefix: str) -> dict[str, Any]:
     return {f"{prefix}/{k}": v for k, v in d.items()}
 
 
+def _route_evalshape(
+    fields: dict[str, Any],
+    *,
+    prefix: str,
+) -> dict[str, Any]:
+    """Route an eval-shaped record under ``prefix/`` with depth handling.
+
+    Used for ``event="eval"`` (→ ``value/``), ``event="beam_eval_walk"``
+    (→ ``beam_walk/``), and ``event="beam_eval_v_star"`` (→
+    ``beam_v_star/``). All three share the per-depth shape: nested dicts
+    flattened, ``_d{N}`` suffixes regex-regrouped.
+    """
+    nested: dict[str, Any] = {}
+    flat: dict[str, Any] = {}
+    for k, v in fields.items():
+        if isinstance(v, dict):
+            nested[k] = v
+        else:
+            flat[k] = v
+    flattened_nested = _flatten_dicts(nested)
+    regrouped, leftover = _regroup_per_depth(flat, prefix=prefix)
+    scalars = _namespace_under(leftover, prefix)
+    nested_namespaced = _namespace_under(flattened_nested, prefix)
+    return {**scalars, **nested_namespaced, **regrouped}
+
+
 def _transform_fields(fields: dict[str, Any]) -> dict[str, Any]:
     """Route a JSONL-shaped record into the W&B namespace policy.
 
     See module docstring for the routing rules. The input is **not**
-    mutated; a new dict is returned.
+    mutated; a new dict is returned. ``d{N}`` path segments in the final
+    keys are zero-padded to two digits for natural-sort in W&B.
     """
     fields = dict(fields)  # defensive copy
     event = fields.pop("event", None)
@@ -108,34 +166,34 @@ def _transform_fields(fields: dict[str, Any]) -> dict[str, Any]:
         top["event"] = event
 
     if event == "step":
-        return {**top, **_namespace_under(fields, "train")}
+        body = _namespace_under(fields, "train")
+        return {**top, **_pad_dict_d_keys(body)}
 
     if event == "eval":
-        # 1) per-depth nested dicts get flattened slash-separated
-        nested: dict[str, Any] = {}
-        flat: dict[str, Any] = {}
-        for k, v in fields.items():
-            if isinstance(v, dict):
-                nested[k] = v
-            else:
-                flat[k] = v
-        flattened_nested = _flatten_dicts(nested)
-        # 2) per-depth scalar suffix `_d<N>` patterns regrouped
-        regrouped, leftover = _regroup_per_depth(flat, prefix="eval")
-        # 3) Remaining flat scalars (val_mae, macro_mae, pred_mean, ...)
-        scalars = _namespace_under(leftover, "eval")
-        # Nested-flattened keys also belong under eval/ namespace.
-        nested_namespaced = _namespace_under(flattened_nested, "eval")
-        return {**top, **scalars, **nested_namespaced, **regrouped}
+        # Forward-pass value-net eval (`value_eval` records).
+        body = _route_evalshape(fields, prefix="value")
+        return {**top, **_pad_dict_d_keys(body)}
+
+    if event == "beam_eval_walk":
+        # Beam-search capability eval on random-walk states.
+        body = _route_evalshape(fields, prefix="beam_walk")
+        return {**top, **_pad_dict_d_keys(body)}
+
+    if event == "beam_eval_v_star":
+        # Beam-search capability eval on V*-stratified states.
+        body = _route_evalshape(fields, prefix="beam_v_star")
+        return {**top, **_pad_dict_d_keys(body)}
 
     if event == "checkpoint":
-        return {**top, **_namespace_under(fields, "checkpoint")}
+        body = _namespace_under(fields, "checkpoint")
+        return {**top, **_pad_dict_d_keys(body)}
 
     if event in ("run_start", "run_end"):
         # Nested values (e.g. body_widths list) get passed through as-is;
         # only top-level keys get the `run/` prefix. W&B handles list
         # values on a single key fine (stored as config-shaped JSON).
-        return {**top, **_namespace_under(fields, "run")}
+        body = _namespace_under(fields, "run")
+        return {**top, **_pad_dict_d_keys(body)}
 
     # No event, or unknown event: pass through unchanged.
     if event is not None:

@@ -1,0 +1,67 @@
+# Phase 3 warm-start continuation run — 3x3 DAVI.
+#
+# Warm-starts from `runs/20260507T043533Z_full_train/net_final.pt` (step
+# 16,000 of today's full_train, which early-stopped via `macro_v_star_mae`
+# plateau). Beam-eval revealed today's run was killed by the wrong signal —
+# d=10 / d=12 / d=14 solve rates climbed monotonically (0.99/0.89/0.48 at
+# step 5k → 1.00/0.99/0.78 at step 16k); d=14 in particular went +19pp
+# across the steps macro called bad. This config tests whether the climb
+# continues past step 16k, plateaus, or inverts — the question early-stop
+# terminated before answering.
+#
+# What changes here vs. full_train.yaml:
+# - n_steps 100000 → 120000: warm-start at 16k → 104k more training steps.
+#   Estimated wall ~7.2h on M4 Max at smoke pace (235 ms/step).
+# - checkpoint_every 5000 → 2000: tighter cadence for cancel-safety and a
+#   denser post-hoc beam-eval trajectory (52 intermediate checkpoints over
+#   the run vs. full_train's 20).
+# - early_stop_enabled true → false: macro_v_star_mae is the wrong stop
+#   signal at K_max=20 >> K_oracle=6 (see LOG.md M8 full_train outcome).
+#   Wiring is removed in this branch (commit 57efb5f); the field is now
+#   ignored at runtime, but explicit `false` here matches intent.
+#
+# What stays the same as full_train (this run isolates "more training
+# from this checkpoint" from every other axis):
+# - K_max=20 flat (no warm-start, no ramp). Same scramble distribution.
+# - body_widths [5120, 1024], n_residual_blocks=4, normalization=bn.
+# - target_sync_interval=500, eval_every=500, batch_size=4096.
+# - learning_rate=0.001, device=mps, seed=0.
+#
+# Caveat acknowledged: warm-start does NOT preserve Adam moments; the
+# optimizer rebuilds from zero. ~500 steps to re-warm. This is the
+# "minimal warm-start" mode by design — full resumability (optimizer
+# state + target_net state + wandb run continuity) is its own block
+# tomorrow.
+#
+# Launch (from repo root):
+#   uv run python experiments/davi-3x3/run.py \
+#     --config experiments/davi-3x3/configs/warm_continue.yaml \
+#     --warm-start experiments/davi-3x3/runs/20260507T043533Z_full_train/net_final.pt \
+#     --from-step 16000
+
+max_scramble_depth: 20
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
+
+batch_size: 4096
+n_steps: 120000
+learning_rate: 0.001
+target_sync_interval: 500
+
+body_widths:
+  - 5120
+  - 1024
+n_residual_blocks: 4
+normalization: bn
+
+log_every: 100
+eval_every: 500
+checkpoint_every: 2000
+seed: 0
+device: mps
+
+early_stop_enabled: false
+early_stop_metric: macro_v_star_mae
+early_stop_patience_evals: 12
+early_stop_min_evals: 4
+early_stop_min_delta: 0.001
