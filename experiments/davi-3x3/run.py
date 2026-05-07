@@ -29,10 +29,21 @@ Usage::
 
     uv run python experiments/davi-3x3/run.py \\
         --config experiments/davi-3x3/configs/<name>.yaml \\
-        [--out-dir experiments/davi-3x3/runs/<custom>]
+        [--out-dir experiments/davi-3x3/runs/<custom>] \\
+        [--warm-start <ckpt.pt> --from-step <int>]
 
 If ``--out-dir`` is omitted, the run lands at
-``experiments/davi-3x3/runs/<UTC-ts>_<config-stem>/``.
+``experiments/davi-3x3/runs/<UTC-ts>_<config-stem>/`` — when the config
+stem is ``warm_continue`` the resulting dir name carries ``warm_continue``
+and is grep-distinguishable from fresh runs.
+
+``--warm-start`` (with required ``--from-step``) is the minimal
+warm-start mode: load model state_dict, target_net = copy of model,
+optimizer built fresh (Adam moments NOT preserved). Step counter
+starts at ``from-step``; first trained step is ``from-step + 1``.
+``--warm-start`` and ``--resume`` are mutually exclusive — use
+``--resume`` when the goal is to fully restore the
+``(net, target_net, optimizer, step)`` triple.
 
 Tier 0 (calibration) does *not* use this script — see
 ``calibrate_step_time_3x3.py``.
@@ -119,6 +130,38 @@ def _load_checkpoint(
     return "weights-only", 0
 
 
+def _load_warm_start(
+    path: Path,
+    net: torch.nn.Module,
+    target_net: torch.nn.Module,
+    device: torch.device,
+) -> None:
+    """Load model weights from ``path`` into ``net`` and copy to ``target_net``.
+
+    Minimal warm-start (vs. the heavier ``--resume``):
+    - Loads ONLY the model state_dict — accepts both the new dict format
+      (uses the ``net_state`` key) and the legacy bare-state-dict format.
+    - Optimizer state is NOT restored (caller builds it fresh; Adam moments
+      restart from zero — small ~500-step distortion acknowledged).
+    - ``target_net`` is set to a clean copy of the loaded ``net`` weights
+      via ``sync_target`` rather than re-loading from the checkpoint's
+      ``target_net_state`` (if present). Rationale: warm-start is "start
+      training from these weights with a fresh slate"; full resumability
+      that restores the exact (net, target_net, optimizer) triple is the
+      ``--resume`` path.
+
+    Architecture mismatch surfaces as ``RuntimeError`` from
+    ``load_state_dict`` — the caller config must match the checkpoint's
+    arch dimensionally.
+    """
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    if isinstance(ckpt, dict) and "net_state" in ckpt:
+        net.load_state_dict(ckpt["net_state"])
+    else:
+        net.load_state_dict(ckpt)
+    sync_target(net, target_net)
+
+
 def _save_checkpoint(
     path: Path,
     net: torch.nn.Module,
@@ -146,10 +189,37 @@ def main() -> None:
         type=Path,
         default=None,
         help=(
-            "Path to a prior checkpoint to warm-start from. Accepts both the "
-            "new dict format ({net_state, target_net_state, optimizer_state, "
-            "step}) and the legacy bare state_dict format. In the legacy "
-            "case, target_net is synced from net and Adam moments restart."
+            "Path to a prior checkpoint for full resume (net + target_net + "
+            "optimizer + step). Accepts both the new dict format "
+            "({net_state, target_net_state, optimizer_state, step}) and the "
+            "legacy bare state_dict format. In the legacy case, target_net "
+            "is synced from net and Adam moments restart. Use --warm-start "
+            'for the lighter "load model weights, fresh optimizer" mode.'
+        ),
+    )
+    parser.add_argument(
+        "--warm-start",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a checkpoint whose model state_dict to load into the "
+            "value net (and copy into the target net). Optimizer is built "
+            "fresh (Adam moments NOT preserved). Requires --from-step. "
+            "Architecture in the run config must match the checkpoint's "
+            "dimensions or load_state_dict will raise. Mutually exclusive "
+            "with --resume."
+        ),
+    )
+    parser.add_argument(
+        "--from-step",
+        type=int,
+        default=0,
+        help=(
+            "Initial training-step counter for the run loop. The first "
+            "step trained is `from-step + 1`; the loop runs while step "
+            "<= n_steps. Required (must be >= 1) when --warm-start is "
+            "set; ignored otherwise. Default 0 = fresh run starting at "
+            "step 1."
         ),
     )
     parser.add_argument(
@@ -179,7 +249,30 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Argument cross-checks for --warm-start / --from-step.
+    if args.warm_start is not None and args.resume is not None:
+        parser.error(
+            "--warm-start and --resume are mutually exclusive. --warm-start "
+            "loads model weights only with a fresh optimizer; --resume "
+            "restores the full (net, target_net, optimizer, step) triple."
+        )
+    if args.warm_start is not None and args.from_step < 1:
+        parser.error(
+            "--warm-start requires --from-step >= 1 (the step counter the "
+            f"run loop should resume from); got --from-step={args.from_step}."
+        )
+    if args.warm_start is None and args.from_step != 0:
+        parser.error(
+            "--from-step is only meaningful with --warm-start; got "
+            f"--from-step={args.from_step} without --warm-start."
+        )
+
     config = DAVIConfig.from_yaml(args.config)
+    if args.warm_start is not None and args.from_step >= config.n_steps:
+        parser.error(
+            f"--from-step ({args.from_step}) must be < config.n_steps "
+            f"({config.n_steps}); otherwise the run loop has nothing to do."
+        )
     out_dir = _resolve_out_dir(args.out_dir, args.config.stem)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -257,6 +350,16 @@ def main() -> None:
             args.resume, net, target_net, optimizer, device
         )
 
+    # Warm-start: load model weights only; optimizer stays fresh; target_net
+    # mirrors the loaded value_net via sync_target. Mutually exclusive with
+    # --resume (validated at argparse time). Step counter starts at
+    # args.from_step → first trained step is from_step + 1.
+    warm_start_path: Path | None = None
+    if args.warm_start is not None:
+        _load_warm_start(args.warm_start, net, target_net, device)
+        warm_start_path = args.warm_start
+    initial_step = int(args.from_step) if args.warm_start is not None else 0
+
     # Bounded V* oracle: lookup table for ``value_eval`` per-V* MAE. The
     # dict-shaped form ``dict[bytes, int]`` is what ``value_eval``
     # consumes; ``lookup_v_star_bounded_3x3_batch`` does the bulk lookups.
@@ -318,6 +421,16 @@ def main() -> None:
             f"resumed from:           {resume_display} "
             f"(mode={resume_mode}, prior_step={resume_prior_step})"
         )
+    if warm_start_path is not None:
+        try:
+            warm_display = warm_start_path.relative_to(REPO_ROOT)
+        except ValueError:
+            warm_display = warm_start_path
+        print(
+            f"warm-start from:        {warm_display} "
+            f"(from_step={initial_step}; fresh optimizer + target_net=copy "
+            f"of net)"
+        )
     print()
 
     # Track the most recent eval payload + the step it was logged at, so
@@ -331,27 +444,32 @@ def main() -> None:
         with MetricLogger(out_dir / "metrics.jsonl", wandb_run=wandb_run) as logger:
             # Header record so a downstream analyzer can recover run-level
             # context without parsing the config yaml separately.
-            logger.log(
-                event="run_start",
-                n_params=n_params,
-                device=str(device),
-                body_widths=list(config.body_widths),
-                n_residual_blocks=config.n_residual_blocks,
-                normalization=config.normalization,
-                batch_size=config.batch_size,
-                max_scramble_depth=config.max_scramble_depth,
-                max_scramble_depth_initial=config.max_scramble_depth_initial,
-                max_scramble_depth_ramp_steps=config.max_scramble_depth_ramp_steps,
-                target_sync_interval=config.target_sync_interval,
-                learning_rate=config.learning_rate,
-                n_steps=config.n_steps,
-                oracle_size=len(oracle_dict),
-                early_stop_enabled=config.early_stop_enabled,
-                early_stop_metric=config.early_stop_metric,
-                early_stop_patience_evals=config.early_stop_patience_evals,
-                early_stop_min_evals=config.early_stop_min_evals,
-                early_stop_min_delta=config.early_stop_min_delta,
-            )
+            run_start_fields: dict = {
+                "n_params": n_params,
+                "device": str(device),
+                "body_widths": list(config.body_widths),
+                "n_residual_blocks": config.n_residual_blocks,
+                "normalization": config.normalization,
+                "batch_size": config.batch_size,
+                "max_scramble_depth": config.max_scramble_depth,
+                "max_scramble_depth_initial": config.max_scramble_depth_initial,
+                "max_scramble_depth_ramp_steps": config.max_scramble_depth_ramp_steps,
+                "target_sync_interval": config.target_sync_interval,
+                "learning_rate": config.learning_rate,
+                "n_steps": config.n_steps,
+                "oracle_size": len(oracle_dict),
+                "early_stop_enabled": config.early_stop_enabled,
+                "early_stop_metric": config.early_stop_metric,
+                "early_stop_patience_evals": config.early_stop_patience_evals,
+                "early_stop_min_evals": config.early_stop_min_evals,
+                "early_stop_min_delta": config.early_stop_min_delta,
+            }
+            # Warm-start annotation: optional fields, absent on fresh runs
+            # so historical readers don't trip on missing keys.
+            if warm_start_path is not None:
+                run_start_fields["warm_start_from"] = str(warm_start_path)
+                run_start_fields["from_step"] = initial_step
+            logger.log(event="run_start", **run_start_fields)
 
             if resume_mode is not None:
                 logger.log(
@@ -361,7 +479,9 @@ def main() -> None:
                     prior_step=resume_prior_step,
                 )
 
-            for step in range(1, config.n_steps + 1):
+            # Loop starts at initial_step + 1 (=1 on a fresh run, =from_step+1
+            # on a warm-start). Runs through config.n_steps inclusive.
+            for step in range(initial_step + 1, config.n_steps + 1):
                 t0 = time.perf_counter()
                 current_k_max = config.current_k_max(step)
                 states, _depths, _last_faces = generate_adi_batch(
