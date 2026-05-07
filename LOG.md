@@ -4,6 +4,16 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-06 — M8 full 3x3 training run: K_max=20, 100k steps 🟡 in-progress
+**Goal:** First full-budget 3x3 DAVI training run. K_max=20 flat from random init (NOT warm-start), 100,000 steps, same arch as smoke (`[5120, 1024] × 4 BN`). Goal is to see how far a single long run pushes 3x3 capability — does macro_v_star_mae descend further past smoke's plateau at 0.73, and does deep-d beam capability climb past smoke's d=10..14 numbers? Early-stop on (patience=12 evals, warmup=4, min_delta=0.001) — fires if signal plateaus.
+**Milestone:** M8 phase 3 ([plan](plans/m8-3x3-davi.md))
+**Approach:** Branch `m8-3x3-full-train` from main HEAD `aecb416`. Two atomic sub-blocks:
+- **H4 eval re-seed fix**: `value_eval` currently advances a single `eval_generator` across calls; per-V* MAE bounces eval-to-eval as a result. Fix: re-seed per call from `seed + step` (or equivalent deterministic-from-seed scheme). Same eval set every step → smooth trajectory readable across 200 evals.
+- **Full training run**: author `experiments/davi-3x3/configs/full_train.yaml` (K_max=20, n_steps=100000, target_sync_interval=500, eval_every=500, checkpoint_every=5000, batch_size=4096, lr=0.001, arch [5120, 1024] × 4 BN, early-stop patience=12 / warmup=4 / min_delta=0.001). Launch via `experiments/davi-3x3/run.py --config configs/full_train.yaml`. Estimated wall ~6-7h at smoke pace (235 ms/step).
+**Next:** Land H4 fix and commit. Then author config, smoke-check (`uv run python experiments/davi-3x3/run.py --config configs/full_train.yaml --help` and config-load test), commit. Parent will launch training in background.
+**In progress:**
+- Block opened. Branch `m8-3x3-full-train` from main HEAD `aecb416`.
+
 ## 2026-05-06 — M8 P2: smoke training with early-stop infra ✅ done
 **Goal:** Train one 3x3 DAVI run end-to-end with proper instrumentation. Verify (a) the wired-up training loop works on 3x3 — loss decreases, no NaN, no MPS errors; (b) `macro_v_star_mae` evolves downward over training (network is learning the value function); (c) sync-period-keyed early-stop behaves sensibly on a real trajectory; (d) post-training beam evals produce our first 3x3 capability data points. **Goal is NOT acceptance-grade champion training** — this is smoke. Phase 3+ replans against Phase 2 outcomes.
 **Milestone:** M8 phase 2 ([plan](plans/m8-3x3-davi.md))
