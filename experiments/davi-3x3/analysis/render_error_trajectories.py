@@ -1,7 +1,8 @@
 """Render DAVI 3x3 runs' error trajectories as a static HTML/SVG page.
 
 Reads each run's metrics.jsonl, extracts every ``event="eval"`` record,
-and produces a stack of charts at ``error_trajectories.html``:
+and produces a stack of error/calibration charts at
+``error_trajectories.html``:
 
 1. **Corrected macro-MAE trajectory** — overlaid line charts, x=step,
    y=corrected_macro (mean of v_star_mae/dN for N>=1).
@@ -11,12 +12,15 @@ and produces a stack of charts at ``error_trajectories.html``:
    Shallow / Mid / Deep (5/5/4 cells per row). Shows the network
    pushing predicted V* up over training.
 4. **Per walk-depth pred_std small multiples** — same banded layout.
-5. **Beam capability** — bars from `<run>/results/beam_eval_focused.json`:
-   per V* solve-rate (d=1..6) and per walk-depth solve-rate (d=1..14)
-   for each captured checkpoint.
-6. **Solve-length histograms** — graceful placeholder (TBD: extend
+5. **Solve-length histograms** — graceful placeholder (TBD: extend
    capture_solve_histograms.py for the 3x3 schema).
-7. **Per-run depth-step heatmap** — graceful placeholder (TBD: ≥2 runs).
+6. **Per-run depth-step heatmap** — graceful placeholder (TBD: ≥2 runs).
+
+Beam-capability charts USED to live here as a fifth section but were
+moved out: they're a *capability* metric, not an error metric, and the
+new dedicated tooling (``scripts/beam_eval_run.py`` +
+``scripts/render_beam_eval_report.py``) decouples beam-eval from any
+single run dir's checkpoint set. This report stays scoped to errors.
 
 ## Schema notes
 
@@ -139,28 +143,6 @@ def load_run(run_dir: str) -> list[dict]:
             r["corrected_macro"] = _corrected_macro(r)
             evals.append(r)
     return evals
-
-
-def load_beam_capability(run_dir: str) -> dict | None:
-    """Return parsed post-hoc beam-eval JSON, or None if absent.
-
-    Two filenames are accepted for backward compatibility:
-    - ``post_run_beam_eval.json`` — written by ``scripts/post_run_beam_eval.py``
-      (the canonical post-hoc tool used for cycle-2 onward).
-    - ``beam_eval_focused.json`` — legacy filename used by the smoke
-      run (committed in 2b6814d). Same schema; we accept it so the smoke
-      run keeps showing up in the overlaid charts without re-running the
-      eval.
-
-    If both are present, ``post_run_beam_eval.json`` wins.
-    """
-    base = BASELINE_DIR / run_dir / "results"
-    for fname in ("post_run_beam_eval.json", "beam_eval_focused.json"):
-        path = base / fname
-        if path.exists():
-            with path.open() as f:
-                return json.load(f)
-    return None
 
 
 def line_path(points: list[tuple[float, float]]) -> str:
@@ -589,165 +571,6 @@ def _band_chart_with_per_cell_ref(
     return "\n".join(parts)
 
 
-def chart_beam_capability(runs_beam: dict[str, dict]) -> str:
-    """Two side-by-side bar charts per run from beam_eval_focused.json.
-
-    Left: per V* solve-rate (d=1..6).
-    Right: per walk-depth solve-rate (d=1..14).
-
-    Bars within a depth are dodged per checkpoint. Heights are 0..1.
-    """
-    if not any(runs_beam.values()):
-        return (
-            '<p class="note">_(no beam_eval_focused.json found in any run\'s '
-            "results/ directory)_</p>"
-        )
-
-    parts: list[str] = []
-    for label, run_dir, color, _ in RUNS:
-        beam = runs_beam.get(run_dir)
-        if not beam:
-            continue
-        ckpt_keys = sorted(beam.keys(), key=lambda k: int(k))
-        parts.append(
-            f'<h3 style="font-size:13px;margin:14px 0 6px 0;color:#444">'
-            f"{label} — beam capability</h3>"
-        )
-        parts.append(_beam_capability_svg(beam, ckpt_keys, color))
-    return "\n".join(parts)
-
-
-def _beam_capability_svg(beam: dict, ckpt_keys: list[str], base_color: str) -> str:
-    """Render two side-by-side bar groups: V* (1..6) and walk-depth (1..14)."""
-    # Two adjacent panels in one SVG
-    panel_w = 420
-    panel_h = 300
-    gap = 30
-    total_w = panel_w * 2 + gap + 40  # 40 for outer margin
-    total_h = panel_h + 60
-
-    pad_l, pad_t, pad_r, pad_b = 36, 30, 8, 60
-
-    def shade(base: str, idx: int, n: int) -> str:
-        """Return base color (idx=0) or a desaturated version for later checkpoints."""
-        # Simple: alternate base color and a lighter variant.
-        if idx == 0 or n == 1:
-            return base
-        # Map base hex to a faded color by mixing with white
-        base_rgb = _hex_to_rgb(base)
-        u = 0.4 + 0.4 * (idx / max(1, n - 1))  # 0.4..0.8 mix toward white
-        r = int(base_rgb[0] * (1 - u) + 255 * u)
-        g = int(base_rgb[1] * (1 - u) + 255 * u)
-        b = int(base_rgb[2] * (1 - u) + 255 * u)
-        return f"rgb({r},{g},{b})"
-
-    n_ck = len(ckpt_keys)
-
-    parts: list[str] = [
-        f'<svg viewBox="0 0 {total_w} {total_h}" xmlns="http://www.w3.org/2000/svg">',
-        f'<rect x="0" y="0" width="{total_w}" height="{total_h}" fill="#fafafa"/>',
-    ]
-
-    # Legend strip at top
-    legend_x = 20
-    for idx, ck in enumerate(ckpt_keys):
-        col = shade(base_color, idx, n_ck)
-        parts.append(
-            f'<rect x="{legend_x}" y="10" width="14" height="10" fill="{col}"/>'
-        )
-        parts.append(
-            f'<text x="{legend_x + 18}" y="19" font-size="11" fill="#333">'
-            f"step {ck}</text>"
-        )
-        legend_x += 110
-
-    def render_panel(
-        ox: float,
-        depths: list[int],
-        title: str,
-        key_prefix: str,
-        section: str,
-    ) -> None:
-        plot_w = panel_w - pad_l - pad_r
-        plot_h = panel_h - pad_t - pad_b
-        # Frame
-        parts.append(
-            f'<text x="{ox + panel_w / 2}" y="40" text-anchor="middle" '
-            f'font-size="13" font-weight="600" fill="#222">{title}</text>'
-        )
-        parts.append(
-            f'<rect x="{ox + pad_l}" y="{pad_t + 25}" width="{plot_w}" '
-            f'height="{plot_h}" fill="white" stroke="#ccc"/>'
-        )
-        # y ticks 0..1
-        for tick in [0.0, 0.25, 0.5, 0.75, 1.0]:
-            ty = pad_t + 25 + plot_h - tick * plot_h
-            parts.append(
-                f'<line x1="{ox + pad_l}" y1="{ty:.1f}" '
-                f'x2="{ox + pad_l + plot_w}" y2="{ty:.1f}" stroke="#eee"/>'
-            )
-            parts.append(
-                f'<text x="{ox + pad_l - 4}" y="{ty + 3:.1f}" text-anchor="end" '
-                f'font-size="10" fill="#666">{tick:.2f}</text>'
-            )
-
-        # Bars: one group per depth, dodge per checkpoint
-        n_depths = len(depths)
-        group_w = plot_w / n_depths
-        bar_w = max(1.0, group_w * 0.85 / max(1, n_ck))
-        for i, d in enumerate(depths):
-            cx = ox + pad_l + i * group_w + group_w / 2
-            # x label
-            parts.append(
-                f'<text x="{cx:.1f}" y="{pad_t + 25 + plot_h + 14:.1f}" '
-                f'text-anchor="middle" font-size="10" fill="#666">d{d}</text>'
-            )
-            for idx, ck in enumerate(ckpt_keys):
-                section_data = beam[ck].get(section, {})
-                key = f"{key_prefix}{d}"
-                rate = section_data.get(key)
-                if rate is None:
-                    continue
-                col = shade(base_color, idx, n_ck)
-                bx = cx - (n_ck * bar_w) / 2 + idx * bar_w
-                bh = float(rate) * plot_h
-                by = pad_t + 25 + plot_h - bh
-                parts.append(
-                    f'<rect x="{bx:.2f}" y="{by:.2f}" width="{bar_w:.2f}" '
-                    f'height="{bh:.2f}" fill="{col}">'
-                    f"<title>step={ck} d{d} solve_rate={rate:.3f}</title></rect>"
-                )
-
-        # Axis labels
-        parts.append(
-            f'<text x="{ox + panel_w / 2:.1f}" y="{panel_h + 50:.1f}" '
-            f'text-anchor="middle" font-size="11" fill="#444">depth</text>'
-        )
-
-    render_panel(
-        20,
-        V_STAR_DEPTHS,
-        "Per V* solve-rate (beam, d=1..6)",
-        "solve_rate_v",
-        "beam_v_star",
-    )
-    render_panel(
-        20 + panel_w + gap,
-        WALK_DEPTHS,
-        "Per walk-depth solve-rate (beam, d=1..14)",
-        "solve_rate_d",
-        "beam_walk",
-    )
-
-    parts.append("</svg>")
-    return "\n".join(parts)
-
-
-def _hex_to_rgb(h: str) -> tuple[int, int, int]:
-    h = h.lstrip("#")
-    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-
-
 def render_legend() -> str:
     """Color legend used by macro and per-depth charts."""
     if not RUNS:
@@ -769,16 +592,9 @@ def render_legend() -> str:
 
 def main() -> None:
     runs_data: dict[str, list[dict]] = {}
-    runs_beam: dict[str, dict] = {}
     for label, run_dir, _, _ in RUNS:
         runs_data[run_dir] = load_run(run_dir)
-        beam = load_beam_capability(run_dir)
-        if beam is not None:
-            runs_beam[run_dir] = beam
-        print(
-            f"loaded {label}: {len(runs_data[run_dir])} eval records, "
-            f"beam_eval_focused: {'yes' if beam else 'no'}"
-        )
+        print(f"loaded {label}: {len(runs_data[run_dir])} eval records")
 
     hist_path = EXPERIMENT_DIR / "results" / "solve_histograms.json"
     if hist_path.exists():
@@ -841,25 +657,14 @@ def main() -> None:
   </p>
   {chart_pred_std_banded(runs_data)}
 
-  <h2>5. Beam capability (post-hoc, from <code>beam_eval_focused.json</code>)</h2>
-  <p class="note">
-    Beam(width=256) solve rates at the captured checkpoint(s). Two
-    panels: per V*-true depth (d=1..6, BFS oracle) and per walk-depth
-    (d=1..14). Live <code>solve_rate_dN</code> / <code>avg_solve_len_dN</code>
-    are intentionally NOT captured during 3x3 training — beam cost would
-    slow the training loop, per plan §P1c. The capability picture lives
-    here, post-hoc.
-  </p>
-  {chart_beam_capability(runs_beam)}
-
-  <h2>6. Solve-length histograms — placeholder</h2>
+  <h2>5. Solve-length histograms — placeholder</h2>
   <p class="note">
     _(post-hoc per-attempt histograms — TODO when
     <code>capture_solve_histograms.py</code> is extended for the 3x3
     schema. Section will populate once that capture pipeline lands.)_
   </p>
 
-  <h2>7. Per-run wavefront heatmap — placeholder</h2>
+  <h2>6. Per-run wavefront heatmap — placeholder</h2>
   <p class="note">
     _(per-run depth-step heatmap — TODO when there are ≥2 3x3 runs.
     With a single run the cross-run wavefront comparison is degenerate;
