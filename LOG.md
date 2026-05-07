@@ -4,6 +4,57 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-07 — Diagnostic: dense beam-eval over warm_continue collapse window ✅ done
+**Goal:** Resolve the open question from the prior block — *when* did capability begin eroding in the warm_continue run? The prior block beam-evaled at steps 20k/30k/50k/70k/90k/110k/120k. Step 20k (4k post-warm-start) was already at d=14=0.64 (down 14pp from full_train's 0.78). We don't yet know if the regression hit in the first 2k post-warm steps (Adam moments thrashing → catastrophic single-window destabilization) or built gradually across the early window. Beam-eval at steps 18k, 22k, 24k, 26k, 28k fills in the gap. Cheap (~25 min wall), self-contained, no codebase changes.
+**Milestone:** drive-by diagnostic following `1b1727f` (M8 phase 3)
+**Approach:** Branch `m8-warm-collapse-diagnostic` from main HEAD `1b1727f`. Run `scripts/post_run_beam_eval.py --checkpoint-steps "18000,22000,24000,26000,28000"` against the warm_continue run dir. The `--checkpoint-steps` flag's merge-mode appends to the existing trajectory JSON. Regenerate the analysis HTML. Pull the trajectory and judge.
+**Next:** Block closed; merging to main. Findings refine the prior block's "Adam thrashing" hypothesis.
+**In progress:**
+- Block opened. Branch `m8-warm-collapse-diagnostic` from main HEAD `1b1727f`.
+- **Beam-eval landed cleanly** (~25 min wall). Trajectory JSON merged via `--checkpoint-steps` accumulation logic; now contains 12 datapoints (steps 18k/20k/22k/24k/26k/28k/30k/50k/70k/90k/110k/120k).
+- **Full deep-tail trajectory at beam_width=256 (now with collapse-window detail in bold):**
+
+  | step | d=10 | d=11 | d=12 | d=13 | d=14 |
+  |---|---|---|---|---|---|
+  | full_train 16k (warm-start source) | 1.000 | 1.000 | 0.990 | 0.910 | 0.780 |
+  | **18k (+2k)** | **1.000** | **1.000** | **0.980** | **0.860** | **0.750** |
+  | 20k (+4k) | 1.000 | 1.000 | 0.980 | 0.900 | 0.640 |
+  | **22k (+6k)** | **1.000** | **1.000** | **0.990** | **0.850** | **0.650** |
+  | **24k (+8k)** | **1.000** | **0.990** | **0.990** | **0.860** | **0.690** |
+  | **26k (+10k)** | **1.000** | **1.000** | **0.990** | **0.900** | **0.700** |
+  | **28k (+12k)** | **1.000** | **1.000** | **1.000** | **0.920** | **0.620** |
+  | 30k (+14k) | 1.000 | 0.990 | 0.990 | 0.930 | 0.640 |
+  | 50k | 1.000 | 1.000 | 1.000 | 0.850 | 0.580 |
+  | 70k | 1.000 | 1.000 | 0.980 | 0.830 | 0.480 |
+  | 90k | 1.000 | 1.000 | 0.920 | 0.690 | 0.420 |
+  | 110k | 1.000 | 0.980 | 0.840 | 0.470 | 0.230 |
+  | 120k | 0.990 | 0.970 | 0.790 | 0.390 | 0.240 |
+
+- HTML regenerated at `experiments/davi-3x3/results/error_trajectories.html` (279 KB).
+
+**Outcome:**
+- **Headline: the original "Adam thrashing in the first 2k steps" hypothesis is REFUTED.** Step 18k (just 2k post-warm-start) shows d=14=0.75 — only 3pp below the baseline 0.78. d=13=0.86 (vs 0.91 baseline). Capability is *preserved* in the immediate post-warm-start window. The fresh-Adam + target_net=copy-of-model design distortion did NOT cause an instant catastrophe.
+- **Refined picture: collapse is a SLOW gradual drift that ACCELERATES with more training.** Three regimes visible in the trajectory:
+  1. **Steps 16k → 30k (early window, +14k steps):** d=14 oscillates in [0.62, 0.75] — within plausible n=100 eval-set variance (std error ~5pp at solve rate ≈ 0.7). Capability roughly preserved. d=13 actually peaks *above* baseline at step 30k (0.93 vs 0.91).
+  2. **Steps 30k → 70k (mid window, +40k steps):** slow erosion. d=14: 0.64 → 0.48. d=13: 0.93 → 0.83. About −0.4pp/1k steps at d=14.
+  3. **Steps 70k → 120k (late window, +50k steps):** accelerated collapse. d=14: 0.48 → 0.24. d=13: 0.83 → 0.39. About −0.5pp/1k steps at d=14, but the d=13 collapse is the dramatic one (−44pp in 50k steps).
+- **The acceleration in the late window suggests a phase transition, not steady-state drift.** Linear erosion would give a roughly constant rate; instead we see steepening. Plausibly the network is approaching some attractor where deep-tail ordering becomes unstable, and once the slope exceeds some threshold, the collapse compounds. Hypothesis (unverified): the Bellman bootstrap target itself drifts as the network drifts, creating a positive feedback loop that grows with training time. Confirming this would need: track per-V*-MAE drift across the same windows, and/or measure the L2 distance between value_net and target_net over training.
+- **Mechanism implication: it's NOT (just) the warm-start design distortion.** The first 2k post-warm steps preserved capability; the long erosion is what hurts. This means even a *full* resumability infra (preserved Adam moments + preserved target_net lag) likely wouldn't fully solve the problem if the underlying issue is "DAVI on a near-converged net at the same K_max drifts toward a worse attractor over long training." Resumability infra is still valuable (and still planned), but it may not be the silver bullet for the warm-continue regression.
+- **Decision recorded: the "warm-continue at the same K_max" experimental design itself appears to be the issue, not (just) the warm-start mechanics.** Possible better approaches to test next:
+  - Warm-continue with K_max RAISED (e.g. 16k checkpoint → continue at K_max=25 or 30) — the network would face a new training distribution, plausibly avoiding the drift-toward-degenerate-attractor failure mode
+  - Warm-continue with a higher learning rate decay schedule — slow the drift
+  - Cycle short bursts of training rather than one long run — re-evaluate beam capability mid-run, save the best-by-beam-eval checkpoint
+- **Decision recorded: the original full_train trajectory's d=14=0.78 at step 16k may be CLOSE TO A LOCAL MAXIMUM for K_max=20.** Continuing to train at K=20 from there appears to slowly (then quickly) erode it. To push past it, we likely need a curriculum bump (raise K_max), not just more steps.
+- **Decision recorded: full resumability infra remains a priority** but its scope is now framed as "needed to preserve training continuity for short multi-cycle runs," NOT "needed to fix the warm_continue collapse." The collapse is mostly a long-training-trajectory-at-fixed-K_max phenomenon, not an Adam-state phenomenon.
+- **Followups (notes for next block / backlog):**
+  - **Diagnostic: track L2 distance between value_net and target_net across the warm_continue training.** If the distance grows monotonically over the 100k steps and accelerates in the late window, that's evidence for the "feedback loop drift" mechanism. Cheap to compute post-hoc from saved checkpoints (the run dir has all 52 of them).
+  - **Diagnostic: per-V*-MAE trajectory at higher V*=k (k>6) using random-walk states with known V* upper bound**. Hard without the full V* oracle, but for V*≤6 we have the bounded oracle; we can reuse it to track whether shallow MAE drifts in lockstep with deep capability.
+  - **Next training experiment (HIGH-VALUE per the new analysis):** warm-continue from full_train net_final.pt with K_max raised to 25 or 30. Tests the "raise K_max to escape the local max" hypothesis. Single overnight run.
+  - **Resumability infra still on the bench** for the multi-cycle short-burst pattern.
+  - K=8 oracle expansion (existing backlog, priority unchanged).
+- **Drive-by:** none on this block. Tightly scoped diagnostic.
+**Commits:** `b981b59` (block open), `<this commit>` (Outcome).
+
 ## 2026-05-06 — Instrumentation cleanup + warm-start overnight rerun ✅ done — capability collapse
 **Goal:** Land four instrumentation fixes that emerged from today's full_train run, then kick off an overnight rerun that **warm-starts from today's `net_final.pt`** (step 16,000) and continues training. The full_train beam-eval revealed deep-d capability climbing monotonically through what `macro_v_star_mae` called a "regression" — d=14 went 0.59 → 0.78 across the steps macro called bad. Warm-starting from that checkpoint and running another ~100k steps tests whether the climb continues, plateaus, or inverts — the exact question early-stop terminated before answering. Same arch as today (`[5120, 1024] × 4 BN`), K_max=20 unchanged, no early-stop. Instrumentation fixes: (1) wandb panel namespacing into ~6 sections instead of one giant `eval/` blob, (2) zero-pad `dN` keys to `dNN` so wandb sorts them naturally instead of `d1, d10, d11, d12, d2, d3, ...`, (3) `wandb.define_metric("*", step_metric="step")` so future panels default to training-step on x-axis instead of wandb's `_step` log-call counter, (4) banded aggregate metrics (shallow d=1..5 / mid d=6..10 / deep d=11..14 means) alongside per-d keys for at-a-glance trend reads. Plus remove early-stop wiring (kept config fields for backwards compat).
 **Milestone:** drive-by + M8 phase 3 ([plan](plans/m8-3x3-davi.md))
