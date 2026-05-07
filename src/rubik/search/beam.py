@@ -101,6 +101,25 @@ correctness-preserving because every active row has either solved
 already (work won't change) or exceeded its budget (won't be
 credited as a solve regardless of further steps).
 
+**Row compaction (M8 C5b).** C5a still ran every per-step op
+(forward, dedup, topk) over the full ``(N, B*M, ...)`` shape even
+when most rows had finished. C5b carries an explicit
+``active_idx`` of shape ``(N_active,)`` and slices the beam tensor
+down to ``(N_active, B, S)`` each step. The forward batch is
+``N_active * B * M`` rather than ``N * B * M``, so a cell where rows
+finish on average at step 3 with beam_width=128 sees the per-step
+forward shrink to ~3% of the full shape by step 4, and the cell-wall
+collapses from "max_steps × full forward" to "Σ_step (n_active(step) ×
+forward)". The ``nonzero()`` to derive next-step active set is one
+host sync per step (same magnitude as C5a's ``.all().item()``).
+Done-row state is flushed to the global ``solved_at_step`` /
+``solved_flat_idx`` tensors before the row drops out; backpointers
+are recorded per-step keyed by scramble_idx so ``_walk_back`` looks
+up exactly the rows it needs at exactly the steps they were alive.
+The full ``(N, B, S)`` beam tensor is never materialized after
+step 0 — only ``active_beam`` exists, which is a strict subset of
+the rows that were alive at the start of search.
+
 **Per-state budgets (M8 C2).** ``max_steps_per_state`` is an optional
 ``(N,)`` int tensor letting each scramble set its own step budget. The
 loop runs ``int(max_steps_per_state.max())`` iterations; per-row solve
@@ -258,13 +277,12 @@ def _beam_solve_cross_batched(
     budget: torch.Tensor,
     device: torch.device,
 ) -> BeamSearchResult:
-    """All-N-at-once beam search. See ``beam_solve_batch`` for semantics."""
+    """All-active-N-at-once beam search. See ``beam_solve_batch`` for semantics."""
     initial_solved = is_solved(states, spec)  # (N,) bool
     solve_paths: list[list[int]] = [[] for _ in range(n)]
 
-    # Total iterations to run: max budget across rows, but never more than
-    # what any row could possibly need. The per-row gate at the end zeros
-    # out solves that landed past their own budget.
+    # Total iterations to run: max budget across rows. The per-row gate at
+    # the end zeros out solves that landed past their own budget.
     total_steps = int(budget.max().item()) if n > 0 else 0
 
     if total_steps == 0:
@@ -280,196 +298,148 @@ def _beam_solve_cross_batched(
             n_expansions=0,
         )
 
-    # Beam: (N, B, n_stickers). Start at B=1 (the input state per scramble).
-    beam_states = states.unsqueeze(1)  # (N, 1, n_stickers)
-    cur_beam = 1
-
-    # backpointers[step] is a list of length N; entry i is a list of
-    # ``(parent_slot, move_idx)`` tuples of length == cur_beam_at_that_step
-    # describing how each survivor at layer ``step`` arose from layer
-    # ``step - 1``. Layer 0 (the input root) has no entry. Path
-    # reconstruction walks layers in reverse.
-    backpointers: list[list[list[tuple[int, int]]]] = []
-
-    # First-solve tracking, fully on-device. ``solved_at_step[i]`` is the
-    # step_idx at which scramble i first emitted a goal-state child (-1 if
-    # never within ``total_steps``); ``solved_flat_idx[i]`` is the index of
-    # that child in the (cur_beam * n_moves) flat layout at that step.
-    # These are read once after the loop for path reconstruction — no
-    # per-step host transfer.
+    # First-solve tracking, fully on-device, full-N shape. Updated each
+    # step via scatter from the active subset; read once after the loop
+    # for path reconstruction.
     solved_at_step = torch.full((n,), -1, dtype=torch.int64, device=device)
     solved_flat_idx = torch.full((n,), -1, dtype=torch.int64, device=device)
 
-    # Per-step active-row count, accumulated as a 0-d tensor and read
-    # once at the end. A row is "active" at step k iff: it was not solved
-    # at input AND has not yet emitted a goal AND k is within its budget.
-    # This matches the pre-C1 semantics where pre-solved and already-solved
-    # rows did not contribute to ``n_expansions``.
-    active_steps_total = torch.zeros((), dtype=torch.int64, device=device)
+    # Active set: rows that are still being expanded. A row drops out the
+    # step it (a) emits goal or (b) exhausts its budget. Initial set
+    # excludes pre-solved rows and rows with budget=0.
+    initial_active_mask = (~initial_solved) & (budget > 0)  # (N,) bool
+    active_idx = initial_active_mask.nonzero(as_tuple=True)[0]  # (N_active,) int64
+    active_beam = states[active_idx].unsqueeze(1)  # (N_active, 1, S)
+    cur_beam = 1
 
-    # step_idx (0-indexed) tensor scratch, reused via fill_ to avoid
-    # rebuilding per step.
+    # Per-step backpointers, keyed by scramble_idx so ``_walk_back`` can
+    # look up exactly the rows it needs at exactly the steps they were
+    # alive. Each entry is a dict[int, list[tuple[parent_slot, move_idx]]]
+    # of length == n_active_at_that_step, with each list of length cur_beam.
+    backpointers: list[dict[int, list[tuple[int, int]]]] = []
+
+    # n_expansions accounting: rows-active * (1 or beam_width) * n_moves
+    # per step, accumulated as a Python int. Step 0 has cur_beam=1, later
+    # steps have cur_beam=beam_width.
+    n_expansions = 0
+
     step_tensor = torch.zeros((), dtype=torch.int64, device=device)
 
     for step_idx in range(total_steps):
+        n_active = int(active_idx.numel())
+        if n_active == 0:
+            break
+
         step_tensor.fill_(step_idx)
+        n_expansions += n_active * cur_beam * n_moves
 
-        # Expand: (N, B, S) -> apply_all_moves -> (N*B, n_moves, S),
-        # then reshape to per-scramble children.
-        flat_parents = beam_states.reshape(n * cur_beam, n_stickers)
-        children_full = apply_all_moves(flat_parents, spec)  # (N*B, n_moves, S)
-        children = children_full.reshape(n, cur_beam * n_moves, n_stickers)
-
-        # Active mask: not pre-solved, not yet emitted goal, within own budget.
-        # Accumulate count for n_expansions on-device.
-        is_within_budget = step_tensor < budget  # (N,) bool, broadcasts
-        is_active = (~initial_solved) & (solved_at_step == -1) & is_within_budget
-        active_steps_total = active_steps_total + is_active.sum()
-
-        # Score: one big net call.
-        flat_children = children.reshape(n * cur_beam * n_moves, n_stickers)
-        flat_v = net(flat_children).flatten()
-        child_v = flat_v.reshape(n, cur_beam * n_moves)
-
-        # Per-scramble first-solved tracking. ``solved_mask`` is
-        # (N, B*n_moves) bool. ``argmax`` on a bool tensor returns the index
-        # of the first True (or 0 if all False — gated below by
-        # ``any_solved``).
-        solved_mask = is_solved(flat_children, spec).reshape(n, cur_beam * n_moves)
-        any_solved = solved_mask.any(dim=1)  # (N,) bool
-        first_solved_in_layer = solved_mask.int().argmax(dim=1)  # (N,) int64
-
-        # Only record a first-solve if (1) this scramble has not yet been
-        # marked solved, and (2) any beam slot just emitted goal. Already
-        # pre-solved rows (initial_solved) are deliberately included here —
-        # they may "re-solve" later but their solve_len stays 0 via the
-        # final gate against ``initial_solved`` at the bottom.
-        is_first_solve_now = (solved_at_step == -1) & any_solved
-        solved_at_step = torch.where(
-            is_first_solve_now, step_tensor, solved_at_step
-        )
-        solved_flat_idx = torch.where(
-            is_first_solve_now, first_solved_in_layer, solved_flat_idx
-        )
-
-        # On-device hash, CPU dedup mask, on-device top-k (M8 C3 + C4).
-        # ``state_hash`` runs on-device. The per-step host transfer is
-        # ``(N, B*n_moves)`` int64 hashes — ``child_v`` stays on-device
-        # (no longer read on host as of C4). ``torch.unique`` on MPS is
-        # broken for full int64 (only low 32 bits compared), so the
-        # dedup runs on CPU; ``numpy.unique`` per row identifies the
-        # canonical (smallest-idx) representative of each hash class.
-        # The result is an ``is_winner`` boolean mask pushed back to
-        # GPU; ``torch.topk`` on the masked-with-+inf scores selects
-        # the ``beam_width`` survivors directly in ``(B*n_moves)`` flat
-        # layout — no per-row CPU sort, no host→device idx round-trip.
+        # Expand: (N_active, B, S) -> (N_active * B, n_moves, S) -> reshape.
+        flat_parents = active_beam.reshape(n_active * cur_beam, n_stickers)
+        children_full = apply_all_moves(flat_parents, spec)
         n_children_per_row = cur_beam * n_moves
-        children_for_hash = flat_children.reshape(n, n_children_per_row, n_stickers)
+        children = children_full.reshape(n_active, n_children_per_row, n_stickers)
+
+        # Score: net forward over only the active rows.
+        flat_children = children.reshape(
+            n_active * n_children_per_row, n_stickers
+        )
+        flat_v = net(flat_children).flatten()
+        child_v = flat_v.reshape(n_active, n_children_per_row)
+
+        # First-solved tracking on the active subset, then scatter back to
+        # the global tensors. ``argmax`` on bool returns the first True
+        # (or 0 if all False, gated by ``any_solved``).
+        solved_mask = is_solved(flat_children, spec).reshape(
+            n_active, n_children_per_row
+        )
+        any_solved = solved_mask.any(dim=1)  # (N_active,) bool
+        first_solved_in_layer = solved_mask.int().argmax(dim=1)  # (N_active,)
+        # Newly-solved active rows: never recorded (active rows always have
+        # solved_at_step==-1 at this point — once recorded they drop out).
+        if bool(any_solved.any().item()):
+            newly_solved_active = active_idx[any_solved]
+            # ``first_solved_in_layer`` indexes the (n_active, cur_beam*n_moves)
+            # layout. We want the same index but only for newly-solved rows.
+            solved_at_step[newly_solved_active] = step_tensor
+            solved_flat_idx[newly_solved_active] = first_solved_in_layer[
+                any_solved
+            ]
+
+        # On-device hash + CPU dedup mask + on-device topk. Same recipe as
+        # the pre-compaction loop, just on the (n_active, ...) shape.
+        children_for_hash = flat_children.reshape(
+            n_active, n_children_per_row, n_stickers
+        )
         hashes_cpu = state_hash(children_for_hash).detach().cpu().numpy()
 
-        # Per-row dedup → boolean mask of canonical-representative slots.
-        # A slot is a "winner" iff it holds the smallest within-row idx
-        # for its hash class. Non-winners are duplicates that should be
-        # dropped (their V is dominated by, or tied with, the winner).
-        is_winner_np = np.zeros((n, n_children_per_row), dtype=np.bool_)
-        for i in range(n):
+        is_winner_np = np.zeros((n_active, n_children_per_row), dtype=np.bool_)
+        for i in range(n_active):
             _unique_h, first_occurrence_idx = np.unique(
                 hashes_cpu[i], return_index=True
             )
             is_winner_np[i, first_occurrence_idx] = True
 
-        # Note on tiebreak vs C3: C3 used "smallest-idx winner among the
-        # min-V class members", which can differ from "smallest-idx in
-        # the class" when the smallest-idx class member happens to score
-        # higher than a sibling. Both rules are deterministic; this one
-        # is simpler (single np.unique call, no second scatter) and the
-        # difference only manifests when net(child) returns *exactly*
-        # the same V for two duplicate-by-hash states — vanishingly
-        # rare in practice for distinct cube states (which is the
-        # case we care about; same-state duplicates have identical V
-        # by definition of the net being deterministic).
-
         is_winner = torch.from_numpy(is_winner_np).to(device)
-
-        # Mask non-winners to +inf so torch.topk(largest=False) skips
-        # them. Survivors live in the ``beam_width`` smallest-V slots;
-        # if fewer than ``beam_width`` winners exist, the remainder is
-        # filled with +inf-valued slots — those point to real cube
-        # states (duplicates) that the next step's dedup collapses.
         inf_tensor = torch.full_like(child_v, float("inf"))
         dense_v = torch.where(is_winner, child_v, inf_tensor)
-        # ``next_flat_idxs[i, k]`` is the (B*n_moves) index of the
-        # k-th survivor for scramble i — used both as the gather index
-        # for the next beam tensor and (read once on host) as backpointer
-        # input for path reconstruction.
-        #
-        # Short-beam clamp: ``torch.topk`` requires ``k <= dim_size``.
-        # At step 0 with ``cur_beam=1`` and ``n_moves=12`` only 12
-        # children exist; if ``beam_width > 12`` we top-k all 12 and pad
-        # by repeating the first slot. The pad slots point to real
-        # children (duplicates of the smallest-V winner) and dedup
-        # naturally on the next step. Post-step-0 the fan-out is
-        # ``beam_width * n_moves`` which always exceeds ``beam_width``
-        # for ``n_moves >= 2``, so the clamp only ever fires at step 0.
+
+        # Short-beam clamp: torch.topk requires k <= dim_size. Step 0 has
+        # cur_beam=1 -> only n_moves children, so beam_width > n_moves
+        # needs padding (real-state duplicates that dedup natually next
+        # step, matching pre-compaction behavior).
         k_eff = min(beam_width, n_children_per_row)
         _topk_values, topk_idxs = torch.topk(
             dense_v, k=k_eff, largest=False, dim=1
         )
         if k_eff < beam_width:
-            pad = topk_idxs[:, :1].expand(n, beam_width - k_eff)
+            pad = topk_idxs[:, :1].expand(n_active, beam_width - k_eff)
             next_flat_idxs = torch.cat([topk_idxs, pad], dim=1)
         else:
             next_flat_idxs = topk_idxs
 
-        # Backpointers are still a Python list-of-lists structure indexed
-        # only at end-of-search for path reconstruction. One small
-        # ``(N, beam_width)`` int64 host transfer per step replaces the
-        # full per-row CPU work that built backpointers inline pre-C4.
+        # Record per-step backpointers keyed by scramble_idx — only the
+        # rows that were active at this step have entries. Path
+        # reconstruction looks up bp[step][scramble_idx] for each step
+        # in [0, solved_at_step[scramble]) and walks the chain.
         next_flat_idxs_cpu = next_flat_idxs.cpu().tolist()
-        layer_bp_per_scramble = [
-            [(j // n_moves, j % n_moves) for j in row] for row in next_flat_idxs_cpu
-        ]
-        backpointers.append(layer_bp_per_scramble)
+        active_idx_cpu = active_idx.cpu().tolist()
+        layer_bp: dict[int, list[tuple[int, int]]] = {
+            scr_i: [(j // n_moves, j % n_moves) for j in row]
+            for scr_i, row in zip(active_idx_cpu, next_flat_idxs_cpu)
+        }
+        backpointers.append(layer_bp)
 
-        # Gather the next beam: children[i, next_flat_idxs[i]] for each i.
-        # Use torch.gather across dim=1 with index broadcast over n_stickers.
-        gather_idx = next_flat_idxs.unsqueeze(-1).expand(n, beam_width, n_stickers)
-        beam_states = torch.gather(children, dim=1, index=gather_idx)
+        # Gather next beam for the active rows.
+        gather_idx = next_flat_idxs.unsqueeze(-1).expand(
+            n_active, beam_width, n_stickers
+        )
+        new_active_beam = torch.gather(children, dim=1, index=gather_idx)
         cur_beam = beam_width
 
-        # Smart early-exit (C5a): break when every scramble has either
-        # solved (``solved_at_step != -1``) or exhausted its budget
-        # (``next_step >= budget`` — the *next* iteration would not be
-        # credited as a solve). One ``.all().item()`` per step, ~1-5ms
-        # on MPS; payoff is the entire per-step forward for cells that
-        # converge before their budget. Note ``initial_solved`` rows
-        # are also marked done — their ``solved_at_step`` is set on the
-        # first step they emit goal (initial-solved rows trivially do at
-        # step 0, since ``apply_all_moves`` of the goal includes the
-        # goal among its 12 children for any QTM... actually, no: from
-        # solved state the 12 children are the 12 single-move neighbors,
-        # none of which are the goal. So ``initial_solved`` rows aren't
-        # marked done by ``solved_at_step != -1``, only by the budget
-        # branch. Including the explicit ``initial_solved`` term keeps
-        # the mask honest for max_steps=0 callers and shallow budgets.)
+        # Drop done rows from the active set. A row is "done" after this
+        # step if it just emitted goal or its next step would exceed
+        # budget. ``budget[active_idx]`` aligns the per-row budget vector
+        # to the active subset; the next-step gate is ``next_step >= b``.
         next_step = step_idx + 1
-        is_done = (
-            initial_solved
-            | (solved_at_step != -1)
-            | (next_step >= budget)
-        )
-        if bool(is_done.all().item()):
-            break
+        active_budget = budget[active_idx]
+        is_still_active = (~any_solved) & (next_step < active_budget)
+        # If nothing dropped, skip the gather; if all dropped, the empty
+        # tensors propagate fine and the next loop iter sees n_active=0.
+        if not bool(is_still_active.all().item()):
+            keep = is_still_active.nonzero(as_tuple=True)[0]
+            active_idx = active_idx[keep]
+            active_beam = new_active_beam[keep]
+        else:
+            active_beam = new_active_beam
 
-    # Single host transfer for path reconstruction. The on-device tensors
-    # live unchanged for callers reading ``solve_lens`` afterward.
+    # Single host transfer for path reconstruction.
     solved_step_per = solved_at_step.cpu().tolist()
     solved_flat_per = solved_flat_idx.cpu().tolist()
     budget_cpu = budget.cpu().tolist()
     initial_solved_cpu = initial_solved.cpu().tolist()
 
     # Final solve_lens: pre-solved rows -> 0; first-solve within budget ->
-    # solved_at_step + 1 moves; otherwise -1. Built on-device via where.
+    # solved_at_step + 1 moves; otherwise -1.
     solved_within_budget = (solved_at_step != -1) & (solved_at_step < budget)
     solve_lens = torch.where(
         initial_solved,
@@ -495,19 +465,6 @@ def _beam_solve_cross_batched(
         path.append(move_idx)
         solve_paths[i] = path
 
-    # ``n_expansions`` semantics: per-row, count children expanded only for
-    # steps where the row was actively solving (not pre-solved at input,
-    # not yet emitted goal, within own budget). Each row-step expansion
-    # produces ``cur_beam_at_that_step * n_moves`` children, where
-    # ``cur_beam`` is 1 at step 0 and ``beam_width`` thereafter. We split
-    # the accumulated active-row-step count into the two branches:
-    n_step0_active = int(((~initial_solved) & (budget > 0)).sum().item())
-    total_active_rowsteps = int(active_steps_total.item())
-    n_later_rowsteps = total_active_rowsteps - n_step0_active
-    n_expansions = (
-        n_step0_active * n_moves + n_later_rowsteps * beam_width * n_moves
-    )
-
     return BeamSearchResult(
         solve_lens=solve_lens,
         solve_paths=solve_paths,
@@ -516,7 +473,7 @@ def _beam_solve_cross_batched(
 
 
 def _walk_back(
-    backpointers: list[list[list[tuple[int, int]]]],
+    backpointers: list[dict[int, list[tuple[int, int]]]],
     final_parent_slot: int,
     *,
     scramble_idx: int,
@@ -527,6 +484,12 @@ def _walk_back(
     Walks layers ``[0, up_to_step)`` in reverse — the layer ``up_to_step``
     is the one where the goal state was emitted, and that move is appended
     by the caller after ``_walk_back`` returns.
+
+    Each step's backpointer dict only contains entries for scrambles that
+    were active at that step. Scramble ``scramble_idx`` is guaranteed to
+    be present at every layer in ``[0, up_to_step)`` because rows only
+    drop out when they finish; if a scramble solved at step ``up_to_step``
+    it was active at all earlier steps.
     """
     path: list[int] = []
     cur = final_parent_slot
