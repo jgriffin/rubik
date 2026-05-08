@@ -1,0 +1,65 @@
+# Pre-flight smoke config — 3x3 DAVI with LayerNorm + flat K_max=30.
+#
+# Purpose: validate the new training pipeline end-to-end before
+# committing to a real ~3h fresh run with this same config. Specifically:
+#   1. The provenance bundle saves cleanly (wall_time_seconds and
+#      wandb_run_id appear in each .pt) and eval consumers read step
+#      from the dict.
+#   2. LayerNorm + K_max=30 from random init does not crash, NaN, or
+#      blow up loss — neither change is exotic, but they haven't been
+#      run together on this codebase.
+#   3. Trajectory eval over 20 checkpoints renders cleanly under the
+#      new config schema.
+#
+# Capability is NOT the bar. "Files exist, eval reads them, plots look
+# sensible" is the bar. Expected outcome: macro_v_star_mae decreases
+# from random-init baseline; deep-V* solve rates stay near zero (only
+# 10k steps; full_train hit d=14=0.78 at step 16k under K_max=20+bn
+# but with much heavier curriculum exposure — no expectation of parity
+# here).
+#
+# Architecture: same as full_train.yaml (5120/1024 x 4 blocks). Only
+# `normalization` differs.
+#
+# Scrambles: flat K_max=30 from step 0. No curriculum
+# (`max_scramble_depth_ramp_steps: 0`) per the project's "earn every
+# hyperparameter" stance — curriculum scheduling is unproven on 3x3
+# and adds confound when isolating LN's effect.
+#
+# Recommended invocation:
+#   uv run python experiments/davi-3x3/run.py \
+#     --config experiments/davi-3x3/configs/smoke_ln_kmax30.yaml \
+#     --no-wandb
+#
+# Estimated wall: ~40-50 min on M4 Max at ~235 ms/step (matches smoke.yaml
+# pace; LN may shift slightly but not order-of-magnitude).
+
+max_scramble_depth: 30
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
+
+batch_size: 4096
+n_steps: 10000
+learning_rate: 0.001
+target_sync_interval: 500
+
+body_widths:
+  - 5120
+  - 1024
+n_residual_blocks: 4
+normalization: ln
+
+log_every: 100
+eval_every: 500
+checkpoint_every: 500
+seed: 0
+device: mps
+
+# Early-stop wiring was removed 2026-05-06 (macro_v_star_mae is the
+# wrong signal at K_max >> K_oracle=6). Field kept for schema parity
+# but silently ignored by run.py. Setting to false here for clarity.
+early_stop_enabled: false
+early_stop_metric: macro_v_star_mae
+early_stop_patience_evals: 12
+early_stop_min_evals: 4
+early_stop_min_delta: 0.001
