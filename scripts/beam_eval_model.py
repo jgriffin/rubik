@@ -380,19 +380,44 @@ def main(argv: list[str] | None = None) -> int:
     if not model_path.exists():
         raise FileNotFoundError(f"model not found: {model_path}")
 
+    training_config_path = _resolve_training_config(model_path)
+    training_config = DAVIConfig.from_yaml(training_config_path)
+    device = torch.device(args.device or training_config.device)
+
+    # Resolve the eval YAML first so we can clamp against its schedule
+    # length. Single-checkpoint mode has no metrics.jsonl context, so
+    # the training-depth source is the sibling config.yaml only.
     eval_cfg = EvalConfig.resolve(args.config)
+    yaml_max_depth = eval_cfg.max_depth
+
+    # Auto-derive eval max_depth as min(yaml_max_depth, training_max_depth).
+    # Never extends past the YAML schedule (no sample counts there) and
+    # never extends past the training depth (deeper rows would be vacuous).
+    train_kmax = int(training_config.max_scramble_depth)
+    if args.max_depth is None:
+        effective_max_depth = min(yaml_max_depth, train_kmax)
+        print(
+            f"auto-derived max_depth={effective_max_depth} "
+            f"(yaml={yaml_max_depth}, training={train_kmax}, "
+            f"source=config.yaml)",
+            flush=True,
+        )
+    else:
+        effective_max_depth = int(args.max_depth)
+        print(
+            f"--max-depth={effective_max_depth} override "
+            f"(yaml={yaml_max_depth}, training K_max={train_kmax})",
+            flush=True,
+        )
+
     eval_cfg = eval_cfg.with_overrides(
         beam_width=args.width,
         precision=args.precision,
         seed=args.seed,
         include_v_star=True if args.include_v_star else None,
-        max_depth=args.max_depth,
+        max_depth=effective_max_depth,
         render_html=args.render_html,
     )
-
-    training_config_path = _resolve_training_config(model_path)
-    training_config = DAVIConfig.from_yaml(training_config_path)
-    device = torch.device(args.device or training_config.device)
 
     payload = evaluate_checkpoint(
         model_path=model_path,

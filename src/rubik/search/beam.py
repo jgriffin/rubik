@@ -340,9 +340,7 @@ def _beam_solve_cross_batched(
         children = children_full.reshape(n_active, n_children_per_row, n_stickers)
 
         # Score: net forward over only the active rows.
-        flat_children = children.reshape(
-            n_active * n_children_per_row, n_stickers
-        )
+        flat_children = children.reshape(n_active * n_children_per_row, n_stickers)
         flat_v = net(flat_children).flatten()
         child_v = flat_v.reshape(n_active, n_children_per_row)
 
@@ -361,9 +359,7 @@ def _beam_solve_cross_batched(
             # ``first_solved_in_layer`` indexes the (n_active, cur_beam*n_moves)
             # layout. We want the same index but only for newly-solved rows.
             solved_at_step[newly_solved_active] = step_tensor
-            solved_flat_idx[newly_solved_active] = first_solved_in_layer[
-                any_solved
-            ]
+            solved_flat_idx[newly_solved_active] = first_solved_in_layer[any_solved]
 
         # On-device hash + CPU dedup mask + on-device topk. Same recipe as
         # the pre-compaction loop, just on the (n_active, ...) shape.
@@ -388,9 +384,7 @@ def _beam_solve_cross_batched(
         # needs padding (real-state duplicates that dedup natually next
         # step, matching pre-compaction behavior).
         k_eff = min(beam_width, n_children_per_row)
-        _topk_values, topk_idxs = torch.topk(
-            dense_v, k=k_eff, largest=False, dim=1
-        )
+        _topk_values, topk_idxs = torch.topk(dense_v, k=k_eff, largest=False, dim=1)
         if k_eff < beam_width:
             pad = topk_idxs[:, :1].expand(n_active, beam_width - k_eff)
             next_flat_idxs = torch.cat([topk_idxs, pad], dim=1)
@@ -405,9 +399,7 @@ def _beam_solve_cross_batched(
         active_idx_cpu = active_idx.cpu().tolist()
         layer_bp: dict[int, list[tuple[int, int]]] = {
             scr_i: [(j // n_moves, j % n_moves) for j in row]
-            for scr_i, row in zip(
-                active_idx_cpu, next_flat_idxs_cpu, strict=True
-            )
+            for scr_i, row in zip(active_idx_cpu, next_flat_idxs_cpu, strict=True)
         }
         backpointers.append(layer_bp)
 

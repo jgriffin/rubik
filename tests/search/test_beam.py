@@ -347,9 +347,7 @@ def test_beam_solve_batch_per_state_max_steps():
     )
 
     # Sanity: with uniform max_steps=5 both should solve in 3 moves.
-    uniform = beam_solve_batch(
-        net, CUBE_2X2, states, beam_width=4, max_steps=5
-    )
+    uniform = beam_solve_batch(net, CUBE_2X2, states, beam_width=4, max_steps=5)
     assert uniform.solve_lens.tolist() == [3, 3]
 
     # With per-state budgets [2, 5]: row 0 cannot solve in 2 steps (V*=3),
@@ -402,15 +400,9 @@ def test_beam_solve_batch_n_invariant_to_split():
     states = torch.cat([solved] + parts, dim=0)
     assert states.shape[0] == 102
 
-    full = beam_solve_batch(
-        net, CUBE_2X2, states, beam_width=4, max_steps=8
-    )
-    head = beam_solve_batch(
-        net, CUBE_2X2, states[:50], beam_width=4, max_steps=8
-    )
-    tail = beam_solve_batch(
-        net, CUBE_2X2, states[50:], beam_width=4, max_steps=8
-    )
+    full = beam_solve_batch(net, CUBE_2X2, states, beam_width=4, max_steps=8)
+    head = beam_solve_batch(net, CUBE_2X2, states[:50], beam_width=4, max_steps=8)
+    tail = beam_solve_batch(net, CUBE_2X2, states[50:], beam_width=4, max_steps=8)
 
     split_lens = torch.cat([head.solve_lens, tail.solve_lens])
     assert split_lens.tolist() == full.solve_lens.tolist(), (

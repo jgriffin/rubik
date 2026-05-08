@@ -31,7 +31,14 @@ SCRIPT = REPO_ROOT / "scripts" / "beam_eval_model.py"
 
 
 def _tiny_config_kwargs() -> dict:
-    """Minimal valid DAVIConfig kwargs — every field is required (no defaults)."""
+    """Minimal valid DAVIConfig kwargs — every field is required (no defaults).
+
+    ``max_scramble_depth=14`` matches the legacy default. Under the
+    min(yaml, training) auto-derive semantics, eval depth caps at the
+    YAML schedule length, so the tiny eval config's length-3 schedule
+    produces 3 walk depths. Tests that need to exercise auto-derive at
+    a different effective depth override this kwarg.
+    """
     return {
         "max_scramble_depth": 14,
         "max_scramble_depth_initial": 0,
@@ -367,22 +374,79 @@ def test_beam_eval_model_max_depth_slices_schedule(
 def test_beam_eval_model_max_depth_too_large_errors(
     tiny_run, tiny_eval_config, tmp_path
 ):
-    """``--max-depth N`` where N > schedule length → nonzero exit + clear msg."""
+    """``--max-depth N`` where N > schedule length → ValueError.
+
+    Under min(yaml, training) auto-derive semantics, callers without
+    --max-depth pre-clamp against the YAML length. Explicit
+    --max-depth N past the schedule has no sample-count entries; we
+    refuse rather than invent values.
+    """
     out_path = tmp_path / "out.json"
     result = _run_script(
         str(tiny_run["checkpoint"]),
         "--config",
         str(tiny_eval_config),
         "--max-depth",
-        "10",  # schedule has 3
+        "5",  # schedule has 3 entries
         "--device",
         "cpu",
         "--output-json",
         str(out_path),
     )
     assert result.returncode != 0
-    combined = (result.stdout + result.stderr).lower()
-    assert "max_depth" in combined or "max-depth" in combined
+    assert "exceeds n_per_depth schedule" in (result.stdout + result.stderr)
+
+
+def test_beam_eval_model_auto_derive_min_training_lt_yaml(tmp_path):
+    """Single-checkpoint auto-derive: training=2 < yaml=3 → effective=2."""
+    run_dir = tmp_path / "tiny-run"
+    run_dir.mkdir()
+    cfg = _tiny_config_kwargs()
+    cfg["max_scramble_depth"] = 2
+    (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    net = ValueNet(
+        CUBE_3X3,
+        body_widths=tuple(cfg["body_widths"]),
+        n_residual_blocks=cfg["n_residual_blocks"],
+        normalization=cfg["normalization"],
+    )
+    net.eval()
+    ckpt_path = run_dir / "net_final.pt"
+    torch.save({"net_state": net.state_dict()}, ckpt_path)
+
+    eval_cfg_path = tmp_path / "tiny_eval.yaml"
+    eval_cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "description": "tiny",
+                "n_per_depth": [4, 4, 4],
+                "beam_width": 4,
+                "precision": "fp32",
+                "seed": 0,
+            },
+            sort_keys=False,
+        )
+    )
+
+    out_path = tmp_path / "out.json"
+    result = _run_script(
+        str(ckpt_path),
+        "--config",
+        str(eval_cfg_path),
+        "--device",
+        "cpu",
+        "--output-json",
+        str(out_path),
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "auto-derived max_depth=2" in log
+    assert "yaml=3" in log and "training=2" in log
+    assert "source=config.yaml" in log
+    payload = json.loads(out_path.read_text())
+    assert payload["max_depth"] == 2
+    assert len(payload["per_walk_depth"]) == 2
 
 
 def test_beam_eval_model_unknown_config_errors(tiny_run, tmp_path):

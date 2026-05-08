@@ -13,6 +13,7 @@ Tests use a tiny CPU ValueNet so they run in seconds.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,12 @@ SCRIPT = REPO_ROOT / "scripts" / "beam_eval_run.py"
 
 
 def _tiny_config_kwargs() -> dict:
+    # max_scramble_depth=14 was the legacy default. Under the new
+    # min(yaml, training) semantics, auto-derive caps the eval depth at
+    # the YAML schedule's length, so the tiny eval config's length-2
+    # schedule still produces 2 walk depths regardless of training depth.
+    # Tests that need to exercise auto-derive at a different effective
+    # depth override this kwarg.
     return {
         "max_scramble_depth": 14,
         "max_scramble_depth_initial": 0,
@@ -210,12 +217,15 @@ def test_jsonl_records_are_flat_schema(tiny_run_dir, tiny_eval_config_yaml):
     assert len(payload["per_walk_depth"]) == 2
 
 
-def test_rerun_merges_and_dedups_by_step(tiny_run_dir, tiny_eval_config_yaml):
-    """Two evals against the same JSONL: union of steps; later run wins overlaps.
+def test_rerun_with_force_backs_up_and_starts_fresh(
+    tiny_run_dir, tiny_eval_config_yaml
+):
+    """``--force`` always backs up the existing JSONL and starts from empty.
 
-    Run 1 with ``--steps "10,20"`` → records at {10, 20}. Run 2 with
-    ``--steps "20,30"`` → records at {10, 20, 30}, with the run-2 payload
-    at step 20 (the new one replaces the old).
+    Run 1 with ``--steps "10,20"`` → records at {10, 20} in the primary file.
+    Run 2 with ``--steps "20,30" --force`` → primary contains ONLY {20, 30}
+    (the new run's records). The pre-existing JSONL is preserved untouched
+    in a ``.bak.<UTC-timestamp>`` sibling so prior data is never lost.
     """
     rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
 
@@ -233,9 +243,11 @@ def test_rerun_merges_and_dedups_by_step(tiny_run_dir, tiny_eval_config_yaml):
     records_1 = _read_jsonl(rollup)
     assert sorted(r["step"] for r in records_1) == [10, 20]
     step20_run1 = next(r for r in records_1 if r["step"] == 20)
+    pre_text = rollup.read_text()
 
-    # Run 2: steps {20, 30} — should merge with run 1's step-10 record
-    # and overwrite step-20.
+    # Run 2: steps {20, 30} with --force — backs up run 1's file and
+    # starts with an empty merge state, so the primary post-run reflects
+    # ONLY the run-2 evaluations.
     r2 = _run_script(
         str(tiny_run_dir),
         "--config",
@@ -244,6 +256,7 @@ def test_rerun_merges_and_dedups_by_step(tiny_run_dir, tiny_eval_config_yaml):
         "cpu",
         "--steps",
         "20,30",
+        "--force",
         # Different seed → different solve_rate values, so we can detect
         # which run's payload survived for step 20.
         "--seed",
@@ -252,15 +265,19 @@ def test_rerun_merges_and_dedups_by_step(tiny_run_dir, tiny_eval_config_yaml):
     assert r2.returncode == 0, r2.stderr
     records_2 = _read_jsonl(rollup)
     steps = sorted(r["step"] for r in records_2)
-    assert steps == [10, 20, 30]
-    # Run-2 step-20 payload should replace run-1's. Seed shows up
-    # explicitly in the payload as a witness for "which run wrote this".
+    assert steps == [20, 30]
+    # Run-2 step-20 payload carries the run-2 seed.
     step20_run2 = next(r for r in records_2 if r["step"] == 20)
     assert step20_run2.get("seed") == 12345
     assert step20_run1.get("seed") != 12345
-    # Run-1's step-10 record persisted unchanged.
-    step10 = next(r for r in records_2 if r["step"] == 10)
-    assert step10.get("seed") == step20_run1.get("seed")
+
+    # Run 1's full JSONL — including the step-10 record — survives in
+    # the timestamped backup.
+    backups = sorted(rollup.parent.glob("beam_eval_tiny.jsonl.bak.*"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == pre_text
+    backup_records = _read_jsonl(backups[0])
+    assert sorted(r["step"] for r in backup_records) == [10, 20]
 
 
 # ---------------------------------------------------------------------------
@@ -268,15 +285,15 @@ def test_rerun_merges_and_dedups_by_step(tiny_run_dir, tiny_eval_config_yaml):
 # ---------------------------------------------------------------------------
 
 
-def test_every_steps_filter(tiny_run_dir, tiny_eval_config_yaml):
-    """``--every-steps 20`` keeps step_20 + net_final (but skips step_10, step_30)."""
+def test_stride_filter(tiny_run_dir, tiny_eval_config_yaml):
+    """``--stride 20`` keeps step_20 + net_final (but skips step_10, step_30)."""
     result = _run_script(
         str(tiny_run_dir),
         "--config",
         str(tiny_eval_config_yaml),
         "--device",
         "cpu",
-        "--every-steps",
+        "--stride",
         "20",
     )
     assert result.returncode == 0, result.stderr
@@ -305,19 +322,136 @@ def test_steps_csv_filter(tiny_run_dir, tiny_eval_config_yaml):
     assert steps == [10, 40]
 
 
-def test_every_steps_and_steps_mutually_exclusive(tiny_run_dir, tiny_eval_config_yaml):
+def test_stride_and_steps_mutually_exclusive(tiny_run_dir, tiny_eval_config_yaml):
     """argparse rejects passing both filters."""
     result = _run_script(
         str(tiny_run_dir),
         "--config",
         str(tiny_eval_config_yaml),
-        "--every-steps",
+        "--stride",
         "10",
         "--steps",
         "10",
     )
     assert result.returncode != 0
     assert "not allowed with" in (result.stderr + result.stdout)
+
+
+def test_ensure_skips_existing_step(tiny_run_dir, tiny_eval_config_yaml):
+    """Pre-populated JSONL → only missing checkpoints are evaluated."""
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    rollup.parent.mkdir(parents=True, exist_ok=True)
+    # Seed step=20 with a sentinel record. Ensure-by-default should
+    # preserve it untouched.
+    sentinel = {"step": 20, "sentinel": "preexisting"}
+    rollup.write_text(json.dumps(sentinel) + "\n")
+
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    # The skip line names the existing step.
+    assert "skipping step=20" in log
+
+    records = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in records)
+    # step_10, step_30, net_final (step=40) get evaluated; step=20 is
+    # preserved as the sentinel record.
+    assert steps == [10, 20, 30, 40]
+    step20 = next(r for r in records if r["step"] == 20)
+    assert step20.get("sentinel") == "preexisting"
+    # Newly-evaluated records carry the full payload schema.
+    step10 = next(r for r in records if r["step"] == 10)
+    assert "per_walk_depth" in step10
+
+
+def test_force_recomputes_existing(tiny_run_dir, tiny_eval_config_yaml):
+    """``--force`` recomputes every selected checkpoint, replacing existing rows."""
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    rollup.parent.mkdir(parents=True, exist_ok=True)
+    sentinel = {"step": 20, "sentinel": "preexisting"}
+    rollup.write_text(json.dumps(sentinel) + "\n")
+
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+        "--force",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    # No skip lines under --force.
+    assert "skipping step=" not in log
+
+    records = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in records)
+    assert steps == [10, 20, 30, 40]
+    step20 = next(r for r in records if r["step"] == 20)
+    # The sentinel was overwritten with a real eval payload.
+    assert "sentinel" not in step20
+    assert "per_walk_depth" in step20
+
+
+def test_traversal_order_largest_first(tiny_run_dir, tiny_eval_config_yaml):
+    """``evaluating ...`` log lines appear in descending step order."""
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+
+    # Pull out the order of "evaluating <name>" lines.
+    eval_lines = [line for line in log.splitlines() if line.startswith("evaluating ")]
+    # Expect 4 evaluations: net_final.pt, then step_30, step_20, step_10.
+    assert len(eval_lines) == 4
+    # net_final.pt should be first (largest step = 40).
+    assert "net_final.pt" in eval_lines[0]
+    # The remaining order is descending net_step_*.pt by step.
+    assert "net_step_30.pt" in eval_lines[1]
+    assert "net_step_20.pt" in eval_lines[2]
+    assert "net_step_10.pt" in eval_lines[3]
+
+
+def test_jsonl_flushed_per_checkpoint(tiny_run_dir, tiny_eval_config_yaml):
+    """Each checkpoint completion writes the rollup so partial runs persist.
+
+    Critical for the largest-first workflow: if the user kills mid-run,
+    the most-trained checkpoints (evaluated first) must already be on
+    disk. Verified by the per-checkpoint ``... record(s) flushed`` log
+    line emitted after each successful eval.
+    """
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+
+    # Each evaluated checkpoint should print a "N record(s) flushed" line
+    # with N strictly increasing (1, 2, 3, 4) — proves per-checkpoint
+    # write rather than buffer-and-flush-at-end.
+    flush_counts: list[int] = []
+    for line in log.splitlines():
+        match = re.search(r"(\d+) record\(s\) flushed", line)
+        if match:
+            flush_counts.append(int(match.group(1)))
+    assert flush_counts == [1, 2, 3, 4], (
+        f"expected per-checkpoint flushes [1,2,3,4]; got {flush_counts}"
+    )
 
 
 def test_steps_csv_unknown_step_errors(tiny_run_dir, tiny_eval_config_yaml):
@@ -406,6 +540,201 @@ def test_legacy_bare_state_dict_falls_back_to_filename(tmp_path, tiny_eval_confi
     assert payload["checkpoint_step"] is None
 
 
+# ---------------------------------------------------------------------------
+# Auto-derive eval max_depth = min(yaml_max_depth, training_max_depth)
+# ---------------------------------------------------------------------------
+
+
+def _write_eval_yaml(path: Path, *, length: int) -> None:
+    """Write a minimal eval YAML with ``n_per_depth`` of the given length."""
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "description": "tiny",
+                "n_per_depth": [4] * length,
+                "beam_width": 4,
+                "precision": "fp32",
+                "seed": 0,
+            },
+            sort_keys=False,
+        )
+    )
+
+
+def _write_run_dir(
+    run_dir: Path,
+    *,
+    training_max_depth: int,
+    metrics_max_depth: int | None = None,
+) -> None:
+    """Build a tiny run dir with a single net_step_10 checkpoint.
+
+    ``metrics_max_depth`` controls whether (and what) ``run_start`` event
+    is written. ``None`` means no metrics.jsonl at all (config.yaml is
+    the only training-depth source).
+    """
+    run_dir.mkdir()
+    cfg = _tiny_config_kwargs()
+    cfg["max_scramble_depth"] = training_max_depth
+    (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    net = _make_tiny_net()
+    torch.save({"net_state": net.state_dict()}, run_dir / "net_step_10.pt")
+
+    if metrics_max_depth is not None:
+        run_start = {
+            "event": "run_start",
+            "max_scramble_depth": int(metrics_max_depth),
+        }
+        (run_dir / "metrics.jsonl").write_text(json.dumps(run_start) + "\n")
+
+
+def test_auto_derive_min_yaml_lt_training(tmp_path):
+    """yaml_len=2 < training=14 → effective=2 (yaml caps)."""
+    run_dir = tmp_path / "yaml-lt-training"
+    _write_run_dir(run_dir, training_max_depth=14, metrics_max_depth=14)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=2)
+
+    result = _run_script(
+        str(run_dir), "--config", str(eval_cfg_path), "--device", "cpu"
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "auto-derived max_depth=2" in log
+    assert "yaml=2" in log and "training=14" in log
+    assert "source=metrics.jsonl" in log
+
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    payload = _read_jsonl(rollup)[0]
+    assert payload["max_depth"] == 2
+    assert len(payload["per_walk_depth"]) == 2
+
+
+def test_auto_derive_min_training_lt_yaml(tmp_path):
+    """training=2 < yaml_len=4 → effective=2 (training caps)."""
+    run_dir = tmp_path / "training-lt-yaml"
+    _write_run_dir(run_dir, training_max_depth=2, metrics_max_depth=2)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=4)
+
+    result = _run_script(
+        str(run_dir), "--config", str(eval_cfg_path), "--device", "cpu"
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "auto-derived max_depth=2" in log
+    assert "yaml=4" in log and "training=2" in log
+
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    payload = _read_jsonl(rollup)[0]
+    assert payload["max_depth"] == 2
+    assert len(payload["per_walk_depth"]) == 2
+
+
+def test_auto_derive_min_yaml_eq_training(tmp_path):
+    """yaml_len == training → effective equals both."""
+    run_dir = tmp_path / "yaml-eq-training"
+    _write_run_dir(run_dir, training_max_depth=3, metrics_max_depth=3)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=3)
+
+    result = _run_script(
+        str(run_dir), "--config", str(eval_cfg_path), "--device", "cpu"
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "auto-derived max_depth=3" in log
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    payload = _read_jsonl(rollup)[0]
+    assert payload["max_depth"] == 3
+    assert len(payload["per_walk_depth"]) == 3
+
+
+def test_explicit_max_depth_wins_no_min_applied(tmp_path):
+    """``--max-depth N`` bypasses the min() — user is asserting they know."""
+    run_dir = tmp_path / "explicit-override"
+    _write_run_dir(run_dir, training_max_depth=4, metrics_max_depth=4)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=4)
+
+    # --max-depth=2 < both yaml(4) and training(4): respected verbatim.
+    result = _run_script(
+        str(run_dir),
+        "--config",
+        str(eval_cfg_path),
+        "--device",
+        "cpu",
+        "--max-depth",
+        "2",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "--max-depth=2 override" in log
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    payload = _read_jsonl(rollup)[0]
+    assert payload["max_depth"] == 2
+    assert len(payload["per_walk_depth"]) == 2
+
+
+def test_explicit_max_depth_past_yaml_errors(tmp_path):
+    """``--max-depth N`` > yaml length errors — no schedule for those depths."""
+    run_dir = tmp_path / "explicit-past-yaml"
+    _write_run_dir(run_dir, training_max_depth=14, metrics_max_depth=14)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=2)
+
+    result = _run_script(
+        str(run_dir),
+        "--config",
+        str(eval_cfg_path),
+        "--device",
+        "cpu",
+        "--max-depth",
+        "10",
+    )
+    assert result.returncode != 0
+    assert "exceeds n_per_depth schedule" in (result.stdout + result.stderr)
+
+
+def test_auto_derive_prefers_metrics_over_config(tmp_path):
+    """When metrics.jsonl run_start and config.yaml disagree, metrics wins."""
+    run_dir = tmp_path / "source-pref"
+    # config.yaml says 4, metrics.jsonl says 2 → effective should reflect 2.
+    _write_run_dir(run_dir, training_max_depth=4, metrics_max_depth=2)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=10)
+
+    result = _run_script(
+        str(run_dir), "--config", str(eval_cfg_path), "--device", "cpu"
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    # metrics.jsonl's value=2 is what's used (not config.yaml's 4).
+    assert "auto-derived max_depth=2" in log
+    assert "training=2" in log
+    assert "source=metrics.jsonl" in log
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    payload = _read_jsonl(rollup)[0]
+    assert payload["max_depth"] == 2
+
+
+def test_auto_derive_falls_back_to_config_yaml_when_metrics_absent(tmp_path):
+    """No metrics.jsonl → config.yaml is the training-depth source."""
+    run_dir = tmp_path / "no-metrics"
+    _write_run_dir(run_dir, training_max_depth=2, metrics_max_depth=None)
+    eval_cfg_path = tmp_path / "tiny.yaml"
+    _write_eval_yaml(eval_cfg_path, length=10)
+
+    result = _run_script(
+        str(run_dir), "--config", str(eval_cfg_path), "--device", "cpu"
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "auto-derived max_depth=2" in log
+    assert "source=config.yaml" in log
+
+
 def test_no_post_run_beam_eval_json_when_checkpoints_present(
     tiny_run_dir, tiny_eval_config_yaml
 ):
@@ -425,3 +754,224 @@ def test_no_post_run_beam_eval_json_when_checkpoints_present(
     # And the new rollup IS written.
     rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
     assert rollup.exists()
+
+
+# ---------------------------------------------------------------------------
+# Schema / signature check on existing JSONL
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_record(
+    *,
+    step: int,
+    max_depth: int,
+    n_per_depth: list[int],
+    beam_width: int,
+    precision: str,
+    seed: int,
+) -> dict:
+    """Build a JSONL record carrying the signature fields used by the schema check.
+
+    Mirrors the production payload's top-level fields without running the
+    real eval — the runner's signature check only inspects the five fields
+    enumerated in ``_SIGNATURE_FIELDS``, so other keys are unnecessary.
+    """
+    return {
+        "step": step,
+        "max_depth": max_depth,
+        "n_per_depth": n_per_depth,
+        "beam_width": beam_width,
+        "precision": precision,
+        "seed": seed,
+        "synthetic": True,
+    }
+
+
+def test_schema_mismatch_errors_without_force(tiny_run_dir, tiny_eval_config_yaml):
+    """Existing JSONL with a different ``n_per_depth`` than the current invocation
+    raises (non-zero exit + actionable error message). The tiny eval config
+    produces ``n_per_depth=(4, 4)``; the synthetic uses ``[1, 1]``.
+    """
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    rollup.parent.mkdir(parents=True, exist_ok=True)
+    pre = _synthetic_record(
+        step=20,
+        max_depth=2,
+        n_per_depth=[1, 1],  # mismatches tiny config's [4, 4]
+        beam_width=4,
+        precision="fp32",
+        seed=0,
+    )
+    rollup.write_text(json.dumps(pre) + "\n")
+
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode != 0
+    err = result.stderr + result.stdout
+    assert "different config" in err
+    # The actionable hints from the error message surface in stderr.
+    assert "--force" in err
+
+    # The pre-existing JSONL was NOT modified — error happens before any
+    # write or backup.
+    surviving = _read_jsonl(rollup)
+    assert surviving == [pre]
+    backups = list(rollup.parent.glob("beam_eval_tiny.jsonl.bak.*"))
+    assert backups == []
+
+
+def test_schema_mismatch_with_force_backs_up(tiny_run_dir, tiny_eval_config_yaml):
+    """``--force`` salvages the mismatched JSONL into a timestamped backup,
+    then evaluates fresh. Backup contents == original synthetic content;
+    primary file contains records consistent with the current schema.
+    """
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    rollup.parent.mkdir(parents=True, exist_ok=True)
+    pre = _synthetic_record(
+        step=20,
+        max_depth=2,
+        n_per_depth=[1, 1],
+        beam_width=4,
+        precision="fp32",
+        seed=0,
+    )
+    pre_text = json.dumps(pre) + "\n"
+    rollup.write_text(pre_text)
+
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+        "--force",
+        "--steps",
+        "10",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    assert "backed up existing JSONL" in log
+
+    # Backup exists and matches the original content byte-for-byte.
+    backups = sorted(rollup.parent.glob("beam_eval_tiny.jsonl.bak.*"))
+    assert len(backups) == 1, f"expected one backup, got {backups}"
+    backup = backups[0]
+    # Naming convention: YYYYMMDDTHHMMSSZ suffix.
+    assert re.match(r"^beam_eval_tiny\.jsonl\.bak\.\d{8}T\d{6}Z$", backup.name), (
+        f"unexpected backup name {backup.name}"
+    )
+    assert backup.read_text() == pre_text
+
+    # Primary file exists with new (real-schema) content. The pre-existing
+    # synthetic step-20 record is gone; only step=10 was evaluated.
+    records = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in records)
+    assert steps == [10]
+    new_record = records[0]
+    assert "synthetic" not in new_record
+    # Signature fields reflect the current invocation, not the pre-run.
+    assert new_record["n_per_depth"] == [4, 4]
+    assert new_record["max_depth"] == 2
+    assert new_record["precision"] == "fp32"
+    assert new_record["seed"] == 0
+
+
+def test_force_backs_up_even_when_matching(tiny_run_dir, tiny_eval_config_yaml):
+    """``--force`` always backs up — even when existing records already match
+    the current schema. Verified by running the script once to populate a
+    real rollup, then running again with ``--force`` and confirming both
+    a backup and a fresh primary file exist.
+    """
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+
+    # Run 1: produce a real rollup with the current schema.
+    r1 = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+        "--steps",
+        "10",
+    )
+    assert r1.returncode == 0, r1.stderr
+    pre_records = _read_jsonl(rollup)
+    pre_text = rollup.read_text()
+    assert len(pre_records) == 1
+
+    # Run 2: --force on a matching-schema file. Backup should still happen.
+    r2 = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+        "--force",
+        "--steps",
+        "20",
+    )
+    assert r2.returncode == 0, r2.stderr
+    log = r2.stdout + r2.stderr
+    assert "backed up existing JSONL" in log
+
+    backups = sorted(rollup.parent.glob("beam_eval_tiny.jsonl.bak.*"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == pre_text
+
+    # Primary file post-run reflects only the run-2 evaluation (step 20).
+    # Run 1's step-10 record was moved to the backup, not retained.
+    post_records = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in post_records)
+    assert steps == [20]
+    # And the new record carries the current signature.
+    assert post_records[0]["n_per_depth"] == [4, 4]
+    assert post_records[0]["beam_width"] == 4
+
+
+def test_schema_match_no_error(tiny_run_dir, tiny_eval_config_yaml):
+    """When existing records' signature matches the current invocation,
+    ensure-skip behavior is preserved — existing steps stay, missing
+    steps get evaluated, no error or backup.
+    """
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    rollup.parent.mkdir(parents=True, exist_ok=True)
+    matching = _synthetic_record(
+        step=20,
+        max_depth=2,
+        n_per_depth=[4, 4],  # matches tiny eval config
+        beam_width=4,
+        precision="fp32",
+        seed=0,
+    )
+    rollup.write_text(json.dumps(matching) + "\n")
+
+    result = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode == 0, result.stderr
+    log = result.stdout + result.stderr
+    # Matching schema → no backup, no error.
+    assert "backed up existing JSONL" not in log
+    assert "different config" not in log
+    # Existing step=20 was preserved; the others were evaluated.
+    assert "skipping step=20" in log
+
+    records = _read_jsonl(rollup)
+    by_step = {r["step"]: r for r in records}
+    assert sorted(by_step) == [10, 20, 30, 40]
+    # The step-20 record retains the synthetic marker — preserved as-is.
+    assert by_step[20].get("synthetic") is True
+    # Newly-evaluated steps have the full payload schema.
+    assert "per_walk_depth" in by_step[10]
+    # No backup file was created.
+    backups = list(rollup.parent.glob("beam_eval_tiny.jsonl.bak.*"))
+    assert backups == []
