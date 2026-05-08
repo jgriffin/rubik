@@ -70,6 +70,12 @@ RUNS: list[tuple[str, str, str, str]] = [
         "#2ca02c",
         "",
     ),
+    (
+        "smoke ln_kmax30 5k (LN, K=30, no curriculum)",
+        "20260508T035718Z_smoke_ln_kmax30",
+        "#d62728",
+        "",
+    ),
 ]
 
 # Walk-depth bins for per-walk-depth charts.
