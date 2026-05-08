@@ -490,6 +490,10 @@ def main() -> None:
                 "early_stop_patience_evals": config.early_stop_patience_evals,
                 "early_stop_min_evals": config.early_stop_min_evals,
                 "early_stop_min_delta": config.early_stop_min_delta,
+                # Always emit wandb_run_id so downstream readers see a
+                # stable schema. None when --no-wandb or wandb init failed;
+                # otherwise the wandb-assigned run id captured at init time.
+                "wandb_run_id": wandb_run_id,
             }
             # Warm-start annotation: optional fields, absent on fresh runs
             # so historical readers don't trip on missing keys.
@@ -579,7 +583,16 @@ def main() -> None:
                         wall_time_seconds=wall,
                         wandb_run_id=wandb_run_id,
                     )
-                    logger.log(event="checkpoint", step=step, path=str(ckpt_path.name))
+                    # wall_time_seconds mirrors the same value stamped into
+                    # the saved bundle, so an analyzer working from
+                    # metrics.jsonl alone has the provenance without
+                    # opening every .pt.
+                    logger.log(
+                        event="checkpoint",
+                        step=step,
+                        path=str(ckpt_path.name),
+                        wall_time_seconds=wall,
+                    )
 
             # Final checkpoint regardless of stop reason. Use the last step
             # actually trained (= ``step`` from the loop variable, which
