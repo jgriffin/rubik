@@ -1,10 +1,11 @@
 """Tests for ``scripts/beam_eval_run.py`` — run-dir wrapper.
 
-Renamed in the beam-solve-perf refactor (was ``post_run_beam_eval.py``).
 The script walks ``<run-dir>/`` for ``net_step_*.pt`` + ``net_final.pt``,
 runs the same eval logic as ``beam_eval_model.py`` per checkpoint, and
-writes one flat-schema JSON per checkpoint at
-``<run-dir>/results/step_<N>_eval_<config>.json``.
+writes a single consolidated JSONL rollup at
+``<run-dir>/results/beam_eval_<config>.jsonl`` (one flat-schema payload
+per line, sorted ascending by step). Re-runs merge — new entries replace
+existing ones at the same step, prior steps preserved.
 
 Tests use a tiny CPU ValueNet so they run in seconds.
 """
@@ -121,6 +122,17 @@ def _run_script(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    """Read a JSONL file as a list of dicts (one per non-empty line)."""
+    out: list[dict] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        out.append(json.loads(line))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Empty-dir behavior — preserved across the rename
 # ---------------------------------------------------------------------------
@@ -138,12 +150,12 @@ def test_empty_dir_writes_empty_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Per-checkpoint output schema
+# Consolidated JSONL output schema
 # ---------------------------------------------------------------------------
 
 
-def test_per_checkpoint_jsons_written(tiny_run_dir, tiny_eval_config_yaml):
-    """Default: every checkpoint gets a step_<N>_eval_<config>.json."""
+def test_jsonl_rollup_written(tiny_run_dir, tiny_eval_config_yaml):
+    """Default: all checkpoints land in one beam_eval_<config>.jsonl."""
     result = _run_script(
         str(tiny_run_dir),
         "--config",
@@ -152,20 +164,21 @@ def test_per_checkpoint_jsons_written(tiny_run_dir, tiny_eval_config_yaml):
         "cpu",
     )
     assert result.returncode == 0, result.stderr
-    results_dir = tiny_run_dir / "results"
-    written = sorted(results_dir.glob("step_*_eval_tiny.json"))
-    # 3 net_step checkpoints + final → 4 outputs.
-    assert len(written) == 4
-    # Final step is 40 (from metrics.jsonl).
-    names = {p.name for p in written}
-    assert "step_10_eval_tiny.json" in names
-    assert "step_20_eval_tiny.json" in names
-    assert "step_30_eval_tiny.json" in names
-    assert "step_40_eval_tiny.json" in names
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    assert rollup.exists(), f"expected rollup {rollup}"
+    records = _read_jsonl(rollup)
+    # 3 net_step checkpoints + final → 4 lines.
+    assert len(records) == 4
+    steps = [r["step"] for r in records]
+    # Sorted ascending; final-step-from-metrics is 40.
+    assert steps == [10, 20, 30, 40]
+    # No per-checkpoint JSONs left behind.
+    legacy = sorted((tiny_run_dir / "results").glob("step_*_eval_tiny.json"))
+    assert legacy == []
 
 
-def test_per_checkpoint_json_is_flat_schema(tiny_run_dir, tiny_eval_config_yaml):
-    """Each per-checkpoint JSON has the flat schema + a step field."""
+def test_jsonl_records_are_flat_schema(tiny_run_dir, tiny_eval_config_yaml):
+    """Each JSONL record has the flat schema + a step field."""
     result = _run_script(
         str(tiny_run_dir),
         "--config",
@@ -176,9 +189,10 @@ def test_per_checkpoint_json_is_flat_schema(tiny_run_dir, tiny_eval_config_yaml)
         "20",
     )
     assert result.returncode == 0, result.stderr
-    out = tiny_run_dir / "results" / "step_20_eval_tiny.json"
-    payload = json.loads(out.read_text())
-    # Flat schema fields.
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    records = _read_jsonl(rollup)
+    assert len(records) == 1
+    payload = records[0]
     for key in (
         "model",
         "config_name",
@@ -194,6 +208,59 @@ def test_per_checkpoint_json_is_flat_schema(tiny_run_dir, tiny_eval_config_yaml)
     assert payload["beam_width"] == 4
     assert payload["max_depth"] == 2
     assert len(payload["per_walk_depth"]) == 2
+
+
+def test_rerun_merges_and_dedups_by_step(tiny_run_dir, tiny_eval_config_yaml):
+    """Two evals against the same JSONL: union of steps; later run wins overlaps.
+
+    Run 1 with ``--steps "10,20"`` → records at {10, 20}. Run 2 with
+    ``--steps "20,30"`` → records at {10, 20, 30}, with the run-2 payload
+    at step 20 (the new one replaces the old).
+    """
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+
+    # Run 1: steps {10, 20}.
+    r1 = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+        "--steps",
+        "10,20",
+    )
+    assert r1.returncode == 0, r1.stderr
+    records_1 = _read_jsonl(rollup)
+    assert sorted(r["step"] for r in records_1) == [10, 20]
+    step20_run1 = next(r for r in records_1 if r["step"] == 20)
+
+    # Run 2: steps {20, 30} — should merge with run 1's step-10 record
+    # and overwrite step-20.
+    r2 = _run_script(
+        str(tiny_run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+        "--steps",
+        "20,30",
+        # Different seed → different solve_rate values, so we can detect
+        # which run's payload survived for step 20.
+        "--seed",
+        "12345",
+    )
+    assert r2.returncode == 0, r2.stderr
+    records_2 = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in records_2)
+    assert steps == [10, 20, 30]
+    # Run-2 step-20 payload should replace run-1's. Seed shows up
+    # explicitly in the payload as a witness for "which run wrote this".
+    step20_run2 = next(r for r in records_2 if r["step"] == 20)
+    assert step20_run2.get("seed") == 12345
+    assert step20_run1.get("seed") != 12345
+    # Run-1's step-10 record persisted unchanged.
+    step10 = next(r for r in records_2 if r["step"] == 10)
+    assert step10.get("seed") == step20_run1.get("seed")
 
 
 # ---------------------------------------------------------------------------
@@ -213,13 +280,11 @@ def test_every_steps_filter(tiny_run_dir, tiny_eval_config_yaml):
         "20",
     )
     assert result.returncode == 0, result.stderr
-    written = sorted((tiny_run_dir / "results").glob("step_*_eval_tiny.json"))
-    names = {p.name for p in written}
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    records = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in records)
     # step_20 (multiple of 20) + step_40 (net_final, always kept).
-    assert "step_20_eval_tiny.json" in names
-    assert "step_40_eval_tiny.json" in names
-    assert "step_10_eval_tiny.json" not in names
-    assert "step_30_eval_tiny.json" not in names
+    assert steps == [20, 40]
 
 
 def test_steps_csv_filter(tiny_run_dir, tiny_eval_config_yaml):
@@ -234,8 +299,10 @@ def test_steps_csv_filter(tiny_run_dir, tiny_eval_config_yaml):
         "10,final",
     )
     assert result.returncode == 0, result.stderr
-    names = {p.name for p in (tiny_run_dir / "results").glob("step_*_eval_tiny.json")}
-    assert names == {"step_10_eval_tiny.json", "step_40_eval_tiny.json"}
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    records = _read_jsonl(rollup)
+    steps = sorted(r["step"] for r in records)
+    assert steps == [10, 40]
 
 
 def test_every_steps_and_steps_mutually_exclusive(tiny_run_dir, tiny_eval_config_yaml):
@@ -272,9 +339,8 @@ def test_dict_step_overrides_filename_step(tmp_path, tiny_eval_config_yaml):
     """A bundle whose dict step disagrees with the filename → dict wins.
 
     Simulates post-rename drift: filename says ``net_step_5000.pt`` but
-    the bundle's ``step`` field says 5050. The output filename and the
-    payload's ``step`` field both reflect the dict value (the truth),
-    not the filename.
+    the bundle's ``step`` field says 5050. The JSONL record's ``step``
+    field reflects the dict value (the truth), not the filename.
     """
     run_dir = tmp_path / "drift-run"
     run_dir.mkdir()
@@ -301,18 +367,10 @@ def test_dict_step_overrides_filename_step(tmp_path, tiny_eval_config_yaml):
         "cpu",
     )
     assert result.returncode == 0, result.stderr
-    results_dir = run_dir / "results"
-    # Output filename uses the dict step, not the filename step.
-    expected = results_dir / "step_5050_eval_tiny.json"
-    not_expected = results_dir / "step_5000_eval_tiny.json"
-    actual_names = sorted(p.name for p in results_dir.iterdir())
-    assert expected.exists(), (
-        f"expected dict-step filename {expected.name}; got {actual_names}"
-    )
-    assert not not_expected.exists(), (
-        "filename-step JSON should not be written when dict step disagrees"
-    )
-    payload = json.loads(expected.read_text())
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    records = _read_jsonl(rollup)
+    assert len(records) == 1
+    payload = records[0]
     assert payload["step"] == 5050
     assert payload["checkpoint_step"] == 5050
 
@@ -340,12 +398,10 @@ def test_legacy_bare_state_dict_falls_back_to_filename(tmp_path, tiny_eval_confi
         "cpu",
     )
     assert result.returncode == 0, result.stderr
-    expected = run_dir / "results" / "step_1234_eval_tiny.json"
-    assert expected.exists(), (
-        f"expected filename-step fallback {expected.name}; "
-        f"got {sorted(p.name for p in (run_dir / 'results').iterdir())}"
-    )
-    payload = json.loads(expected.read_text())
+    rollup = run_dir / "results" / "beam_eval_tiny.jsonl"
+    records = _read_jsonl(rollup)
+    assert len(records) == 1
+    payload = records[0]
     assert payload["step"] == 1234
     assert payload["checkpoint_step"] is None
 
@@ -366,3 +422,6 @@ def test_no_post_run_beam_eval_json_when_checkpoints_present(
     assert result.returncode == 0, result.stderr
     legacy = tiny_run_dir / "results" / "post_run_beam_eval.json"
     assert not legacy.exists(), "legacy trajectory file should not be written"
+    # And the new rollup IS written.
+    rollup = tiny_run_dir / "results" / "beam_eval_tiny.jsonl"
+    assert rollup.exists()

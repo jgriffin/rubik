@@ -1,4 +1,9 @@
-"""Render a dedicated HTML report from one or more beam-eval JSONs.
+"""Render a dedicated HTML report from one or more beam-eval payloads.
+
+Inputs may be flat-schema per-checkpoint ``.json`` files or a consolidated
+``.jsonl`` rollup (one payload per line). Mixed lists are accepted: each
+``.jsonl`` is expanded to its constituent records, then concatenated with
+any ``.json`` paths.
 
 Three input *modes* are auto-detected:
 
@@ -9,13 +14,13 @@ Three input *modes* are auto-detected:
    directory (i.e. successive checkpoints from one training run, as
    produced by ``beam_eval_run.py``). Renders three trajectory-oriented
    charts:
-     A. **Banded per-walk-depth solve rate over training step** —
-        5/5/4 small multiples (Shallow d=1..5 / Mid d=6..10 / Deep
-        d=11..14), x=step, y=solve_rate, one polyline per run. Matches
-        the project's canonical banded chart idiom (see
+     A. **Solve rate by depth, over training step** — 5/5/4 banded
+        small multiples (Shallow d=1..5 / Mid d=6..10 / Deep d=11..14),
+        x=step, y=solve_rate, one polyline per run. Matches the
+        project's canonical banded chart idiom (see
         ``experiments/davi-3x3/analysis/render_error_trajectories.py``).
-     B. **Heatmap (step × walk-depth)** — x=step, y=walk-depth with
-        d=14 at the top, in-cell numeric labels.
+     B. **Solve rate by depth × training step (heatmap)** — x=step,
+        y=walk depth with d=14 at the top, in-cell numeric labels.
      C. **Wall time across checkpoints** — x=step, y=seconds, line per run.
 3. **Sweep** — multiple flat-schema inputs that don't qualify as a
    trajectory (same step or no step, but differ in ``beam_width`` /
@@ -40,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 # Distinct colors for multi-input overlays (colorblind-friendly).
@@ -197,7 +203,7 @@ def chart_solve_rate_lines(
     payload: dict,
     *,
     base_color: str,
-    title: str = "Per-walk-depth solve rate (one line per beam width)",
+    title: str = "Solve rate by walk depth (one line per beam width)",
     x_key: str = "d",
     x_label: str = "walk depth",
     items_key: str = "per_walk_depth",
@@ -381,7 +387,7 @@ def chart_wall_time_bars(
 def chart_heatmap(
     payload: dict,
     *,
-    title: str = "Per-walk-depth × per-series solve-rate heatmap",
+    title: str = "Solve rate by walk depth × series (heatmap)",
     x_key: str = "d",
     x_label: str = "walk depth",
     items_key: str = "per_walk_depth",
@@ -453,6 +459,19 @@ def chart_heatmap(
 # ---------------------------------------------------------------------------
 
 
+_TIMESTAMP_PREFIX_RE = re.compile(r"^\d{8}T\d{6}Z_(.+)$")
+
+
+def _friendly_run_label(run_dir_name: str) -> str:
+    """Strip the leading ``YYYYMMDDTHHMMSSZ_`` timestamp prefix if present.
+
+    Example: ``20260508T035718Z_smoke_ln_kmax30`` → ``smoke_ln_kmax30``.
+    Falls back to the raw name when there's no timestamp prefix.
+    """
+    m = _TIMESTAMP_PREFIX_RE.match(run_dir_name)
+    return m.group(1) if m else run_dir_name
+
+
 def _trajectory_runs(
     payloads: list[tuple[Path, dict]],
 ) -> list[tuple[str, str, list[dict]]]:
@@ -473,7 +492,8 @@ def _trajectory_runs(
     runs: list[tuple[str, str, list[dict]]] = []
     for i, (parent, recs) in enumerate(parents.items()):
         recs.sort(key=lambda r: int(r["step"]))
-        label = Path(parent).name or parent
+        raw = Path(parent).name or parent
+        label = _friendly_run_label(raw)
         color = INPUT_COLORS[i % len(INPUT_COLORS)]
         runs.append((label, color, recs))
     return runs
@@ -482,7 +502,7 @@ def _trajectory_runs(
 def chart_trajectory_banded(
     runs: list[tuple[str, str, list[dict]]],
     *,
-    title: str = "Per-walk-depth solve rate over training step",
+    title: str = "Solve rate by depth, over training step",
 ) -> str:
     """Three-band 5/5/4 small multiples: x=step, y=solve_rate, polyline per run."""
     cell_w, cell_h = 220, 160
@@ -596,8 +616,7 @@ def chart_trajectory_banded(
                 )
                 for px, py in pts:
                     parts.append(
-                        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.0" '
-                        f'fill="{color}"/>'
+                        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.0" fill="{color}"/>'
                     )
 
         parts.append("</svg>")
@@ -614,14 +633,14 @@ def chart_trajectory_banded(
 def chart_trajectory_heatmap(
     runs: list[tuple[str, str, list[dict]]],
     *,
-    title: str = "Per-walk-depth × per-step solve-rate heatmap",
+    title: str = "Solve rate by depth × training step",
 ) -> str:
     """Heatmap with x=step, y=walk_depth REVERSED (d=14 at top, d=1 at bottom)."""
     if not runs:
         return '<p class="note">_(no runs)_</p>'
     # For now, render the first run's heatmap. (Multi-run heatmap overlay is
     # awkward in 2D; if needed later, render one per run vertically stacked.)
-    label, _color, recs = runs[0]
+    _label, _color, recs = runs[0]
     if not recs:
         return '<p class="note">_(no records)_</p>'
 
@@ -633,7 +652,8 @@ def chart_trajectory_heatmap(
     walk_depths = sorted(walk_depths_present, reverse=True)  # d=14 at top.
 
     cell_w, cell_h = 76, 26
-    pad_l, pad_r, pad_t, pad_b = 80, 16, 64, 28
+    # Extra top pad so rotated step ticks have room without clipping the title.
+    pad_l, pad_r, pad_t, pad_b = 64, 16, 92, 56
     n_cols, n_rows = len(steps), len(walk_depths)
     plot_w = n_cols * cell_w
     plot_h = n_rows * cell_h
@@ -644,35 +664,39 @@ def chart_trajectory_heatmap(
         f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
         f'<rect x="0" y="0" width="{width}" height="{height}" fill="#fafafa"/>',
         f'<text x="{width / 2}" y="22" text-anchor="middle" font-size="13" '
-        f'font-weight="600" fill="#222">{title} — {label}</text>',
+        f'font-weight="600" fill="#222">{title}</text>',
     ]
 
-    # Column headers: step labels, with a small rotation to avoid clipping
-    # when there are many checkpoints.
-    rotate = n_cols > 6
+    # Column headers: step labels. Always rotate -45deg for clean,
+    # non-overlapping ticks at any density.
     for ci, s in enumerate(steps):
         cx = pad_l + ci * cell_w + cell_w / 2
-        ty = pad_t - 8
-        if rotate:
-            parts.append(
-                f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="end" '
-                f'font-size="11" fill="#444" '
-                f'transform="rotate(-45 {cx:.1f} {ty:.1f})">'
-                f"step {_format_step_label(s)}</text>"
-            )
-        else:
-            parts.append(
-                f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" '
-                f'font-size="11" fill="#444">step {_format_step_label(s)}</text>'
-            )
+        ty = pad_t - 6
+        parts.append(
+            f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="end" '
+            f'font-size="11" fill="#444" '
+            f'transform="rotate(-45 {cx:.1f} {ty:.1f})">'
+            f"{_format_step_label(s)}</text>"
+        )
+    # X-axis label below the grid.
+    parts.append(
+        f'<text x="{pad_l + plot_w / 2:.1f}" y="{height - 8}" '
+        f'text-anchor="middle" font-size="11" fill="#333">training step</text>'
+    )
 
-    # Row headers: walk-depth.
+    # Row headers: ``d=N`` (concise; matches per-cell label convention).
     for ri, d in enumerate(walk_depths):
         ry = pad_t + ri * cell_h + cell_h / 2 + 4
         parts.append(
             f'<text x="{pad_l - 8}" y="{ry:.1f}" text-anchor="end" '
-            f'font-size="11" fill="#444">walk_depth={d}</text>'
+            f'font-size="11" fill="#444">d={d}</text>'
         )
+    # Y-axis label rotated on the left.
+    parts.append(
+        f'<text x="14" y="{pad_t + plot_h / 2:.1f}" text-anchor="middle" '
+        f'font-size="11" fill="#333" '
+        f'transform="rotate(-90 14 {pad_t + plot_h / 2:.1f})">walk depth</text>'
+    )
 
     # Build (step, depth) -> rate index from the run's records.
     rate_map: dict[tuple[int, int], float] = {}
@@ -709,9 +733,18 @@ def chart_trajectory_walltime(
     *,
     title: str = "Wall time per checkpoint",
 ) -> str:
-    """Line chart: x=step, y=wall_time_seconds, one line per run."""
+    """Line chart: x=step, y=wall_time_seconds, one line per run.
+
+    When there is exactly one run, the legend is suppressed (it adds no
+    information). When there are multiple, each run's friendly label
+    appears in the legend.
+    """
     width, height = 720, 280
-    pad_l, pad_r, pad_t, pad_b = 56, 180, 36, 50
+    show_legend = len(runs) > 1
+    if show_legend:
+        pad_l, pad_r, pad_t, pad_b = 56, 180, 36, 50
+    else:
+        pad_l, pad_r, pad_t, pad_b = 56, 24, 36, 50
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
 
@@ -784,14 +817,16 @@ def chart_trajectory_walltime(
                 parts.append(
                     f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.4" fill="{color}"/>'
                 )
-        ly = legend_y + 16 + i * 16
-        parts.append(
-            f'<rect x="{legend_x}" y="{ly - 8}" width="14" height="10" fill="{color}"/>'
-        )
-        parts.append(
-            f'<text x="{legend_x + 18}" y="{ly + 1}" font-size="11" fill="#333">'
-            f"{label}</text>"
-        )
+        if show_legend:
+            ly = legend_y + 16 + i * 16
+            parts.append(
+                f'<rect x="{legend_x}" y="{ly - 8}" width="14" height="10" '
+                f'fill="{color}"/>'
+            )
+            parts.append(
+                f'<text x="{legend_x + 18}" y="{ly + 1}" font-size="11" fill="#333">'
+                f"{label}</text>"
+            )
 
     parts.append(
         f'<text x="14" y="{pad_t + plot_h / 2}" text-anchor="middle" '
@@ -886,10 +921,7 @@ def render_sweep_section(
             f"max_depth: <code>{payload.get('max_walk_depth', '?')}</code> · "
             f"seed: <code>{payload.get('seed', '?')}</code>"
         )
-        if varying_field:
-            x_legend_title = varying_field
-        else:
-            x_legend_title = "input"
+        x_legend_title = varying_field or "input"
     else:
         meta_line = (
             f"checkpoint: <code>{payload.get('checkpoint', '?')}</code><br>"
@@ -902,13 +934,11 @@ def render_sweep_section(
     parts: list[str] = [
         f'<h2 style="margin-top:32px">{label}</h2>',
         f'<p class="note">{meta_line}</p>',
-        f"<h3>1. Per-walk-depth solve rate (one line per {x_legend_title})</h3>",
+        f"<h3>1. Solve rate by walk depth (one line per {x_legend_title})</h3>",
         chart_solve_rate_lines(
             payload,
             base_color=base_color,
-            title=(
-                f"Per-walk-depth solve rate (one line per {x_legend_title})"
-            ),
+            title=(f"Solve rate by walk depth (one line per {x_legend_title})"),
         ),
         f"<h3>2. Wall time per {x_legend_title}</h3>",
         chart_wall_time_bars(
@@ -916,30 +946,30 @@ def render_sweep_section(
             base_color=base_color,
             title=f"Wall time per {x_legend_title}",
         ),
-        f"<h3>3. Per-walk-depth × per-{x_legend_title} heatmap</h3>",
+        f"<h3>3. Solve rate by walk depth × {x_legend_title} (heatmap)</h3>",
         chart_heatmap(
             payload,
-            title=f"Per-walk-depth × per-{x_legend_title} solve-rate heatmap",
+            title=f"Solve rate by walk depth × {x_legend_title} (heatmap)",
         ),
     ]
     if include_v_star and "v_star_results" in payload:
-        parts.append(f"<h3>4. Per-V* solve rate (one line per {x_legend_title})</h3>")
+        parts.append(f"<h3>4. Solve rate by V* (one line per {x_legend_title})</h3>")
         parts.append(
             chart_solve_rate_lines(
                 payload,
                 base_color=base_color,
-                title=f"Per-V* solve rate (one line per {x_legend_title})",
+                title=f"Solve rate by V* (one line per {x_legend_title})",
                 x_key="v",
                 x_label="V*",
                 items_key="per_v_star",
                 section_key="v_star_results",
             )
         )
-        parts.append(f"<h3>5. Per-V* × per-{x_legend_title} heatmap</h3>")
+        parts.append(f"<h3>5. Solve rate by V* × {x_legend_title} (heatmap)</h3>")
         parts.append(
             chart_heatmap(
                 payload,
-                title=f"Per-V* × per-{x_legend_title} solve-rate heatmap",
+                title=f"Solve rate by V* × {x_legend_title} (heatmap)",
                 x_key="v",
                 x_label="V*",
                 items_key="per_v_star",
@@ -974,11 +1004,11 @@ def render_trajectory_section(
     parts: list[str] = [
         '<h2 style="margin-top:32px">Beam-eval trajectory</h2>',
         f'<p class="note">{meta_line}</p>',
-        "<h3>1. Per-walk-depth solve rate over training step (banded)</h3>",
+        "<h3>1. Solve rate by depth, over training step (banded)</h3>",
         chart_trajectory_banded(runs),
-        "<h3>2. Heatmap (step × walk-depth)</h3>",
+        "<h3>2. Solve rate by depth × training step (heatmap)</h3>",
         '<p class="note">'
-        "x-axis: training step. y-axis: walk-depth, with d=14 at the top "
+        "x-axis: training step. y-axis: walk depth, with d=14 at the top "
         "(deepest walks first). Cells colored by solve_rate; numeric values "
         "shown in-cell."
         "</p>",
@@ -1023,7 +1053,14 @@ def main(argv: list[str] | None = None) -> int:
     for p in inputs:
         if not p.exists():
             raise FileNotFoundError(f"--input not found: {p}")
-        payloads.append((p, json.loads(p.read_text())))
+        if p.suffix == ".jsonl":
+            for line in p.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                payloads.append((p, json.loads(line)))
+        else:
+            payloads.append((p, json.loads(p.read_text())))
 
     flat_payloads = [(p, pl) for p, pl in payloads if is_flat_schema(pl)]
     legacy_payloads = [(p, pl) for p, pl in payloads if not is_flat_schema(pl)]

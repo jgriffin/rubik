@@ -225,8 +225,11 @@ def test_render_flat_schema_multi_input_overlay(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_TRAJECTORY_DEPTHS = tuple(range(1, 15))
+
+
 def _trajectory_payload(
-    *, step: int, model_dir: str, walk_depths=tuple(range(1, 15)), wall=10.0
+    *, step: int, model_dir: str, walk_depths=_DEFAULT_TRAJECTORY_DEPTHS, wall=10.0
 ) -> dict:
     """Synthetic trajectory-style flat payload (same beam_width, same model dir)."""
     pwd = []
@@ -302,7 +305,7 @@ def test_trajectory_mode_detected_when_steps_differ(tmp_path):
 
 
 def test_trajectory_heatmap_y_axis_reversed(tmp_path):
-    """In trajectory-mode heatmap, walk_depth=14 row appears BEFORE walk_depth=1."""
+    """In trajectory-mode heatmap, d=14 row appears BEFORE d=1 (top of grid)."""
     model_dir = str(tmp_path / "run_abc")
     Path(model_dir).mkdir()
     a = _trajectory_payload(step=10000, model_dir=model_dir)
@@ -330,11 +333,11 @@ def test_trajectory_heatmap_y_axis_reversed(tmp_path):
     assert result.returncode == 0, result.stderr
     html = out_path.read_text()
 
-    # Both row-header labels exist.
-    assert "walk_depth=14" in html
-    assert "walk_depth=1" in html
+    # Concise ``d=N`` row-header convention.
+    assert ">d=14<" in html
+    assert ">d=1<" in html
     # And d=14 comes BEFORE d=1 in the source order (top of the heatmap).
-    assert html.index("walk_depth=14") < html.index("walk_depth=1<")
+    assert html.index(">d=14<") < html.index(">d=1<")
 
 
 def test_trajectory_step_appears_as_axis_label_not_filename(tmp_path):
@@ -447,3 +450,228 @@ def test_sweep_mode_chosen_when_model_parents_differ(tmp_path):
     # The varying field is `step` here (model differs but isn't preferred);
     # legend label should reflect step, not run dir.
     assert "step=20000" in html or "step=40000" in html
+
+
+# ---------------------------------------------------------------------------
+# B1: JSONL input (consolidated rollup, one payload per line)
+# ---------------------------------------------------------------------------
+
+
+def test_render_reads_jsonl_input(tmp_path):
+    """A ``.jsonl`` rollup is parsed line-by-line into trajectory mode."""
+    model_dir = str(tmp_path / "20260508T035718Z_smoke_run")
+    Path(model_dir).mkdir()
+    rollup = tmp_path / "beam_eval_fast.jsonl"
+    rollup.write_text(
+        "\n".join(
+            json.dumps(_trajectory_payload(step=s, model_dir=model_dir))
+            for s in (500, 1000, 1500, 2000)
+        )
+        + "\n"
+    )
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(rollup),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # Trajectory-mode banner present (multi-step + shared parent).
+    assert "Beam-eval trajectory" in html
+    # All four steps surface as compact axis labels.
+    for s in ("500", "1k", "1.5k", "2k"):
+        assert s in html
+
+
+def test_render_mixed_jsonl_and_json_inputs(tmp_path):
+    """A list mixing .json and .jsonl paths concatenates all payloads."""
+    model_dir = str(tmp_path / "run_mixed")
+    Path(model_dir).mkdir()
+    # One per-checkpoint .json + one .jsonl with two more checkpoints.
+    p_json = tmp_path / "step_500_eval_fast.json"
+    p_json.write_text(json.dumps(_trajectory_payload(step=500, model_dir=model_dir)))
+    p_jsonl = tmp_path / "beam_eval_fast.jsonl"
+    p_jsonl.write_text(
+        "\n".join(
+            json.dumps(_trajectory_payload(step=s, model_dir=model_dir))
+            for s in (1000, 1500)
+        )
+        + "\n"
+    )
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(p_json),
+            str(p_jsonl),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    assert "Beam-eval trajectory" in html
+    for s in ("500", "1k", "1.5k"):
+        assert s in html
+
+
+# ---------------------------------------------------------------------------
+# B3: Polish — heatmap title, y-axis labels, run-name stripping
+# ---------------------------------------------------------------------------
+
+
+def test_heatmap_title_drops_per_walk_depth_prefix_and_run_name(tmp_path):
+    """Trajectory heatmap title is the new clean form, no ``Per-walk-depth ×`` and
+    no run-name suffix."""
+    model_dir = str(tmp_path / "20260508T035718Z_smoke_ln_kmax30")
+    Path(model_dir).mkdir()
+    rollup = tmp_path / "beam_eval_fast.jsonl"
+    rollup.write_text(
+        "\n".join(
+            json.dumps(_trajectory_payload(step=s, model_dir=model_dir))
+            for s in (500, 1000, 1500)
+        )
+        + "\n"
+    )
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(rollup),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # New title text appears.
+    assert "Solve rate by depth × training step" in html
+    # Old phrasings absent in the trajectory heatmap title.
+    assert "Per-walk-depth × per-step solve-rate heatmap" not in html
+    # Run name no longer dangles in chart title (it lives in the section header).
+    # We assert no chart title contains the timestamp-prefixed dir name.
+    assert "— 20260508T035718Z_smoke_ln_kmax30" not in html
+
+
+def test_heatmap_y_axis_uses_concise_d_label(tmp_path):
+    """Heatmap row headers use the concise ``d=N`` form, not ``walk_depth=N``."""
+    model_dir = str(tmp_path / "run_dlabel")
+    Path(model_dir).mkdir()
+    rollup = tmp_path / "beam_eval_fast.jsonl"
+    rollup.write_text(
+        "\n".join(
+            json.dumps(_trajectory_payload(step=s, model_dir=model_dir))
+            for s in (10000, 20000)
+        )
+        + "\n"
+    )
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(rollup),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # New concise labels.
+    assert ">d=14<" in html
+    assert ">d=1<" in html
+    # The ``walk depth`` axis title appears (rotated), not as a per-row prefix.
+    assert ">walk depth<" in html
+    # Old verbose row-label form is gone from the trajectory heatmap.
+    assert "walk_depth=14" not in html
+    assert "walk_depth=1" not in html
+
+
+def test_walltime_legend_hidden_when_single_run(tmp_path):
+    """When N=1 run, the wall-time chart suppresses the legend block.
+
+    Detection: the friendly stripped run label is rendered ONLY inside an
+    SVG ``<text>`` legend entry, never anywhere else in trajectory mode.
+    With N=1, the legend is hidden, so the label does not appear inside
+    any ``<text ...>...</text>`` element.
+    """
+    model_dir = str(tmp_path / "20260508T035718Z_smoke_ln_kmax30")
+    Path(model_dir).mkdir()
+    rollup = tmp_path / "beam_eval_fast.jsonl"
+    rollup.write_text(
+        "\n".join(
+            json.dumps(_trajectory_payload(step=s, model_dir=model_dir))
+            for s in (500, 1000, 1500)
+        )
+        + "\n"
+    )
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(rollup),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # The friendly stripped label should NOT appear as an SVG legend
+    # ``<text>`` entry (the only place chart_trajectory_walltime renders
+    # run labels). The metadata header uses ``<code>...</code>``, which is
+    # fine and unaffected by legend toggling.
+    import re as _re
+
+    text_blocks = _re.findall(r"<text[^>]*>([^<]*)</text>", html)
+    assert not any("smoke_ln_kmax30" in t for t in text_blocks), (
+        f"legend should be hidden for N=1, but found run label in: {text_blocks!r}"
+    )
+
+
+def test_friendly_run_label_strips_timestamp_prefix():
+    """``_friendly_run_label`` strips ``YYYYMMDDTHHMMSSZ_`` prefixes."""
+    import importlib.util as _ilu
+
+    spec = _ilu.spec_from_file_location("rber", SCRIPT)
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert (
+        mod._friendly_run_label("20260508T035718Z_smoke_ln_kmax30") == "smoke_ln_kmax30"
+    )
+    # No timestamp → unchanged.
+    assert mod._friendly_run_label("plain_run_dir") == "plain_run_dir"
+    # Empty stays empty.
+    assert mod._friendly_run_label("") == ""

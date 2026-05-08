@@ -2,10 +2,12 @@
 
 Walks a training-run directory and invokes the same eval logic as
 ``beam_eval_model.py`` for each ``net_step_*.pt`` and ``net_final.pt``
-checkpoint. Per-checkpoint JSON lands at
-``<run-dir>/results/<step>_eval_<config-name>.json`` in the same flat
-schema ``beam_eval_model.py`` emits — there is **no** trajectory rollup
-JSON. Each checkpoint gets one independent file.
+checkpoint. All per-checkpoint payloads land **appended** as JSONL lines
+into a single rollup file at
+``<run-dir>/results/beam_eval_<config-name>.jsonl`` (one JSON object per
+line, sorted ascending by step). Re-running an eval merges into the same
+file, deduplicating by step (the new payload replaces the prior entry
+for that step).
 
 Common workflow::
 
@@ -215,8 +217,9 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Override config.render_html. When enabled, after all evals "
-            "complete render a SINGLE overlay HTML across the per-checkpoint "
-            "JSONs at <run-dir>/results/trajectory_<config>.html. (Per-model "
+            "complete render a SINGLE overlay HTML at "
+            "<run-dir>/results/eval_trajectory_<config>.html driven by the "
+            "consolidated <run-dir>/results/beam_eval_<config>.jsonl. (Per-model "
             "renders are suppressed in run mode — one overlay is the point.) "
             "When omitted, the YAML config's render_html field decides."
         ),
@@ -290,7 +293,25 @@ def main(argv: list[str] | None = None) -> int:
             )
         oracle_arrays = load_v_star_bounded_3x3_arrays(ORACLE_CACHE_PATH)
 
-    written: list[Path] = []
+    # Consolidated JSONL rollup: one line per checkpoint, sorted ascending
+    # by step. Re-runs merge — new entries replace existing ones at the
+    # same step, prior steps preserved.
+    jsonl_path = results_dir / f"beam_eval_{eval_cfg.source_name}.jsonl"
+    existing_by_step: dict[int, dict] = {}
+    if jsonl_path.exists():
+        for line in jsonl_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            s = rec.get("step")
+            if isinstance(s, int):
+                existing_by_step[s] = rec
+
+    n_written = 0
     for filename_step, ckpt_path in checkpoints:
         print(
             f"evaluating {ckpt_path.name} (filename_step={filename_step}) ...",
@@ -309,38 +330,42 @@ def main(argv: list[str] | None = None) -> int:
         # bare-state-dict checkpoints (where checkpoint_step is None).
         ckpt_step = payload.get("checkpoint_step")
         step = int(ckpt_step) if ckpt_step is not None else int(filename_step)
-        out_path = results_dir / f"step_{step}_eval_{eval_cfg.source_name}.json"
-        # Annotate with the resolved step so per-checkpoint JSONs carry
-        # the canonical training step they came from without needing a
-        # sibling rollup.
+        # Annotate with the resolved step so each line carries the
+        # canonical training step it came from.
         payload["step"] = step
-        out_path.write_text(json.dumps(payload, indent=2))
-        written.append(out_path)
+        existing_by_step[step] = payload
+        n_written += 1
         deep_rate = (
             payload["per_walk_depth"][-1]["solve_rate"]
             if payload["per_walk_depth"]
             else float("nan")
         )
         print(
-            f"  wrote {out_path.name} "
+            f"  step={step} "
             f"(wall={payload['wall_time_seconds']:.1f}s "
             f"solve_rate@d={eval_cfg.max_depth}={deep_rate:.3f})",
             flush=True,
         )
 
-    print(f"\n{len(written)} checkpoint JSON(s) written under {results_dir}")
+    # Write the merged rollup, sorted ascending by step.
+    sorted_records = [existing_by_step[s] for s in sorted(existing_by_step.keys())]
+    jsonl_path.write_text("\n".join(json.dumps(rec) for rec in sorted_records) + "\n")
+    print(
+        f"\n{n_written} checkpoint(s) evaluated; rollup at {jsonl_path} "
+        f"({len(sorted_records)} total record(s))"
+    )
 
-    if eval_cfg.render_html and written:
+    if eval_cfg.render_html and sorted_records:
         import subprocess
 
         renderer = REPO_ROOT / "scripts" / "render_beam_eval_report.py"
-        html_path = results_dir / f"trajectory_{eval_cfg.source_name}.html"
+        html_path = results_dir / f"eval_trajectory_{eval_cfg.source_name}.html"
         subprocess.run(
             [
                 sys.executable,
                 str(renderer),
                 "--input",
-                *(str(p) for p in written),
+                str(jsonl_path),
                 "--output",
                 str(html_path),
             ],
