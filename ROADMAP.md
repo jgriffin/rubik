@@ -34,6 +34,18 @@ When an idea surfaces that isn't the current block's goal, append here:
 Surfaced: YYYY-MM-DD
 -->
 
+### M8 backlog: checkpoint metadata bundle (.pt files carry step + config)
+Today the eval tooling parses filenames (`net_step_26000.pt` → step=26000) and resolves the sibling `config.yaml` for arch metadata. This is fragile — easy to lose the step if a checkpoint gets renamed/copied, and parameter values that change across training (K_max ramp, learning-rate schedule, sync interval) aren't recoverable from a bare `.pt`. Idea: write checkpoints as a dict containing `{net_state: ..., step: int, config_snapshot: dict, training_metadata: {wall_time_so_far, optimizer_state_summary, ...}}` instead of a bare state-dict. Eval scripts then read the bundle directly — no filename parsing, no sibling-config dependency. Migration: `_load_net` already handles both bare and dict checkpoints, so backwards-compat is free; new code path writes the richer bundle on save. Affects the training-loop save site (`src/rubik/training/davi.py` or wherever the save happens) and the eval scripts that consume `step` (`beam_eval_run.py`'s filename regex).
+Surfaced: 2026-05-07
+
+### M8 backlog: chunked forward at high beam widths
+Cross-scramble batching from m8 perf rewrite pushes the forward batch past the MPS throughput knee (~150-200k states for the [5120, 1024]×4 ValueNet) at widths ≥256. BF16 mostly resolved width=256 (knee shifts to ~300k), but width=512 (614k states/step at N=100) is still ~5× slower than the pre-rewrite per-scramble baseline. Fix: wrap `net(flat_children)` in `src/rubik/search/beam.py` with a chunking helper that splits inputs >150k states into ≤150k chunks, runs each, concatenates outputs. Likely 5× speedup at width=512 with no algorithmic change. Width=512 is diagnostic-tier per prior block, not production cycle decisions, so this is a quality-of-life fix rather than a cycle blocker.
+Surfaced: 2026-05-07
+
+### M8 backlog: multi-run trajectory heatmap layout
+`render_beam_eval_report.py` trajectory mode renders only the first run's matrix in the heatmap section when multiple runs are passed (banded line chart and walltime line do overlay correctly). Today's `beam_eval_run.py` only ever produces single-run trajectory inputs so this didn't matter, but if we later want to compare two runs' trajectories side-by-side (e.g. cycle-N vs cycle-N-1), the natural extension is one heatmap per run vertically stacked or side-by-side.
+Surfaced: 2026-05-07
+
 ### M8 backlog: K=8 bounded V\* oracle expansion (warm-start from K=6)
 Bounded V\* currently at K=6 (~1M states, 14.9 MB cache, 4.8s build). Extending to K=8 means adding ~80M more states (depth-7 layer 8.2M new, depth-8 layer 70.9M new). Estimated ~10–15 GB working memory in dict form during build, ~6–15 min build time. Warm-start from existing K=6 cache (use the layer-6 frontier as the BFS seed) avoids re-doing layers 0..6. Validation: an "optimal-descent" test (greedy V\* descent from a random V\*=k state should reach solved in exactly k moves) — discussed but not landed yet, lift here when relevant. Useful when 3x3 training pushes solve rates near saturation at d≤6 and we want ground truth at d∈{7,8} too.
 Surfaced: 2026-05-06
