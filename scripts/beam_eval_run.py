@@ -30,7 +30,7 @@ Output JSON schema::
       "checkpoint": "<absolute path>",
       "config_path": "<absolute path>",
       "device": "mps",
-      "precision": "fp32",
+      "precision": "bf16",
       "max_walk_depth": 14,
       "n_per_depth": 100,
       "seed": 0,
@@ -230,12 +230,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--precision",
         type=str,
-        default="fp32",
+        default="bf16",
         choices=("fp32", "bf16", "fp16"),
         help=(
-            "Inference precision for the loaded checkpoint. fp32 (default) "
-            "preserves bit-exact behavior vs. prior runs; bf16/fp16 cast the "
-            "loaded weights to the chosen dtype before eval. Training is "
+            "Inference precision for the loaded checkpoint. bf16 (default) "
+            "is ~1.3-5× faster than fp32 on M4 Max with bit-identical solve "
+            "rates on the trained net (precision-sweep experiment, 2026-05-07). "
+            "Pass fp32 for bit-exact reproduction of pre-flip runs. Training is "
             "untouched — checkpoint weights are stored in fp32 on disk."
         ),
     )
