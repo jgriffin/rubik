@@ -315,10 +315,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--render-html",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
-            "Also render the HTML report next to the JSON via "
-            "render_beam_eval_report.py."
+            "Override config.render_html. Pass --render-html to force HTML "
+            "output, or --no-render-html to suppress. When omitted, the "
+            "YAML config's render_html field decides."
         ),
     )
     args = parser.parse_args(argv)
@@ -334,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         include_v_star=True if args.include_v_star else None,
         max_depth=args.max_depth,
+        render_html=args.render_html,
     )
 
     training_config_path = _resolve_training_config(model_path)
@@ -367,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"wrote {out_path}")
 
-    if args.render_html:
+    if eval_cfg.render_html:
         # Chain the renderer. Same Python interpreter to keep imports cheap.
         import subprocess
 

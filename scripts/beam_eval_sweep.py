@@ -135,10 +135,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument(
         "--render-html",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
-            "After all sweep runs, invoke render_beam_eval_report.py with "
-            "--input set to every output JSON."
+            "Override config.render_html. When enabled, after all sweep "
+            "runs invoke render_beam_eval_report.py with --input set to "
+            "every output JSON. Per-run renders are suppressed; one "
+            "overlay HTML is the point. When omitted, YAML decides."
         ),
     )
     args = parser.parse_args(argv)
@@ -158,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "include_v_star": True if args.include_v_star else None,
         "max_depth": args.max_depth,
+        "render_html": args.render_html,
     }
     # Strip the swept axis's kwarg from the all-runs overrides so it
     # doesn't double-apply — the sweep value goes in last via
@@ -217,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     for p in written:
         print(f"  {p}")
 
-    if args.render_html:
+    if base_cfg.render_html:
         renderer = REPO_ROOT / "scripts" / "render_beam_eval_report.py"
         html_name = (
             f"{model_path.stem}_eval_{base_cfg.source_name}_{args.over}_sweep.html"

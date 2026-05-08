@@ -174,6 +174,38 @@ def test_from_dict_n_per_v_star_layer_must_be_positive():
         EvalConfig.from_dict(_minimal_dict(n_per_v_star_layer=0))
 
 
+def test_from_dict_optional_render_html_default_false():
+    cfg = EvalConfig.from_dict(_minimal_dict())
+    assert cfg.render_html is False
+
+
+def test_from_dict_optional_render_html_true():
+    cfg = EvalConfig.from_dict(_minimal_dict(render_html=True))
+    assert cfg.render_html is True
+
+
+def test_with_overrides_render_html_can_force_off():
+    cfg = EvalConfig.from_dict(_minimal_dict(render_html=True))
+    assert cfg.with_overrides(render_html=False).render_html is False
+
+
+def test_with_overrides_render_html_none_keeps_yaml():
+    cfg = EvalConfig.from_dict(_minimal_dict(render_html=True))
+    assert cfg.with_overrides(render_html=None).render_html is True
+
+
+def test_shipped_default_yaml_renders_html():
+    """The shipped default profile sets render_html=true."""
+    cfg = EvalConfig.resolve("default")
+    assert cfg.render_html is True
+
+
+def test_shipped_fast_yaml_does_not_render_html():
+    """The shipped fast profile sets render_html=false."""
+    cfg = EvalConfig.resolve("fast")
+    assert cfg.render_html is False
+
+
 # ---------------------------------------------------------------------------
 # Override precedence
 # ---------------------------------------------------------------------------

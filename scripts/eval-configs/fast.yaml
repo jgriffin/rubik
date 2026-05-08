@@ -12,3 +12,7 @@ n_per_depth: [12, 24, 24, 24, 24, 24, 50, 50, 50, 50, 50, 50, 50, 50]
 beam_width: 256
 precision: bf16
 seed: 0
+
+# Skip HTML by default — fast is for "give me the numbers" cycle screening.
+# Override with --render-html on the CLI when you want a visual.
+render_html: false

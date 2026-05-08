@@ -211,11 +211,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--render-html",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
-            "After evals complete, render a single HTML overlaying all "
-            "per-checkpoint JSONs at "
-            "<run-dir>/results/trajectory_<config>.html."
+            "Override config.render_html. When enabled, after all evals "
+            "complete render a SINGLE overlay HTML across the per-checkpoint "
+            "JSONs at <run-dir>/results/trajectory_<config>.html. (Per-model "
+            "renders are suppressed in run mode — one overlay is the point.) "
+            "When omitted, the YAML config's render_html field decides."
         ),
     )
 
@@ -272,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         include_v_star=True if args.include_v_star else None,
         max_depth=args.max_depth,
+        render_html=args.render_html,
     )
 
     device = torch.device(args.device or training_config.device)
@@ -321,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\n{len(written)} checkpoint JSON(s) written under {results_dir}")
 
-    if args.render_html and written:
+    if eval_cfg.render_html and written:
         import subprocess
 
         renderer = REPO_ROOT / "scripts" / "render_beam_eval_report.py"

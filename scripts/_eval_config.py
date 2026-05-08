@@ -55,6 +55,11 @@ class EvalConfig:
     seed: int
     include_v_star: bool = False
     n_per_v_star_layer: int = 200
+    # Whether to also produce HTML alongside the JSON output. CLI flag
+    # --render-html / --no-render-html overrides the YAML choice. For
+    # beam_eval_run.py, this drives a single overlay HTML across all
+    # checkpoints rather than per-checkpoint files.
+    render_html: bool = False
     # Track which file (or named config) this came from — for output
     # filenames + JSON metadata.
     source_path: Path = field(default_factory=Path)
@@ -159,6 +164,7 @@ class EvalConfig:
             raise ValueError(
                 f"n_per_v_star_layer must be positive; got {n_per_v_star_layer!r}"
             )
+        render_html = bool(d.get("render_html", False))
 
         return cls(
             description=str(d["description"]),
@@ -168,6 +174,7 @@ class EvalConfig:
             seed=int(seed),
             include_v_star=include_v_star,
             n_per_v_star_layer=n_per_v_star_layer,
+            render_html=render_html,
             source_path=source_path,
             source_name=source_name,
         )
@@ -184,6 +191,7 @@ class EvalConfig:
         seed: int | None = None,
         include_v_star: bool | None = None,
         max_depth: int | None = None,
+        render_html: bool | None = None,
     ) -> EvalConfig:
         """Return a new EvalConfig with the given fields overridden.
 
@@ -217,6 +225,9 @@ class EvalConfig:
                 include_v_star if include_v_star is not None else self.include_v_star
             ),
             n_per_v_star_layer=self.n_per_v_star_layer,
+            render_html=(
+                render_html if render_html is not None else self.render_html
+            ),
             source_path=self.source_path,
             source_name=self.source_name,
         )

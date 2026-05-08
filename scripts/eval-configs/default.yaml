@@ -9,3 +9,8 @@ n_per_depth: [12, 24, 50, 50, 50, 50, 100, 100, 100, 100, 100, 100, 100, 100]
 beam_width: 256
 precision: bf16
 seed: 0
+
+# Verdict-quality eval — render HTML alongside the JSON. For run-dir
+# evals (beam_eval_run.py), this produces ONE overlay HTML across all
+# checkpoints, not one per checkpoint. Override with --no-render-html.
+render_html: true
