@@ -384,14 +384,12 @@ def test_post_run_beam_eval_smoke(tmp_path):
 
     script = REPO_ROOT / "scripts" / "beam_eval_run.py"
     result = subprocess.run(
-        [sys.executable, str(script), "--run-dir", str(run_dir)],
+        [sys.executable, str(script), str(run_dir)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, (
-        f"beam_eval_run failed: stderr={result.stderr!r}"
-    )
+    assert result.returncode == 0, f"beam_eval_run failed: stderr={result.stderr!r}"
     out_path = run_dir / "results" / "post_run_beam_eval.json"
     assert out_path.exists(), f"expected {out_path} to be written"
     assert json.loads(out_path.read_text()) == {}

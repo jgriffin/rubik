@@ -1,23 +1,37 @@
-"""Post-hoc beam-eval trajectory for a 3x3 DAVI run directory.
+"""Run-dir wrapper for the beam-eval CLI.
 
-Iterates checkpoints in ``<run-dir>/`` (matching ``net_step_*.pt`` and
-``net_final.pt``), runs ``beam_eval_walk`` + ``beam_eval_v_star`` on each,
-and writes a trajectory JSON keyed by checkpoint step → eval dict to
-``<run-dir>/results/post_run_beam_eval.json``.
+Walks a training-run directory and invokes the same eval logic as
+``beam_eval_model.py`` for each ``net_step_*.pt`` and ``net_final.pt``
+checkpoint. Per-checkpoint JSON lands at
+``<run-dir>/results/<step>_eval_<config-name>.json`` in the same flat
+schema ``beam_eval_model.py`` emits — there is **no** trajectory rollup
+JSON. Each checkpoint gets one independent file.
 
-Means we can save intermediate checkpoints during training (cheap) and
-post-process them later without slowing training. See plan
-``plans/m8-3x3-davi.md`` §P1c.
+Common workflow::
+
+    uv run python scripts/beam_eval_run.py <run-dir> --config fast
+
+Filtering (mutually exclusive):
+
+- ``--every-steps N`` — only checkpoints at multiples of N (plus
+  net_final.pt always).
+- ``--steps "10000,20000,final"`` — explicit step labels; literal
+  ``"final"`` resolves to net_final.pt's step (read from metrics.jsonl
+  or the training config's n_steps).
+
+If neither is set, every checkpoint is evaluated.
+
+This script is the post-refactor sibling of ``beam_eval_model.py`` —
+the same shared core (``evaluate_checkpoint``) runs for every
+checkpoint; this layer just walks the directory and resolves filtering.
 
 **Empty-checkpoint behavior.** If the run dir contains no checkpoints
 matching ``net_step_*.pt`` or ``net_final.pt``, this script writes an
-empty JSON object (``{}``) to the output path and exits 0. Tests rely
-on this contract — a freshly-created run dir with an empty
-``checkpoints/`` is a normal pre-training state, not an error.
-
-Usage::
-
-    uv run python scripts/post_run_beam_eval.py --run-dir <path>
+empty JSON object (``{}``) to ``<run-dir>/results/post_run_beam_eval.json``
+and exits 0. Tests rely on this contract — a freshly-created run dir
+is a normal pre-training state, not an error. (Empty-state file path
+deliberately keeps the old name so test fixtures stay valid; the
+post-rename per-checkpoint path is only used when checkpoints exist.)
 """
 
 from __future__ import annotations
@@ -32,24 +46,23 @@ import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT_DIR = REPO_ROOT / "experiments" / "davi-3x3"
-CACHE_PATH = REPO_ROOT / "data" / "v_star_bounded_3x3_k6.npz"
+ORACLE_CACHE_PATH = REPO_ROOT / "data" / "v_star_bounded_3x3_k6.npz"
 
-# Make ``experiments/davi-3x3/eval.py`` importable without a package marker.
+# Make ``experiments/davi-3x3/eval.py`` and the scripts/ dir importable.
 if str(EXPERIMENT_DIR) not in sys.path:
     sys.path.insert(0, str(EXPERIMENT_DIR))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from eval import beam_eval_v_star, beam_eval_walk  # noqa: E402
+from _eval_config import EvalConfig  # noqa: E402
+from beam_eval_model import evaluate_checkpoint  # noqa: E402
 
-from rubik.cube.spec import CUBE_3X3  # noqa: E402
-from rubik.model.network import ValueNet  # noqa: E402
 from rubik.oracle.v_star_bounded_3x3 import (  # noqa: E402
     load_v_star_bounded_3x3_arrays,
 )
 from rubik.training.config import DAVIConfig  # noqa: E402
 
-# Match ``net_step_<int>.pt`` and ``net_final.pt``. Final maps to the
-# actual final step (early-stop-aware: parsed from metrics.jsonl) when
-# available, falling back to the config's n_steps.
+# Match ``net_step_<int>.pt``. ``net_final.pt`` is handled specially.
 _STEP_RE = re.compile(r"^net_step_(\d+)\.pt$")
 
 
@@ -58,9 +71,7 @@ def _final_step_from_metrics(run_dir: Path, fallback: int) -> int:
 
     With early-stop, the run can terminate before ``config.n_steps``; in
     that case ``net_final.pt`` corresponds to the early-stop step, not
-    ``n_steps``. Reading metrics.jsonl gives the truthful step label so
-    legends and trajectories don't compress the final checkpoint to the
-    far right of the x-axis.
+    ``n_steps``. Reading metrics.jsonl gives the truthful step label.
     """
     metrics_path = run_dir / "metrics.jsonl"
     if not metrics_path.exists():
@@ -95,107 +106,23 @@ def _list_checkpoints(run_dir: Path, n_steps: int) -> list[tuple[int, Path]]:
     return out
 
 
-def _load_net(ckpt_path: Path, config: DAVIConfig, device: torch.device) -> ValueNet:
-    """Reconstruct + load a ValueNet for a given checkpoint."""
-    net = ValueNet(
-        CUBE_3X3,
-        body_widths=config.body_widths,
-        n_residual_blocks=config.n_residual_blocks,
-        normalization=config.normalization,
-    ).to(device)
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    if isinstance(ckpt, dict) and "net_state" in ckpt:
-        net.load_state_dict(ckpt["net_state"])
-    else:
-        # Legacy bare state-dict format.
-        net.load_state_dict(ckpt)
-    net.eval()
-    return net
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--run-dir",
-        type=Path,
-        required=True,
-        help="Run directory with config.yaml + checkpoints",
-    )
-    parser.add_argument(
-        "--n-per-walk-depth",
-        type=int,
-        default=100,
-        help="Number of random-walk scrambles per walk-depth bin in beam_eval_walk.",
-    )
-    parser.add_argument(
-        "--n-per-v-star-layer",
-        type=int,
-        default=200,
-        help="Number of states sampled per V* layer in beam_eval_v_star.",
-    )
-    parser.add_argument(
-        "--beam-width",
-        type=int,
-        default=256,
-        help="Beam width for both beam evals.",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default=None,
-        help="Override device (default: read from run config.yaml).",
-    )
-    parser.add_argument(
-        "--checkpoint-steps",
-        type=str,
-        default=None,
-        help=(
-            "Optional comma-separated list of step labels to evaluate "
-            "(e.g. '20000,30000,120000,final'). The literal 'final' selects "
-            "net_final.pt (label resolved from metrics.jsonl). When omitted, "
-            "every net_step_*.pt and net_final.pt is evaluated."
-        ),
-    )
-    parser.add_argument(
-        "--precision",
-        type=str,
-        default="bf16",
-        choices=("fp32", "bf16", "fp16"),
-        help=(
-            "Inference precision for the loaded checkpoint. bf16 (default) "
-            "is ~1.3-5× faster than fp32 on M4 Max with bit-identical solve "
-            "rates on the trained net. Pass fp32 for bit-exact reproduction. "
-            "Training is untouched — checkpoint weights stay fp32 on disk."
-        ),
-    )
-    args = parser.parse_args(argv)
-
-    run_dir: Path = args.run_dir
-    config_path = run_dir / "config.yaml"
-    results_dir = run_dir / "results"
-    out_path = results_dir / "post_run_beam_eval.json"
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    # If config.yaml is absent, behavior depends on whether checkpoints
-    # exist: a missing config + no checkpoints is "fresh run dir, nothing
-    # to eval" → write empty JSON, exit 0. A missing config + present
-    # checkpoints is a corrupt state → error out.
-    config: DAVIConfig | None = None
-    if config_path.exists():
-        config = DAVIConfig.from_yaml(config_path)
-
-    # Treat n_steps as 0 when config is missing — `_list_checkpoints` only
-    # uses it as the "final" step label, and an empty dir won't surface one.
-    n_steps = config.n_steps if config is not None else 0
-    checkpoints = _list_checkpoints(run_dir, n_steps)
-
-    if args.checkpoint_steps is not None:
-        # Build the requested-step set. 'final' selects whatever step
-        # net_final.pt resolves to via metrics.jsonl.
-        requested_raw = [
-            s.strip() for s in args.checkpoint_steps.split(",") if s.strip()
-        ]
-        final_step = _final_step_from_metrics(run_dir, fallback=n_steps)
+def _filter_checkpoints(
+    checkpoints: list[tuple[int, Path]],
+    *,
+    every_steps: int | None,
+    steps_csv: str | None,
+    final_step: int,
+) -> list[tuple[int, Path]]:
+    """Apply --every-steps or --steps filter. Mutually exclusive upstream."""
+    if every_steps is not None:
+        # Multiples of N, plus net_final.pt always.
+        kept: list[tuple[int, Path]] = []
+        for step, path in checkpoints:
+            if path.name == "net_final.pt" or step % every_steps == 0:
+                kept.append((step, path))
+        return kept
+    if steps_csv is not None:
+        requested_raw = [s.strip() for s in steps_csv.split(",") if s.strip()]
         requested: set[int] = set()
         for s in requested_raw:
             if s == "final":
@@ -205,17 +132,110 @@ def main(argv: list[str] | None = None) -> int:
         filtered = [(step, path) for step, path in checkpoints if step in requested]
         missing = requested - {step for step, _ in filtered}
         if missing:
-            raise ValueError(
-                f"requested checkpoint steps not found in {run_dir}: {sorted(missing)}"
-            )
-        checkpoints = filtered
+            raise ValueError(f"requested checkpoint steps not found: {sorted(missing)}")
+        return filtered
+    return checkpoints
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "run_dir",
+        type=Path,
+        help="Training run directory (contains config.yaml + checkpoints).",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="default",
+        help=(
+            "Eval config name (resolves to scripts/eval-configs/<name>.yaml) "
+            "or a literal filesystem path. Default: 'default'."
+        ),
+    )
+    parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="Slice n_per_depth[:N] from the config.",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Override config.beam_width.",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default=None,
+        choices=("fp32", "bf16", "fp16"),
+        help="Override config.precision.",
+    )
+    parser.add_argument(
+        "--include-v-star",
+        action="store_true",
+        help="Force include_v_star=True (overrides config).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override config.seed.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Override training config.device.",
+    )
+
+    selector = parser.add_mutually_exclusive_group()
+    selector.add_argument(
+        "--every-steps",
+        type=int,
+        default=None,
+        help=(
+            "Only evaluate checkpoints at multiples of this step (plus "
+            "net_final.pt always)."
+        ),
+    )
+    selector.add_argument(
+        "--steps",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated step labels (e.g. '20000,30000,final'). "
+            "'final' resolves to net_final.pt's step."
+        ),
+    )
+
+    args = parser.parse_args(argv)
+
+    run_dir: Path = args.run_dir
+    config_path = run_dir / "config.yaml"
+    results_dir = run_dir / "results"
+    empty_state_path = results_dir / "post_run_beam_eval.json"
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    # If config.yaml is absent, behavior depends on whether checkpoints
+    # exist: a missing config + no checkpoints is "fresh run dir, nothing
+    # to eval" → write empty JSON, exit 0. A missing config + present
+    # checkpoints is a corrupt state → error out.
+    training_config: DAVIConfig | None = None
+    if config_path.exists():
+        training_config = DAVIConfig.from_yaml(config_path)
+
+    n_steps = training_config.n_steps if training_config is not None else 0
+    checkpoints = _list_checkpoints(run_dir, n_steps)
+    final_step = _final_step_from_metrics(run_dir, fallback=n_steps)
 
     if not checkpoints:
-        out_path.write_text(json.dumps({}, indent=2))
+        empty_state_path.write_text(json.dumps({}, indent=2))
         out_display = (
-            out_path.relative_to(REPO_ROOT)
-            if out_path.is_relative_to(REPO_ROOT)
-            else out_path
+            empty_state_path.relative_to(REPO_ROOT)
+            if empty_state_path.is_relative_to(REPO_ROOT)
+            else empty_state_path
         )
         print(
             f"no checkpoints in {run_dir}; wrote empty {out_display}",
@@ -223,60 +243,74 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if config is None:
+    if training_config is None:
         raise FileNotFoundError(
             f"{config_path} not found but checkpoints exist in {run_dir}; "
             "cannot reconstruct the value net without it"
         )
 
-    device = torch.device(args.device or config.device)
-    states_arr, depths_arr = load_v_star_bounded_3x3_arrays(CACHE_PATH)
+    checkpoints = _filter_checkpoints(
+        checkpoints,
+        every_steps=args.every_steps,
+        steps_csv=args.steps,
+        final_step=final_step,
+    )
 
-    # When subsampling via --checkpoint-steps, merge into any existing
-    # trajectory so successive subsample passes accumulate without
-    # clobbering prior results.
-    trajectory: dict[str, dict] = {}
-    if args.checkpoint_steps is not None and out_path.exists():
-        try:
-            existing = json.loads(out_path.read_text())
-            if isinstance(existing, dict):
-                trajectory.update(existing)
-        except json.JSONDecodeError:
-            pass
+    # Build the EvalConfig once; CLI overrides apply to all checkpoints.
+    eval_cfg = EvalConfig.resolve(args.config).with_overrides(
+        beam_width=args.width,
+        precision=args.precision,
+        seed=args.seed,
+        include_v_star=True if args.include_v_star else None,
+        max_depth=args.max_depth,
+    )
 
-    precision_dtype = {
-        "fp32": torch.float32,
-        "bf16": torch.bfloat16,
-        "fp16": torch.float16,
-    }[args.precision]
+    device = torch.device(args.device or training_config.device)
 
+    # Pre-load oracle once if needed (avoids re-reading the .npz per checkpoint).
+    oracle_arrays = None
+    if eval_cfg.include_v_star:
+        if not ORACLE_CACHE_PATH.exists():
+            raise FileNotFoundError(
+                f"--include-v-star requires {ORACLE_CACHE_PATH} (run "
+                "scripts/build_v_star_bounded_3x3.py first)."
+            )
+        oracle_arrays = load_v_star_bounded_3x3_arrays(ORACLE_CACHE_PATH)
+
+    written: list[Path] = []
     for step, ckpt_path in checkpoints:
-        print(f"evaluating {ckpt_path.name} (step={step}) ...", flush=True)
-        net = _load_net(ckpt_path, config, device)
-        if precision_dtype is not torch.float32:
-            net = net.to(precision_dtype)
-
-        walk_metrics = beam_eval_walk(
-            net,
-            CUBE_3X3,
-            n_per_depth=args.n_per_walk_depth,
-            beam_width=args.beam_width,
+        # Output filename uses the step label, not the checkpoint stem, so
+        # net_final.pt resolves to its early-stop-aware step in the name.
+        out_path = results_dir / f"step_{step}_eval_{eval_cfg.source_name}.json"
+        print(
+            f"evaluating {ckpt_path.name} (step={step}) ...",
+            flush=True,
         )
-        v_star_metrics = beam_eval_v_star(
-            net,
-            CUBE_3X3,
-            (states_arr, depths_arr),
-            n_per_layer=args.n_per_v_star_layer,
-            beam_width=args.beam_width,
+        payload = evaluate_checkpoint(
+            model_path=ckpt_path,
+            eval_cfg=eval_cfg,
+            device=device,
+            training_config=training_config,
+            oracle_arrays=oracle_arrays,
         )
-        trajectory[str(step)] = {
-            "checkpoint": ckpt_path.name,
-            "beam_walk": walk_metrics,
-            "beam_v_star": v_star_metrics,
-        }
+        # Annotate with the step label so per-checkpoint JSONs carry the
+        # context they came from without needing a sibling rollup.
+        payload["step"] = int(step)
+        out_path.write_text(json.dumps(payload, indent=2))
+        written.append(out_path)
+        deep_rate = (
+            payload["per_walk_depth"][-1]["solve_rate"]
+            if payload["per_walk_depth"]
+            else float("nan")
+        )
+        print(
+            f"  wrote {out_path.name} "
+            f"(wall={payload['wall_time_seconds']:.1f}s "
+            f"solve_rate@d={eval_cfg.max_depth}={deep_rate:.3f})",
+            flush=True,
+        )
 
-    out_path.write_text(json.dumps(trajectory, indent=2))
-    print(f"wrote {out_path}", flush=True)
+    print(f"\n{len(written)} checkpoint JSON(s) written under {results_dir}")
     return 0
 
 
