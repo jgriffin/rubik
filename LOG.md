@@ -4,6 +4,14 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-08 — LN/K_max=30 fresh training run (30k) 🟡 in-progress
+**Goal:** Real comparison run for the LN+K_max=30 path. The pre-flight smoke (LOG entry below) ran 5k steps under this config and showed an unexpectedly favorable trajectory: macro_v_star_mae 2.29 → 0.18 by step 5k, d=14=0.30 — vs full_train (BN, K_max=20, no curriculum) at d=14≈0 at the same step count and d=14=0.78 only at step 16k. 30k steps lets us see whether the curve sustains, whether LN's claimed drift-resistance shows up at scale, and whether the d=14 capability climb past 5k matches or exceeds what BN+K_max=20 produced over a longer horizon. Out of scope: comparison against curriculum-enabled variants (separate cycle).
+**Milestone:** M8 phase 3 — first non-smoke run on the LN line ([roadmap entry](ROADMAP.md#m8))
+**Approach:** Branch `ln-kmax30-fresh-run` from main HEAD `a34b560`. Single deliverable: a 30k-step fresh-init run with `experiments/davi-3x3/configs/ln_kmax30.yaml` (mirrors smoke_ln_kmax30.yaml, only `n_steps` differs: 10000 → 30000). wandb on (per the just-locked-in default). Checkpoint cadence stays at 500 steps (60 checkpoints). Use `ensure_run_results.py` periodically during the run to keep eval reports current — the new tooling enables this. After training completes (or is killed early), final eval pass + writeup of comparison vs full_train at matched step counts.
+**Next:** Kick off training in background. Estimated wall ~2.2h on M4 Max at ~258 ms/step.
+**In progress:**
+- Block opened. Branch `ln-kmax30-fresh-run` from main HEAD `a34b560`. Config landed at `experiments/davi-3x3/configs/ln_kmax30.yaml`.
+
 ## 2026-05-07 — Checkpoint provenance polish + LN/K_max=30 smoke ✅ done — pipeline ready for fresh 30k LN run; smoke trajectory looks favorable
 **Goal:** Get the 3x3 training pipeline ready for a clean LN + K_max=30 fresh run by (a) tightening checkpoint provenance so eval scripts stop parsing filenames for `step` (it's already in the bundle, scripts just don't read it) and adding `wall_time_seconds` (and `wandb_run_id` when active) to the save bundle, and (b) running a 10k-step smoke training with `normalization: ln`, flat `max_scramble_depth: 30` (no curriculum), checkpoint every 500 steps. The smoke validates: new save path emits the right metadata, eval picks it up through the new code path, trajectory HTML renders, and the LN+K_max=30 config doesn't crash or NaN. Capability is not the bar — "didn't crash, files exist, eval reads them, plots look sensible" is the bar. Out of scope: the real ~3h fresh training run (separate block once smoke is clean).
 **Milestone:** M8 phase 3 — pre-flight for fresh LN+K_max=30 run

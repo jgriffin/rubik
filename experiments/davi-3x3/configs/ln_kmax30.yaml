@@ -1,0 +1,60 @@
+# LN + K_max=30 fresh training run (3x3 DAVI).
+#
+# Followup to smoke_ln_kmax30 (5k partial, killed early). Same core
+# params, longer budget. The smoke surfaced a favorable trajectory:
+# macro_v_star_mae 2.29 → 0.18 over first 5k steps with NO curriculum,
+# d=14=0.30 already at step 5k. full_train (BN, K=20, no curriculum)
+# was at d=14≈0 at step 5k and reached d=14=0.78 only at step 16k.
+# This 30k run is the real comparison.
+#
+# Architecture: same hand-picked guess (5120 / 1024 × 4 blocks) as
+# full_train.yaml. Only `normalization` differs (`ln` instead of `bn`).
+# Per project convention, do not borrow specific values from prior
+# published work — these are this hardware's earned values from
+# preceding 3x3 cycles.
+#
+# Scrambles: flat K_max=30 from step 1 (`max_scramble_depth_ramp_steps:
+# 0`). No curriculum — keeps this run a clean isolation of LN's effect
+# vs full_train. Curriculum scheduling stays an open question for a
+# later cycle.
+#
+# Recommended invocation:
+#   uv run python experiments/davi-3x3/run.py \
+#     --config experiments/davi-3x3/configs/ln_kmax30.yaml
+#
+# wandb: ON by default (rubik-3x3 project, tags=cube=3x3 phase=smoke).
+# Tag the wandb run as a non-smoke variant if desired via the wandb UI;
+# the in-script tag pattern is currently smoke-flavored and can be
+# refined later.
+#
+# Estimated wall: ~2.2h on M4 Max at ~258 ms/step (smoke pace under LN).
+
+max_scramble_depth: 30
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
+
+batch_size: 4096
+n_steps: 30000
+learning_rate: 0.001
+target_sync_interval: 500
+
+body_widths:
+  - 5120
+  - 1024
+n_residual_blocks: 4
+normalization: ln
+
+log_every: 100
+eval_every: 500
+checkpoint_every: 500
+seed: 0
+device: mps
+
+# Early-stop wiring removed 2026-05-06 (macro_v_star_mae is the wrong
+# signal at K_max >> K_oracle=6). Field kept for schema parity but
+# silently ignored by run.py.
+early_stop_enabled: false
+early_stop_metric: macro_v_star_mae
+early_stop_patience_evals: 12
+early_stop_min_evals: 4
+early_stop_min_delta: 0.001
