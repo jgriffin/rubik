@@ -76,6 +76,18 @@ RUNS: list[tuple[str, str, str, str]] = [
         "#d62728",
         "",
     ),
+    (
+        "ln_kmax30 30k (LN, K=30, no curriculum)",
+        "20260508T054741Z_ln_kmax30",
+        "#9467bd",
+        "",
+    ),
+    (
+        "ln_kmax30 100k continuation (warm 30k→100k)",
+        "20260508T084940Z_ln_kmax30_100k",
+        "#8c564b",
+        "",
+    ),
 ]
 
 # Walk-depth bins for per-walk-depth charts.

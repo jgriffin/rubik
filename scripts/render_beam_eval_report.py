@@ -14,13 +14,18 @@ Three input *modes* are auto-detected:
    directory (i.e. successive checkpoints from one training run, as
    produced by ``beam_eval_run.py``). Renders three trajectory-oriented
    charts:
-     A. **Solve rate by depth, over training step** — 5/5/4 banded
-        small multiples (Shallow d=1..5 / Mid d=6..10 / Deep d=11..14),
-        x=step, y=solve_rate, one polyline per run. Matches the
-        project's canonical banded chart idiom (see
+     A. **Solve rate by depth, over training step** — banded small
+        multiples (Shallow d=1..5 / Mid d=6..10 / Deep d=11..N / Very
+        deep d=…), each band 5 cells wide except the last which may be
+        narrower. Layout is derived from the actual max walk depth
+        observed in the data, so K_max=14 keeps the legacy 5/5/4
+        layout, K_max=18 produces 5/5/5/3, K_max=30 produces six
+        bands of 5. x=step, y=solve_rate, one polyline per run.
+        Matches the project's canonical banded chart idiom (see
         ``experiments/davi-3x3/analysis/render_error_trajectories.py``).
      B. **Solve rate by depth × training step (heatmap)** — x=step,
-        y=walk depth with d=14 at the top, in-cell numeric labels.
+        y=walk depth with the deepest depth at the top, in-cell
+        numeric labels.
      C. **Wall time across checkpoints** — x=step, y=seconds, line per run.
 3. **Sweep** — multiple flat-schema inputs that don't qualify as a
    trajectory (same step or no step, but differ in ``beam_width`` /
@@ -60,13 +65,69 @@ INPUT_COLORS = [
     "#7f7f7f",
 ]
 
-# Project-wide banded layout for walk-depth charts: Shallow 1-5 / Mid
-# 6-10 / Deep 11-14, 5/5/4 cells. See render_error_trajectories.py.
-TRAJECTORY_BANDS: list[tuple[str, list[int]]] = [
-    ("Shallow — walk-depths 1–5", [1, 2, 3, 4, 5]),
-    ("Mid — walk-depths 6–10", [6, 7, 8, 9, 10]),
-    ("Deep — walk-depths 11–14", [11, 12, 13, 14]),
-]
+
+def trajectory_bands(max_depth: int) -> list[tuple[str, list[int]]]:
+    """Return banded small-multiple layout for walk depths 1..max_depth.
+
+    Project-wide convention: width-5 bands. Special-cased for
+    backwards-compatibility with the legacy K_max=14 layout (5/5/4 with
+    titles ``Shallow — walk-depths 1–5`` / ``Mid — walk-depths 6–10`` /
+    ``Deep — walk-depths 11–14``).
+
+    For other ``max_depth`` values, the first three bands carry the
+    Shallow/Mid/Deep labels with their actual ranges; subsequent bands
+    are labelled "Very deep d=A–B". When the deep band itself extends
+    past d=14 (e.g. ``max_depth=15`` → Deep d=11–15), it stays a single
+    band up to width 5; the next band starts at d=16.
+
+    Examples::
+
+        max_depth=14 → 5/5/4   ("Shallow … 1–5" / "Mid … 6–10" / "Deep … 11–14")
+        max_depth=18 → 5/5/5/3 ("Shallow"/"Mid"/"Deep d=11–15"/"Very deep d=16–18")
+        max_depth=30 → 5/5/5/5/5/5 (Shallow/Mid/Deep 11–15/Very deep 16–20/21–25/26–30)
+    """
+    if max_depth < 1:
+        raise ValueError(f"max_depth must be >= 1; got {max_depth}")
+
+    # Preserve the legacy K_max=14 titles exactly — existing test goldens
+    # may match these strings.
+    if max_depth == 14:
+        return [
+            ("Shallow — walk-depths 1–5", [1, 2, 3, 4, 5]),
+            ("Mid — walk-depths 6–10", [6, 7, 8, 9, 10]),
+            ("Deep — walk-depths 11–14", [11, 12, 13, 14]),
+        ]
+
+    bands: list[tuple[str, list[int]]] = []
+    # Shallow: 1..min(5, max_depth)
+    shallow_hi = min(5, max_depth)
+    bands.append(
+        (f"Shallow — walk-depths 1–{shallow_hi}", list(range(1, shallow_hi + 1)))
+    )
+    if max_depth <= 5:
+        return bands
+
+    # Mid: 6..min(10, max_depth)
+    mid_hi = min(10, max_depth)
+    bands.append((f"Mid — walk-depths 6–{mid_hi}", list(range(6, mid_hi + 1))))
+    if max_depth <= 10:
+        return bands
+
+    # Deep: 11..min(15, max_depth) — width 5 to match Shallow/Mid.
+    deep_hi = min(15, max_depth)
+    bands.append((f"Deep — walk-depths 11–{deep_hi}", list(range(11, deep_hi + 1))))
+    if max_depth <= 15:
+        return bands
+
+    # Very deep: width-5 bands starting at d=16.
+    start = 16
+    while start <= max_depth:
+        end = min(start + 4, max_depth)
+        bands.append(
+            (f"Very deep — walk-depths {start}–{end}", list(range(start, end + 1)))
+        )
+        start = end + 1
+    return bands
 
 
 def _line_path(points: list[tuple[float, float]]) -> str:
@@ -504,13 +565,29 @@ def chart_trajectory_banded(
     *,
     title: str = "Solve rate by depth, over training step",
 ) -> str:
-    """Three-band 5/5/4 small multiples: x=step, y=solve_rate, polyline per run."""
+    """Banded width-5 small multiples: x=step, y=solve_rate, polyline per run.
+
+    Layout is derived from the maximum walk depth observed in the input
+    runs via ``trajectory_bands(max_depth)`` — K_max=14 keeps the legacy
+    5/5/4 layout, K_max=18 produces 5/5/5/3, K_max=30 produces six bands.
+    """
     cell_w, cell_h = 220, 160
     pad = 16
     pad_l, pad_t, pad_r, pad_b = 38, 24, 8, 26
 
+    # Derive layout from the actual data, not a hardcoded constant. Falls
+    # back to 14 (legacy) when there are no records — the empty-runs path
+    # below short-circuits before any band SVG is built.
+    observed_depths: set[int] = set()
+    for _label, _color, recs in runs:
+        for r in recs:
+            for it in r.get("per_walk_depth", []):
+                observed_depths.add(int(it["d"]))
+    max_observed_depth = max(observed_depths) if observed_depths else 14
+    bands = trajectory_bands(max_observed_depth)
+
     band_svgs: list[str] = []
-    for band_title, depths in TRAJECTORY_BANDS:
+    for band_title, depths in bands:
         cols = len(depths)
         total_w = cols * cell_w + pad * (cols + 1)
         total_h = cell_h + pad * 2 + 40
@@ -622,9 +699,14 @@ def chart_trajectory_banded(
         parts.append("</svg>")
         band_svgs.append("\n".join(parts))
 
+    band_summaries = " / ".join(
+        f"{btitle.split(' — ')[0]} d={depths[0]}–{depths[-1]}"
+        for btitle, depths in bands
+    )
+    cell_widths = "/".join(str(len(depths)) for _, depths in bands)
     return (
         f'<p class="note">{title} — banded small multiples '
-        f"(Shallow d=1–5 / Mid d=6–10 / Deep d=11–14, 5/5/4 cells). "
+        f"({band_summaries}, {cell_widths} cells). "
         f"Each cell: x=training step, y=solve rate (0..1), one polyline per run."
         f"</p>\n" + "\n".join(band_svgs)
     )
@@ -635,7 +717,7 @@ def chart_trajectory_heatmap(
     *,
     title: str = "Solve rate by depth × training step",
 ) -> str:
-    """Heatmap with x=step, y=walk_depth REVERSED (d=14 at top, d=1 at bottom)."""
+    """Heatmap with x=step, y=walk_depth REVERSED (deepest at top, d=1 at bottom)."""
     if not runs:
         return '<p class="note">_(no runs)_</p>'
     # For now, render the first run's heatmap. (Multi-run heatmap overlay is
@@ -1008,7 +1090,7 @@ def render_trajectory_section(
         chart_trajectory_banded(runs),
         "<h3>2. Solve rate by depth × training step (heatmap)</h3>",
         '<p class="note">'
-        "x-axis: training step. y-axis: walk depth, with d=14 at the top "
+        "x-axis: training step. y-axis: walk depth, deepest at the top "
         "(deepest walks first). Cells colored by solve_rate; numeric values "
         "shown in-cell."
         "</p>",
@@ -1130,7 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
     Generated by <code>scripts/render_beam_eval_report.py</code>. Modes
     auto-detected: <em>single</em> (one input) → standard chart triplet;
     <em>trajectory</em> (multiple checkpoints from one run) → banded
-    per-depth solve-rate trajectories + step×depth heatmap (d=14 on top)
+    per-depth solve-rate trajectories + step×depth heatmap (deepest on top)
     + wall time over step; <em>sweep</em> (multiple inputs varying in
     beam_width / precision / etc.) → standard chart triplet keyed off
     the varying parameter. Legacy width-keyed inputs render as their own

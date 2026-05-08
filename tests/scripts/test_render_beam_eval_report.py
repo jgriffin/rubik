@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "render_beam_eval_report.py"
 
@@ -675,3 +677,57 @@ def test_friendly_run_label_strips_timestamp_prefix():
     assert mod._friendly_run_label("plain_run_dir") == "plain_run_dir"
     # Empty stays empty.
     assert mod._friendly_run_label("") == ""
+
+
+# ---------------------------------------------------------------------------
+# trajectory_bands: dynamic band layout per max walk depth
+# ---------------------------------------------------------------------------
+
+
+def _import_renderer():
+    import importlib.util as _ilu
+
+    spec = _ilu.spec_from_file_location("rber", SCRIPT)
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_trajectory_bands_legacy_kmax14_layout():
+    """K_max=14 → exact legacy layout: 5/5/4 with the original band titles."""
+    mod = _import_renderer()
+    bands = mod.trajectory_bands(14)
+    assert bands == [
+        ("Shallow — walk-depths 1–5", [1, 2, 3, 4, 5]),
+        ("Mid — walk-depths 6–10", [6, 7, 8, 9, 10]),
+        ("Deep — walk-depths 11–14", [11, 12, 13, 14]),
+    ]
+
+
+def test_trajectory_bands_kmax18_layout():
+    """K_max=18 → 5/5/5/3 (Shallow / Mid / Deep d=11-15 / Very deep d=16-18)."""
+    mod = _import_renderer()
+    bands = mod.trajectory_bands(18)
+    widths = [len(depths) for _, depths in bands]
+    assert widths == [5, 5, 5, 3]
+    # Depth coverage is contiguous and matches max_depth.
+    all_depths = [d for _, depths in bands for d in depths]
+    assert all_depths == list(range(1, 19))
+
+
+def test_trajectory_bands_kmax30_layout():
+    """K_max=30 → six bands of 5 each."""
+    mod = _import_renderer()
+    bands = mod.trajectory_bands(30)
+    widths = [len(depths) for _, depths in bands]
+    assert widths == [5, 5, 5, 5, 5, 5]
+    all_depths = [d for _, depths in bands for d in depths]
+    assert all_depths == list(range(1, 31))
+
+
+def test_trajectory_bands_invalid_max_depth():
+    mod = _import_renderer()
+    with pytest.raises(ValueError, match="max_depth"):
+        mod.trajectory_bands(0)
+    with pytest.raises(ValueError, match="max_depth"):
+        mod.trajectory_bands(-3)
