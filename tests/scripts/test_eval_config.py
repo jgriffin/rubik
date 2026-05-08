@@ -19,7 +19,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from _eval_config import EvalConfig  # noqa: E402
+from _eval_config import EvalConfig, truncate_schedule  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Resolution + lookup
@@ -33,8 +33,10 @@ def test_resolve_named_config_fast():
     assert cfg.beam_width == 256
     assert cfg.precision == "bf16"
     assert cfg.seed == 0
-    assert len(cfg.n_per_depth) == 14
+    assert len(cfg.n_per_depth) == 18
     assert cfg.n_per_depth[0] == 12  # d=1 exhaustive
+    # Deep-tail at n=50, extending through d=18.
+    assert cfg.n_per_depth[-1] == 50
 
 
 def test_resolve_named_config_default():
@@ -43,9 +45,21 @@ def test_resolve_named_config_default():
     assert cfg.source_name == "default"
     assert cfg.beam_width == 256
     assert cfg.precision == "bf16"
-    assert len(cfg.n_per_depth) == 14
+    assert len(cfg.n_per_depth) == 18
     # Deep-tail at n=100.
     assert cfg.n_per_depth[-1] == 100
+
+
+def test_resolve_named_config_fast_kmax30():
+    """``EvalConfig.resolve('fast_kmax30')`` finds the K_max=30 schedule."""
+    cfg = EvalConfig.resolve("fast_kmax30")
+    assert cfg.source_name == "fast_kmax30"
+    assert cfg.beam_width == 256
+    assert cfg.precision == "bf16"
+    assert len(cfg.n_per_depth) == 30
+    assert cfg.n_per_depth[0] == 12  # d=1 exhaustive
+    assert cfg.n_per_depth[-1] == 50  # deep tail
+    assert cfg.render_html is False
 
 
 def test_resolve_path(tmp_path: Path):
@@ -239,8 +253,15 @@ def test_with_overrides_max_depth_slices():
     assert cfg.max_depth == 2
 
 
-def test_with_overrides_max_depth_too_large():
-    with pytest.raises(ValueError, match="exceeds"):
+def test_with_overrides_max_depth_too_large_errors():
+    """``max_depth`` past the YAML schedule length → ValueError.
+
+    Under min(yaml, training) semantics, auto-derive callers always
+    pre-clamp against the YAML length. This raise is the explicit-CLI
+    guardrail: ``--max-depth N`` past the schedule has no sample-count
+    entries, so we refuse rather than invent values.
+    """
+    with pytest.raises(ValueError, match="exceeds n_per_depth schedule"):
         EvalConfig.from_dict(_minimal_dict(n_per_depth=[4, 8])).with_overrides(
             max_depth=10
         )
@@ -255,3 +276,47 @@ def test_walk_depths_property():
     cfg = EvalConfig.from_dict(_minimal_dict(n_per_depth=[1, 2, 3]))
     assert cfg.walk_depths == (1, 2, 3)
     assert cfg.max_depth == 3
+
+
+# ---------------------------------------------------------------------------
+# truncate_schedule + max_depth slice semantics
+# ---------------------------------------------------------------------------
+
+
+def test_truncate_schedule_identity():
+    """target == len → returns the schedule unchanged (as a tuple)."""
+    out = truncate_schedule([12, 24, 50, 100], 4)
+    assert out == (12, 24, 50, 100)
+
+
+def test_truncate_schedule_truncate():
+    """target < len → first N entries."""
+    src = [12, 24, 24, 24, 24, 24, 50, 50, 50, 50, 50, 50, 50, 50]
+    assert truncate_schedule(src, 10) == (12, 24, 24, 24, 24, 24, 50, 50, 50, 50)
+    assert truncate_schedule(src, 1) == (12,)
+
+
+def test_truncate_schedule_too_large_errors():
+    """target > len → ValueError; we never invent sample counts."""
+    with pytest.raises(ValueError, match="exceeds n_per_depth schedule"):
+        truncate_schedule([12, 24, 50], 10)
+
+
+def test_truncate_schedule_invalid_target():
+    with pytest.raises(ValueError, match="max_depth must be"):
+        truncate_schedule([4, 8], 0)
+    with pytest.raises(ValueError, match="max_depth must be"):
+        truncate_schedule([4, 8], -1)
+
+
+def test_truncate_schedule_empty_source():
+    with pytest.raises(ValueError, match="non-empty"):
+        truncate_schedule([], 5)
+
+
+def test_with_overrides_max_depth_identity():
+    """max_depth == schedule length → no change."""
+    cfg = EvalConfig.from_dict(_minimal_dict(n_per_depth=[4, 8, 12])).with_overrides(
+        max_depth=3
+    )
+    assert cfg.n_per_depth == (4, 8, 12)

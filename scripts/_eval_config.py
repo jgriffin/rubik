@@ -44,6 +44,40 @@ CONFIG_DIR = REPO_ROOT / "scripts" / "eval-configs"
 _VALID_PRECISIONS = ("fp32", "bf16", "fp16")
 
 
+def truncate_schedule(
+    n_per_depth: tuple[int, ...] | list[int],
+    target_max_depth: int,
+) -> tuple[int, ...]:
+    """Slice a per-depth sample schedule to length ``target_max_depth``.
+
+    Behaviour:
+    - ``target_max_depth == len(n_per_depth)`` → identity (return as tuple).
+    - ``target_max_depth < len(n_per_depth)``  → truncate to the first N.
+    - ``target_max_depth > len(n_per_depth)``  → ``ValueError`` (we have
+      no schedule for those depths). Auto-derive callers must pre-clamp
+      against the YAML schedule length before invoking this; this raise
+      becomes the explicit-CLI guardrail (``--max-depth N`` past schedule
+      length).
+
+    Raises ``ValueError`` if ``target_max_depth < 1``, the source
+    schedule is empty, or ``target_max_depth`` exceeds the source length.
+    """
+    if target_max_depth < 1:
+        raise ValueError(f"max_depth must be >= 1; got {target_max_depth}")
+    src = tuple(int(v) for v in n_per_depth)
+    if not src:
+        raise ValueError("n_per_depth source schedule must be non-empty")
+    n = len(src)
+    if target_max_depth > n:
+        raise ValueError(
+            f"max_depth={target_max_depth} exceeds n_per_depth schedule "
+            f"length {n}; the YAML config has no entry for those depths"
+        )
+    if target_max_depth == n:
+        return src
+    return src[:target_max_depth]
+
+
 @dataclass(frozen=True)
 class EvalConfig:
     """Beam-eval YAML config bundle."""
@@ -195,19 +229,20 @@ class EvalConfig:
     ) -> EvalConfig:
         """Return a new EvalConfig with the given fields overridden.
 
-        ``max_depth`` slices ``n_per_depth[:max_depth]`` and errors if it
-        exceeds the underlying schedule length.
+        ``max_depth`` slices the schedule to exactly that length. Errors
+        if ``max_depth`` exceeds the YAML schedule length — we have no
+        sample-count entry for those deeper depths and refuse to invent
+        one. Auto-derive callers (``beam_eval_run.py``,
+        ``beam_eval_model.py``) clamp against
+        ``min(yaml_max_depth, training_max_scramble_depth)`` before
+        invoking, so the error here only surfaces for explicit-CLI
+        ``--max-depth N`` past the schedule length.
         """
-        npd = self.n_per_depth
-        if max_depth is not None:
-            if max_depth < 1:
-                raise ValueError(f"max_depth must be >= 1; got {max_depth}")
-            if max_depth > len(self.n_per_depth):
-                raise ValueError(
-                    f"max_depth={max_depth} exceeds config n_per_depth length "
-                    f"{len(self.n_per_depth)}"
-                )
-            npd = self.n_per_depth[:max_depth]
+        npd = (
+            truncate_schedule(self.n_per_depth, max_depth)
+            if (max_depth is not None)
+            else self.n_per_depth
+        )
 
         new_precision = precision if precision is not None else self.precision
         if new_precision not in _VALID_PRECISIONS:
@@ -225,9 +260,7 @@ class EvalConfig:
                 include_v_star if include_v_star is not None else self.include_v_star
             ),
             n_per_v_star_layer=self.n_per_v_star_layer,
-            render_html=(
-                render_html if render_html is not None else self.render_html
-            ),
+            render_html=(render_html if render_html is not None else self.render_html),
             source_path=self.source_path,
             source_name=self.source_name,
         )

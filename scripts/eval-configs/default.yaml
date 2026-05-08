@@ -2,9 +2,9 @@
 # (2σ at p≈0.7, n=100). Use for cycle-to-cycle verdicts where 5pp matters.
 description: Production cycle decision (deep-tail SE ~4.6pp)
 
-# d=1 exhaustive at 12; saturated shallow at 24-50; deep tail at n=100.
+# d=1 exhaustive at 12; saturated shallow at 24-50; deep tail (d=7..18) at n=100.
 # Deep-tail SE = sqrt(0.7*0.3/100) = 4.58pp.
-n_per_depth: [12, 24, 50, 50, 50, 50, 100, 100, 100, 100, 100, 100, 100, 100]
+n_per_depth: [12, 24, 50, 50, 50, 50, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
 
 beam_width: 256
 precision: bf16

@@ -6,8 +6,8 @@ description: Cycle screening (deep-tail SE ~6.5pp)
 # Per-depth sample count. Index i = depth (i+1). Length = max walk depth.
 # d=1 has only 12 reachable walks (12 quarter-turn moves), so n=12 is
 # exhaustive. Shallow depths saturate at p=1; SE is naturally near-zero
-# regardless of n. Deep depths (d=7..14) use n=50 → SE=6.5pp at p=0.7.
-n_per_depth: [12, 24, 24, 24, 24, 24, 50, 50, 50, 50, 50, 50, 50, 50]
+# regardless of n. Deep depths (d=7..18) use n=50 → SE=6.5pp at p=0.7.
+n_per_depth: [12, 24, 24, 24, 24, 24, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
 
 beam_width: 256
 precision: bf16

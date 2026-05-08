@@ -1,0 +1,17 @@
+# Cycle screening for K_max=30 training (deep-tail SE ~6.5pp, d=1..30).
+# Same head as fast.yaml; padded with n=50 out to depth 30 to match the
+# K_max=30 LN-normalized training schedule. Use when you want a yes/no
+# on "did this cycle improve" for K=30 runs without paying the full
+# default cost.
+description: Cycle screening for K_max=30 training (deep-tail SE ~6.5pp, d=1..30)
+
+# d=1 exhaustive at 12; saturated shallow at 24; deep tail (d=7..30) at n=50
+# → SE=6.5pp at p=0.7.
+n_per_depth: [12, 24, 24, 24, 24, 24, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
+
+beam_width: 256
+precision: bf16
+seed: 0
+
+# Skip HTML by default — fast is for cycle screening.
+render_html: false
