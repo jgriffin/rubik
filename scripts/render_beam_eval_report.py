@@ -1,29 +1,31 @@
 """Render a dedicated HTML report from one or more beam-eval JSONs.
 
-Consumes the JSON written by ``scripts/beam_eval_run.py`` and produces a
-self-contained HTML file with three (or five, when V*-stratified results
-are present) charts:
+Two input schemas are supported and auto-detected:
 
-1. **Per-walk-depth solve rate, one line per beam width** — x-axis walk
-   depth, y-axis solve rate, one polyline per width. Width labels in
-   the legend with their wall-time.
-2. **Wall-time per width (bar chart, log-x widths)** — at-a-glance read
-   on the speed/quality tradeoff.
-3. **Per-walk-depth × per-width heatmap** — rows=walk-depth,
-   columns=width, cell colored by solve rate (white=0, dark=1). Cell
-   text shows the value.
+1. **Width-keyed schema (legacy)** — produced by the pre-refactor
+   ``beam_eval_run.py``. Has ``results`` keyed by width string with
+   per-width ``per_walk_depth`` lists. One input JSON renders a 3-chart
+   set (lines / wall bars / heatmap) overlaying its widths.
 
-When the input JSON has ``v_star_results``, two extra sections render
-the same charts for V*-stratified per-V* lists.
+2. **Flat schema (new)** — produced by ``beam_eval_model.py`` and
+   ``beam_eval_sweep.py``. Each JSON has top-level ``per_walk_depth`` +
+   ``beam_width`` (single scalar). The renderer wraps each flat-schema
+   payload as a one-width entry in the same chart machinery, so multiple
+   ``--input`` JSONs from a sweep overlay cleanly without code
+   duplication.
 
-Multiple ``--input`` JSONs render as separate sub-sections (one per
-input), each labeled with the input filename. This lets you overlay
-beam-eval sweeps from different checkpoints/runs.
+When the input JSON(s) have ``v_star_results``, two extra sections
+render the same charts for V*-stratified per-V* lists.
+
+Multiple ``--input`` JSONs in flat-schema mode render as a single
+overlay (one chart, one line per input). Legend labels prefer the
+filename's ``_<param>=<value>`` suffix when present (sweep output) and
+fall back to the filename stem otherwise.
 
 Usage::
 
     uv run python scripts/render_beam_eval_report.py \\
-        --input <path-to-beam-eval-run.json> [<path>...] \\
+        --input <path>.json [<path>...] \\
         [--output <path>]
 
 Default output path is ``<first-input>.html`` (replacing ``.json`` with
@@ -76,6 +78,16 @@ def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
 
+def _sort_section_keys(keys) -> list[str]:
+    """Sort keys numerically when they're all int-valued (legacy widths),
+    else preserve insertion order (flat-schema overlay labels)."""
+    keys_list = list(keys)
+    try:
+        return sorted(keys_list, key=lambda k: int(k))
+    except (TypeError, ValueError):
+        return keys_list
+
+
 def _heat_color(rate: float) -> str:
     """Map solve_rate ∈ [0, 1] to a color (white=0 → dark blue=1)."""
     rate = max(0.0, min(1.0, float(rate)))
@@ -85,6 +97,15 @@ def _heat_color(rate: float) -> str:
     g = int(255 * (1 - rate) + base[1] * rate)
     b = int(255 * (1 - rate) + base[2] * rate)
     return f"rgb({r},{g},{b})"
+
+
+def _format_legend_label(w_key: str) -> str:
+    """Legend prefix: ``w=<n>`` for legacy width keys, raw label otherwise."""
+    try:
+        int(w_key)
+        return f"w={w_key}"
+    except (TypeError, ValueError):
+        return str(w_key)
 
 
 def chart_solve_rate_lines(
@@ -104,7 +125,7 @@ def chart_solve_rate_lines(
     plot_h = height - pad_t - pad_b
 
     section = payload.get(section_key, {})
-    width_keys = sorted(section.keys(), key=lambda k: int(k))
+    width_keys = _sort_section_keys(section.keys())
     if not width_keys:
         return f'<p class="note">_(no entries in {section_key})_</p>'
 
@@ -194,7 +215,7 @@ def chart_solve_rate_lines(
         )
         parts.append(
             f'<text x="{legend_x + 18}" y="{ly + 1}" font-size="11" fill="#333">'
-            f"w={w_key}  ({wall:.1f}s)</text>"
+            f"{_format_legend_label(w_key)}  ({wall:.1f}s)</text>"
         )
 
     parts.append("</svg>")
@@ -215,7 +236,7 @@ def chart_wall_time_bars(
     plot_h = height - pad_t - pad_b
 
     section = payload.get(section_key, {})
-    width_keys = sorted(section.keys(), key=lambda k: int(k))
+    width_keys = _sort_section_keys(section.keys())
     if not width_keys:
         return f'<p class="note">_(no entries in {section_key})_</p>'
 
@@ -254,14 +275,15 @@ def chart_wall_time_bars(
         bx = cx - bar_w / 2
         bh = (wall / y_max) * plot_h
         by = pad_t + plot_h - bh
+        legend_label = _format_legend_label(w_key)
         parts.append(
             f'<rect x="{bx:.2f}" y="{by:.2f}" width="{bar_w:.2f}" '
             f'height="{bh:.2f}" fill="{color}">'
-            f"<title>w={w_key} wall={wall:.2f}s</title></rect>"
+            f"<title>{legend_label} wall={wall:.2f}s</title></rect>"
         )
         parts.append(
             f'<text x="{cx:.1f}" y="{pad_t + plot_h + 16}" text-anchor="middle" '
-            f'font-size="11" fill="#444">w={w_key}</text>'
+            f'font-size="11" fill="#444">{legend_label}</text>'
         )
         parts.append(
             f'<text x="{cx:.1f}" y="{by - 4:.1f}" text-anchor="middle" '
@@ -288,7 +310,7 @@ def chart_heatmap(
 ) -> str:
     """Heatmap rows=x (walk-depth or V*), cols=width."""
     section = payload.get(section_key, {})
-    width_keys = sorted(section.keys(), key=lambda k: int(k))
+    width_keys = _sort_section_keys(section.keys())
     if not width_keys:
         return f'<p class="note">_(no entries in {section_key})_</p>'
     first_pwd = section[width_keys[0]][items_key]
@@ -309,12 +331,12 @@ def chart_heatmap(
         f'font-weight="600" fill="#222">{title}</text>',
     ]
 
-    # Column headers (widths).
+    # Column headers (widths or sweep labels).
     for ci, w_key in enumerate(width_keys):
         cx = pad_l + ci * cell_w + cell_w / 2
         parts.append(
             f'<text x="{cx:.1f}" y="{pad_t - 6}" text-anchor="middle" '
-            f'font-size="11" fill="#444">w={w_key}</text>'
+            f'font-size="11" fill="#444">{_format_legend_label(w_key)}</text>'
         )
     # Row headers (x values).
     for ri, x_val in enumerate(x_values):
@@ -350,24 +372,112 @@ def chart_heatmap(
     return "\n".join(parts)
 
 
+def is_flat_schema(payload: dict) -> bool:
+    """Detect the new flat schema: top-level ``per_walk_depth`` + ``beam_width``."""
+    return "per_walk_depth" in payload and "beam_width" in payload
+
+
+def _legend_label_for_flat(path: Path) -> str:
+    """Pull the ``_<param>=<value>`` suffix off a sweep-output filename, else stem.
+
+    Examples:
+        ``net_final_eval_fast_precision=bf16.json`` → ``precision=bf16``
+        ``net_final_eval_fast.json``                  → ``net_final_eval_fast``
+    """
+    stem = path.stem
+    if "=" in stem:
+        # Take the trailing ``_<key>=<value>`` chunk if present.
+        tail = stem.rsplit("_", 1)[-1]
+        if "=" in tail:
+            return tail
+    return stem
+
+
+def normalize_flat_payloads(
+    payloads: list[tuple[Path, dict]],
+) -> dict:
+    """Wrap a list of flat-schema payloads as a single legacy-shaped payload.
+
+    Synthesizes ``results`` keyed by a stable per-input label (sweep suffix
+    or stem) so the existing chart functions can render the overlay
+    without branching. ``v_star_results`` is similarly synthesized when
+    any payload carries it.
+    """
+    first = payloads[0][1]
+    # Use beam_width for x-axis ticks — we still need ``walk_depths`` for
+    # the chart's x ticks, but the per_walk_depth lists themselves drive that.
+    results: dict[str, dict] = {}
+    v_star_results: dict[str, dict] = {}
+    any_v_star = False
+    for path, payload in payloads:
+        label = _legend_label_for_flat(path)
+        results[label] = {
+            "per_walk_depth": payload["per_walk_depth"],
+            "wall_time_seconds": float(payload.get("wall_time_seconds", 0.0)),
+            "states_scored": int(payload.get("states_scored", 0)),
+            "_legend_meta": {
+                "beam_width": payload.get("beam_width", "?"),
+                "precision": payload.get("precision", "?"),
+            },
+        }
+        if "v_star_results" in payload:
+            any_v_star = True
+            v_star_results[label] = {
+                "per_v_star": payload["v_star_results"]["per_v_star"],
+                "wall_time_seconds": float(
+                    payload["v_star_results"].get("wall_time_seconds", 0.0)
+                ),
+            }
+    out: dict = {
+        "model": first.get("model", "?"),
+        "device": first.get("device", "?"),
+        "max_walk_depth": first.get("max_depth", "?"),
+        "n_per_depth": first.get("n_per_depth", "?"),
+        "seed": first.get("seed", "?"),
+        "config_name": first.get("config_name", "?"),
+        "results": results,
+    }
+    if any_v_star:
+        out["v_star_results"] = v_star_results
+    return out
+
+
 def render_input_section(
-    payload: dict, *, label: str, base_color: str, include_v_star: bool
+    payload: dict,
+    *,
+    label: str,
+    base_color: str,
+    include_v_star: bool,
+    is_flat_overlay: bool = False,
 ) -> str:
     """Render the three (or five) charts for one input JSON."""
+    if is_flat_overlay:
+        # Flat-schema overlay: header reflects the sweep, not a single checkpoint.
+        meta_line = (
+            f"model: <code>{payload.get('model', '?')}</code><br>"
+            f"config: <code>{payload.get('config_name', '?')}</code> · "
+            f"device: <code>{payload.get('device', '?')}</code> · "
+            f"max_depth: <code>{payload.get('max_walk_depth', '?')}</code> · "
+            f"seed: <code>{payload.get('seed', '?')}</code>"
+        )
+        chart_x_legend_title = "input"
+    else:
+        meta_line = (
+            f"checkpoint: <code>{payload.get('checkpoint', '?')}</code><br>"
+            f"device: <code>{payload.get('device', '?')}</code> · "
+            f"max_walk_depth: <code>{payload.get('max_walk_depth', '?')}</code> · "
+            f"n_per_depth: <code>{payload.get('n_per_depth', '?')}</code> · "
+            f"seed: <code>{payload.get('seed', '?')}</code>"
+        )
+        chart_x_legend_title = "beam width"
     parts: list[str] = [
         f'<h2 style="margin-top:32px">{label}</h2>',
-        '<p class="note">'
-        f"checkpoint: <code>{payload.get('checkpoint', '?')}</code><br>"
-        f"device: <code>{payload.get('device', '?')}</code> · "
-        f"max_walk_depth: <code>{payload.get('max_walk_depth', '?')}</code> · "
-        f"n_per_depth: <code>{payload.get('n_per_depth', '?')}</code> · "
-        f"seed: <code>{payload.get('seed', '?')}</code>"
-        "</p>",
-        "<h3>1. Per-walk-depth solve rate (lines per width)</h3>",
+        f'<p class="note">{meta_line}</p>',
+        f"<h3>1. Per-walk-depth solve rate (lines per {chart_x_legend_title})</h3>",
         chart_solve_rate_lines(payload, base_color=base_color),
-        "<h3>2. Wall time per width</h3>",
+        f"<h3>2. Wall time per {chart_x_legend_title}</h3>",
         chart_wall_time_bars(payload, base_color=base_color),
-        "<h3>3. Per-walk-depth × per-width heatmap</h3>",
+        f"<h3>3. Per-walk-depth × per-{chart_x_legend_title} heatmap</h3>",
         chart_heatmap(payload),
     ]
     if include_v_star and "v_star_results" in payload:
@@ -428,20 +538,42 @@ def main(argv: list[str] | None = None) -> int:
             raise FileNotFoundError(f"--input not found: {p}")
         payloads.append((p, json.loads(p.read_text())))
 
-    # Detect whether any payload has V* results — render those panels then.
-    any_v_star = any("v_star_results" in payload for _, payload in payloads)
+    flat_payloads = [(p, pl) for p, pl in payloads if is_flat_schema(pl)]
+    legacy_payloads = [(p, pl) for p, pl in payloads if not is_flat_schema(pl)]
 
     sections: list[str] = []
-    for i, (path, payload) in enumerate(payloads):
-        color = INPUT_COLORS[i % len(INPUT_COLORS)]
+    if flat_payloads:
+        # Single overlay section across all flat-schema inputs.
+        merged = normalize_flat_payloads(flat_payloads)
+        any_v_star = "v_star_results" in merged
+        label = (
+            "Beam-eval overlay (sweep)"
+            if len(flat_payloads) > 1
+            else flat_payloads[0][0].name
+        )
         sections.append(
             render_input_section(
-                payload,
-                label=path.name,
-                base_color=color,
+                merged,
+                label=label,
+                base_color=INPUT_COLORS[0],
                 include_v_star=any_v_star,
+                is_flat_overlay=True,
             )
         )
+
+    if legacy_payloads:
+        # Legacy schema: one section per input, multi-width per section.
+        any_v_star = any("v_star_results" in payload for _, payload in legacy_payloads)
+        for i, (path, payload) in enumerate(legacy_payloads):
+            color = INPUT_COLORS[i % len(INPUT_COLORS)]
+            sections.append(
+                render_input_section(
+                    payload,
+                    label=path.name,
+                    base_color=color,
+                    include_v_star=any_v_star,
+                )
+            )
 
     html = f"""<!doctype html>
 <html lang="en">
@@ -464,9 +596,11 @@ def main(argv: list[str] | None = None) -> int:
   <h1>Beam-eval report</h1>
   <p class="note">
     Generated by <code>scripts/render_beam_eval_report.py</code> from
-    <code>beam_eval_run.py</code> outputs. Each input JSON gets its own
-    section. The chart triplet (lines / wall-time bars / heatmap) shows
-    capability vs. beam width for that checkpoint.
+    <code>beam_eval_model.py</code> / <code>beam_eval_sweep.py</code>
+    (flat schema) or legacy width-keyed outputs. Flat-schema inputs
+    overlay into a single section; legacy inputs render one section
+    each. The chart triplet (lines / wall-time bars / heatmap) shows
+    capability vs. the swept axis (beam width or sweep label).
   </p>
   {"".join(sections)}
 </body>

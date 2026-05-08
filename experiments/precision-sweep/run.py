@@ -4,10 +4,13 @@ This experiment evaluates whether casting the trained ValueNet to lower
 inference precision (BF16, FP16) on MPS preserves solve-rate equivalence
 while reducing wall time. Inference-only — the training loop is untouched.
 
-The actual sweeps are driven by ``scripts/beam_eval_run.py`` with the
-``--precision`` flag landed in commit ``a50c08c``. This script just
-documents the exact invocations used, so re-running the experiment is a
-matter of running this file (or re-issuing the canonical commands below).
+TODO(beam-solve-perf): the original sweep was driven by the pre-rename
+``scripts/beam_eval_run.py`` (which became ``scripts/beam_eval_model.py``)
+with ``--widths`` and ``--precision``. This reproducer now invokes
+``scripts/beam_eval_sweep.py --over precision`` and ``--over width``
+instead — single-checkpoint sweeps, one JSON per swept value (flat
+schema). Existing per-cell JSONs under ``results/`` are still in the
+legacy width-keyed schema; the renderer auto-detects and handles both.
 
 All sweeps target the same baseline checkpoint
 ``experiments/davi-3x3/runs/20260507T043533Z_full_train/net_final.pt``,

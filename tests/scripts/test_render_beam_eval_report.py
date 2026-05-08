@@ -129,3 +129,92 @@ def test_render_beam_eval_report_v_star_section(tmp_path):
     # Heatmap row headers for V*.
     assert "V*=1" in html
     assert "V*=2" in html
+
+
+# ---------------------------------------------------------------------------
+# Flat-schema (new) inputs
+# ---------------------------------------------------------------------------
+
+
+def _flat_payload(
+    *, beam_width=256, precision="bf16", walk_depths=(1, 2, 3), n=8
+) -> dict:
+    """Synthetic flat-schema payload (as ``beam_eval_model.py`` writes)."""
+    pwd = []
+    for d in walk_depths:
+        rate = max(0.0, 1.0 - 0.2 * d)
+        pwd.append(
+            {
+                "d": int(d),
+                "n": int(n),
+                "solve_rate": float(rate),
+                "avg_solve_len": float(d) if rate > 0 else None,
+            }
+        )
+    return {
+        "model": "/tmp/synthetic.pt",
+        "config_name": "fast",
+        "config_description": "test",
+        "device": "cpu",
+        "precision": precision,
+        "max_depth": int(max(walk_depths)),
+        "beam_width": int(beam_width),
+        "seed": 0,
+        "n_per_depth": [n] * len(walk_depths),
+        "wall_time_seconds": 1.5,
+        "per_walk_depth": pwd,
+        "states_scored": int(n) * len(walk_depths),
+    }
+
+
+def test_render_flat_schema_single_input(tmp_path):
+    """Flat-schema input renders a single overlay section with one column."""
+    p = _flat_payload()
+    in_path = tmp_path / "model_eval_fast.json"
+    in_path.write_text(json.dumps(p))
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--input", str(in_path)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    out_path = in_path.with_suffix(".html")
+    html = out_path.read_text()
+    assert "<svg" in html
+    # Walk-depth labels still appear.
+    assert "walk depth=1" in html
+    # Stem-based legend (no =sweep suffix).
+    assert "model_eval_fast" in html
+
+
+def test_render_flat_schema_multi_input_overlay(tmp_path):
+    """Multiple flat-schema inputs render as one overlay with per-input labels."""
+    a = _flat_payload(precision="fp32")
+    b = _flat_payload(precision="bf16")
+    in_a = tmp_path / "model_eval_fast_precision=fp32.json"
+    in_b = tmp_path / "model_eval_fast_precision=bf16.json"
+    in_a.write_text(json.dumps(a))
+    in_b.write_text(json.dumps(b))
+    out_path = tmp_path / "overlay.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(in_a),
+            str(in_b),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # Sweep-suffix legend labels surface, not "w=N".
+    assert "precision=fp32" in html
+    assert "precision=bf16" in html

@@ -366,7 +366,8 @@ def test_beam_eval_v_star_shape(oracle_arrays_k6):
 
 
 # ---------------------------------------------------------------------------
-# scripts/post_run_beam_eval.py smoke
+# scripts/beam_eval_run.py (run-dir wrapper) smoke — renamed from
+# scripts/post_run_beam_eval.py in the beam-solve-perf refactor.
 # ---------------------------------------------------------------------------
 
 
@@ -375,13 +376,13 @@ def test_post_run_beam_eval_smoke(tmp_path):
 
     Documents the chosen empty-dir behavior: write ``{}`` rather than
     skip-write, so downstream readers never have to special-case a
-    missing file. See ``scripts/post_run_beam_eval.py`` docstring.
+    missing file. See ``scripts/beam_eval_run.py`` docstring.
     """
     run_dir = tmp_path / "empty-run"
     run_dir.mkdir()
     # Script-level config.yaml is unnecessary when there are zero checkpoints.
 
-    script = REPO_ROOT / "scripts" / "post_run_beam_eval.py"
+    script = REPO_ROOT / "scripts" / "beam_eval_run.py"
     result = subprocess.run(
         [sys.executable, str(script), "--run-dir", str(run_dir)],
         cwd=str(REPO_ROOT),
@@ -389,7 +390,7 @@ def test_post_run_beam_eval_smoke(tmp_path):
         text=True,
     )
     assert result.returncode == 0, (
-        f"post_run_beam_eval failed: stderr={result.stderr!r}"
+        f"beam_eval_run failed: stderr={result.stderr!r}"
     )
     out_path = run_dir / "results" / "post_run_beam_eval.json"
     assert out_path.exists(), f"expected {out_path} to be written"
