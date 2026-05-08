@@ -1,0 +1,115 @@
+{
+  "model": "/Users/griff/dev/ml/rubik/experiments/davi-3x3/runs/20260507T064517Z_warm_continue/net_step_50000.pt",
+  "config_name": "fast",
+  "config_description": "Cycle screening (deep-tail SE ~6.5pp)",
+  "device": "mps",
+  "precision": "bf16",
+  "max_depth": 14,
+  "beam_width": 256,
+  "seed": 0,
+  "n_per_depth": [
+    12,
+    24,
+    24,
+    24,
+    24,
+    24,
+    50,
+    50,
+    50,
+    50,
+    50,
+    50,
+    50,
+    50
+  ],
+  "wall_time_seconds": 39.18266275012866,
+  "per_walk_depth": [
+    {
+      "d": 1,
+      "n": 12,
+      "solve_rate": 1.0,
+      "avg_solve_len": 1.0
+    },
+    {
+      "d": 2,
+      "n": 24,
+      "solve_rate": 1.0,
+      "avg_solve_len": 2.0
+    },
+    {
+      "d": 3,
+      "n": 24,
+      "solve_rate": 1.0,
+      "avg_solve_len": 3.0
+    },
+    {
+      "d": 4,
+      "n": 24,
+      "solve_rate": 1.0,
+      "avg_solve_len": 3.8333332538604736
+    },
+    {
+      "d": 5,
+      "n": 24,
+      "solve_rate": 1.0,
+      "avg_solve_len": 4.75
+    },
+    {
+      "d": 6,
+      "n": 24,
+      "solve_rate": 1.0,
+      "avg_solve_len": 5.75
+    },
+    {
+      "d": 7,
+      "n": 50,
+      "solve_rate": 1.0,
+      "avg_solve_len": 6.960000038146973
+    },
+    {
+      "d": 8,
+      "n": 50,
+      "solve_rate": 1.0,
+      "avg_solve_len": 7.679999828338623
+    },
+    {
+      "d": 9,
+      "n": 50,
+      "solve_rate": 1.0,
+      "avg_solve_len": 8.720000267028809
+    },
+    {
+      "d": 10,
+      "n": 50,
+      "solve_rate": 1.0,
+      "avg_solve_len": 9.760000228881836
+    },
+    {
+      "d": 11,
+      "n": 50,
+      "solve_rate": 1.0,
+      "avg_solve_len": 10.479999542236328
+    },
+    {
+      "d": 12,
+      "n": 50,
+      "solve_rate": 1.0,
+      "avg_solve_len": 11.920000076293945
+    },
+    {
+      "d": 13,
+      "n": 50,
+      "solve_rate": 0.92,
+      "avg_solve_len": 12.565217018127441
+    },
+    {
+      "d": 14,
+      "n": 50,
+      "solve_rate": 0.52,
+      "avg_solve_len": 13.15384578704834
+    }
+  ],
+  "states_scored": 532,
+  "step": 50000
+}
