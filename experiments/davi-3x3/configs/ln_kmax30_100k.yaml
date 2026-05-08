@@ -1,0 +1,51 @@
+# LN + K_max=30 fresh training, 100k continuation from the 30k run.
+#
+# Designed to be invoked as a warm-start from
+# `experiments/davi-3x3/runs/<30k-timestamp>_ln_kmax30/net_final.pt`
+# with `--from-step 30000`. The loop trains step 30001 → 100000 (70k
+# more steps).
+#
+# Architecture and core hyperparameters are IDENTICAL to ln_kmax30.yaml
+# — only `n_steps` (30000 → 100000) and `checkpoint_every` (500 → 5000)
+# differ. The looser checkpoint cadence trades visibility of the
+# warm-start recovery window (steps 30001..35000 with the ~500-step
+# Adam moment reset distortion) for disk space + ensure-eval cost.
+# eval_every stays at 500 so the metrics.jsonl trajectory still
+# captures recovery in the calibration plots.
+#
+# Recommended invocation (chained from the 30k run's completion):
+#   uv run python experiments/davi-3x3/run.py \
+#     --config experiments/davi-3x3/configs/ln_kmax30_100k.yaml \
+#     --warm-start <30k-run-dir>/net_final.pt \
+#     --from-step 30000
+#
+# Estimated wall: ~5h on M4 Max for the 70k continuation steps
+# (~258 ms/step under LN+K_max=30).
+
+max_scramble_depth: 30
+max_scramble_depth_initial: 0
+max_scramble_depth_ramp_steps: 0
+
+batch_size: 4096
+n_steps: 100000
+learning_rate: 0.001
+target_sync_interval: 500
+
+body_widths:
+  - 5120
+  - 1024
+n_residual_blocks: 4
+normalization: ln
+
+log_every: 100
+eval_every: 500
+checkpoint_every: 5000
+seed: 0
+device: mps
+
+# Early-stop wiring removed 2026-05-06 — field kept for schema parity.
+early_stop_enabled: false
+early_stop_metric: macro_v_star_mae
+early_stop_patience_evals: 12
+early_stop_min_evals: 4
+early_stop_min_delta: 0.001
