@@ -209,6 +209,15 @@ def main(argv: list[str] | None = None) -> int:
             "'final' resolves to net_final.pt's step."
         ),
     )
+    parser.add_argument(
+        "--render-html",
+        action="store_true",
+        help=(
+            "After evals complete, render a single HTML overlaying all "
+            "per-checkpoint JSONs at "
+            "<run-dir>/results/trajectory_<config>.html."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -311,6 +320,26 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     print(f"\n{len(written)} checkpoint JSON(s) written under {results_dir}")
+
+    if args.render_html and written:
+        import subprocess
+
+        renderer = REPO_ROOT / "scripts" / "render_beam_eval_report.py"
+        html_path = results_dir / f"trajectory_{eval_cfg.source_name}.html"
+        subprocess.run(
+            [
+                sys.executable,
+                str(renderer),
+                "--input",
+                *(str(p) for p in written),
+                "--output",
+                str(html_path),
+            ],
+            check=True,
+            cwd=str(REPO_ROOT),
+        )
+        print(f"rendered {html_path}")
+
     return 0
 
 
