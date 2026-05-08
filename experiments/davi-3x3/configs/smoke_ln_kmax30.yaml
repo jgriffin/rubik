@@ -28,8 +28,11 @@
 #
 # Recommended invocation:
 #   uv run python experiments/davi-3x3/run.py \
-#     --config experiments/davi-3x3/configs/smoke_ln_kmax30.yaml \
-#     --no-wandb
+#     --config experiments/davi-3x3/configs/smoke_ln_kmax30.yaml
+#
+# wandb is on by default — smoke runs go to the same `rubik-3x3` project
+# tagged `phase=smoke` so they can be filtered out of headline charts
+# but stay discoverable from the W&B UI.
 #
 # Estimated wall: ~40-50 min on M4 Max at ~235 ms/step (matches smoke.yaml
 # pace; LN may shift slightly but not order-of-magnitude).
