@@ -218,3 +218,232 @@ def test_render_flat_schema_multi_input_overlay(tmp_path):
     # Sweep-suffix legend labels surface, not "w=N".
     assert "precision=fp32" in html
     assert "precision=bf16" in html
+
+
+# ---------------------------------------------------------------------------
+# Trajectory mode
+# ---------------------------------------------------------------------------
+
+
+def _trajectory_payload(
+    *, step: int, model_dir: str, walk_depths=tuple(range(1, 15)), wall=10.0
+) -> dict:
+    """Synthetic trajectory-style flat payload (same beam_width, same model dir)."""
+    pwd = []
+    for d in walk_depths:
+        # Solve rate decays gently with depth + improves slightly with step.
+        rate = max(0.0, min(1.0, 1.0 - 0.06 * d + step * 1e-6))
+        pwd.append(
+            {
+                "d": int(d),
+                "n": 50,
+                "solve_rate": float(rate),
+                "avg_solve_len": float(d) if rate > 0 else None,
+            }
+        )
+    return {
+        "model": f"{model_dir}/net_step_{step}.pt",
+        "config_name": "fast",
+        "config_description": "test",
+        "device": "cpu",
+        "precision": "bf16",
+        "max_depth": int(max(walk_depths)),
+        "beam_width": 256,
+        "step": int(step),
+        "seed": 0,
+        "n_per_depth": [50] * len(walk_depths),
+        "wall_time_seconds": float(wall),
+        "per_walk_depth": pwd,
+        "states_scored": 50 * len(walk_depths),
+    }
+
+
+def test_trajectory_mode_detected_when_steps_differ(tmp_path):
+    """Two flat inputs with different step values + shared model parent → trajectory."""
+    model_dir = str(tmp_path / "run_xyz")
+    Path(model_dir).mkdir()
+    a = _trajectory_payload(step=20000, model_dir=model_dir, wall=39.5)
+    b = _trajectory_payload(step=120000, model_dir=model_dir, wall=42.0)
+    in_a = tmp_path / "step_20000_eval_fast.json"
+    in_b = tmp_path / "step_120000_eval_fast.json"
+    in_a.write_text(json.dumps(a))
+    in_b.write_text(json.dumps(b))
+    out_path = tmp_path / "trajectory.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(in_a),
+            str(in_b),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+
+    # Trajectory-mode header references run dir + checkpoint count + step range.
+    assert "run dir:" in html
+    assert "checkpoints:" in html
+    # Step labels appear (compact "20k" / "120k" form).
+    assert "20k" in html
+    assert "120k" in html
+    # The banded layout produces a "depth 14" cell title (Deep band).
+    assert "depth 14" in html
+    # Banded title-line for the deep band.
+    assert "Deep" in html
+    # The trajectory-mode banner sentence in the body should be present.
+    assert "Beam-eval trajectory" in html
+
+
+def test_trajectory_heatmap_y_axis_reversed(tmp_path):
+    """In trajectory-mode heatmap, walk_depth=14 row appears BEFORE walk_depth=1."""
+    model_dir = str(tmp_path / "run_abc")
+    Path(model_dir).mkdir()
+    a = _trajectory_payload(step=10000, model_dir=model_dir)
+    b = _trajectory_payload(step=20000, model_dir=model_dir)
+    in_a = tmp_path / "step_10000_eval_fast.json"
+    in_b = tmp_path / "step_20000_eval_fast.json"
+    in_a.write_text(json.dumps(a))
+    in_b.write_text(json.dumps(b))
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(in_a),
+            str(in_b),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+
+    # Both row-header labels exist.
+    assert "walk_depth=14" in html
+    assert "walk_depth=1" in html
+    # And d=14 comes BEFORE d=1 in the source order (top of the heatmap).
+    assert html.index("walk_depth=14") < html.index("walk_depth=1<")
+
+
+def test_trajectory_step_appears_as_axis_label_not_filename(tmp_path):
+    """Trajectory-mode legends/axis use the step value, not the filename."""
+    model_dir = str(tmp_path / "run_def")
+    Path(model_dir).mkdir()
+    a = _trajectory_payload(step=20000, model_dir=model_dir)
+    b = _trajectory_payload(step=40000, model_dir=model_dir)
+    in_a = tmp_path / "step_20000_eval_fast.json"
+    in_b = tmp_path / "step_40000_eval_fast.json"
+    in_a.write_text(json.dumps(a))
+    in_b.write_text(json.dumps(b))
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(in_a),
+            str(in_b),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+
+    # Step values surface as compact axis labels.
+    assert "step 20k" in html
+    assert "step 40k" in html
+    # Filenames-as-labels (the old buggy fallback) should NOT be the
+    # primary identifier in trajectory mode.
+    assert "step_20000_eval_fast" not in html
+    assert "step_40000_eval_fast" not in html
+
+
+def test_sweep_mode_chosen_when_step_shared_but_beam_width_differs(tmp_path):
+    """Same step, varying beam_width → sweep mode (not trajectory)."""
+    model_dir = str(tmp_path / "run_ghi")
+    Path(model_dir).mkdir()
+    a = _trajectory_payload(step=20000, model_dir=model_dir)
+    b = _trajectory_payload(step=20000, model_dir=model_dir)
+    a["beam_width"] = 128
+    b["beam_width"] = 512
+    in_a = tmp_path / "model_eval_fast_w=128.json"
+    in_b = tmp_path / "model_eval_fast_w=512.json"
+    in_a.write_text(json.dumps(a))
+    in_b.write_text(json.dumps(b))
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(in_a),
+            str(in_b),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # Sweep-mode signal: legend labels keyed off the varying field.
+    assert "beam_width=128" in html
+    assert "beam_width=512" in html
+    # Trajectory-mode banner should NOT appear.
+    assert "Beam-eval trajectory" not in html
+
+
+def test_sweep_mode_chosen_when_model_parents_differ(tmp_path):
+    """Different model parents → not a single training run → sweep mode."""
+    dir_a = tmp_path / "run_one"
+    dir_b = tmp_path / "run_two"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    a = _trajectory_payload(step=20000, model_dir=str(dir_a))
+    b = _trajectory_payload(step=40000, model_dir=str(dir_b))
+    in_a = tmp_path / "a.json"
+    in_b = tmp_path / "b.json"
+    in_a.write_text(json.dumps(a))
+    in_b.write_text(json.dumps(b))
+    out_path = tmp_path / "out.html"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(in_a),
+            str(in_b),
+            "--output",
+            str(out_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    html = out_path.read_text()
+    # Trajectory-mode banner should NOT appear.
+    assert "Beam-eval trajectory" not in html
+    # The varying field is `step` here (model differs but isn't preferred);
+    # legend label should reflect step, not run dir.
+    assert "step=20000" in html or "step=40000" in html

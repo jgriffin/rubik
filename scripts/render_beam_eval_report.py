@@ -1,26 +1,30 @@
 """Render a dedicated HTML report from one or more beam-eval JSONs.
 
-Two input schemas are supported and auto-detected:
+Three input *modes* are auto-detected:
 
-1. **Width-keyed schema (legacy)** — produced by the pre-refactor
-   ``beam_eval_run.py``. Has ``results`` keyed by width string with
-   per-width ``per_walk_depth`` lists. One input JSON renders a 3-chart
-   set (lines / wall bars / heatmap) overlaying its widths.
+1. **Single** — exactly one input. Renders the standard chart triplet
+   (lines / wall-time bars / heatmap) for that one checkpoint.
+2. **Trajectory** — multiple flat-schema inputs that all carry a
+   ``step`` field with distinct values AND share a model parent
+   directory (i.e. successive checkpoints from one training run, as
+   produced by ``beam_eval_run.py``). Renders three trajectory-oriented
+   charts:
+     A. **Banded per-walk-depth solve rate over training step** —
+        5/5/4 small multiples (Shallow d=1..5 / Mid d=6..10 / Deep
+        d=11..14), x=step, y=solve_rate, one polyline per run. Matches
+        the project's canonical banded chart idiom (see
+        ``experiments/davi-3x3/analysis/render_error_trajectories.py``).
+     B. **Heatmap (step × walk-depth)** — x=step, y=walk-depth with
+        d=14 at the top, in-cell numeric labels.
+     C. **Wall time across checkpoints** — x=step, y=seconds, line per run.
+3. **Sweep** — multiple flat-schema inputs that don't qualify as a
+   trajectory (same step or no step, but differ in ``beam_width`` /
+   ``precision`` / etc.). Renders the standard chart triplet, with
+   the legend keyed off the parameter that actually varies.
 
-2. **Flat schema (new)** — produced by ``beam_eval_model.py`` and
-   ``beam_eval_sweep.py``. Each JSON has top-level ``per_walk_depth`` +
-   ``beam_width`` (single scalar). The renderer wraps each flat-schema
-   payload as a one-width entry in the same chart machinery, so multiple
-   ``--input`` JSONs from a sweep overlay cleanly without code
-   duplication.
-
-When the input JSON(s) have ``v_star_results``, two extra sections
-render the same charts for V*-stratified per-V* lists.
-
-Multiple ``--input`` JSONs in flat-schema mode render as a single
-overlay (one chart, one line per input). Legend labels prefer the
-filename's ``_<param>=<value>`` suffix when present (sweep output) and
-fall back to the filename stem otherwise.
+The legacy width-keyed schema (one JSON containing many widths) is
+still accepted; each such input renders as its own section in the
+sweep-style triplet layout.
 
 Usage::
 
@@ -50,6 +54,14 @@ INPUT_COLORS = [
     "#7f7f7f",
 ]
 
+# Project-wide banded layout for walk-depth charts: Shallow 1-5 / Mid
+# 6-10 / Deep 11-14, 5/5/4 cells. See render_error_trajectories.py.
+TRAJECTORY_BANDS: list[tuple[str, list[int]]] = [
+    ("Shallow — walk-depths 1–5", [1, 2, 3, 4, 5]),
+    ("Mid — walk-depths 6–10", [6, 7, 8, 9, 10]),
+    ("Deep — walk-depths 11–14", [11, 12, 13, 14]),
+]
+
 
 def _line_path(points: list[tuple[float, float]]) -> str:
     if not points:
@@ -62,7 +74,6 @@ def _line_path(points: list[tuple[float, float]]) -> str:
 
 def _width_color(idx: int, n: int, base: str) -> str:
     """Map width-index to a color: shade the base from light → dark."""
-    # Simple HSV-style ramp: fade from light gray to base color.
     base_rgb = _hex_to_rgb(base)
     if n <= 1:
         return base
@@ -91,7 +102,6 @@ def _sort_section_keys(keys) -> list[str]:
 def _heat_color(rate: float) -> str:
     """Map solve_rate ∈ [0, 1] to a color (white=0 → dark blue=1)."""
     rate = max(0.0, min(1.0, float(rate)))
-    # Blend white → #1f4e79 (dark blue).
     base = (31, 78, 121)
     r = int(255 * (1 - rate) + base[0] * rate)
     g = int(255 * (1 - rate) + base[1] * rate)
@@ -108,6 +118,81 @@ def _format_legend_label(w_key: str) -> str:
         return str(w_key)
 
 
+def _format_step_label(step: int) -> str:
+    """Compact training-step label: 20000 → '20k', 1500000 → '1.5M'."""
+    if step >= 1_000_000:
+        return f"{step / 1_000_000:g}M"
+    if step >= 1_000:
+        return f"{step / 1_000:g}k"
+    return str(step)
+
+
+# ---------------------------------------------------------------------------
+# Mode detection
+# ---------------------------------------------------------------------------
+
+
+def is_flat_schema(payload: dict) -> bool:
+    """Detect the new flat schema: top-level ``per_walk_depth`` + ``beam_width``."""
+    return "per_walk_depth" in payload and "beam_width" in payload
+
+
+def _model_parent(payload: dict) -> str | None:
+    """Return the parent dir of the JSON's ``model`` path, or None."""
+    m = payload.get("model")
+    if not m:
+        return None
+    return str(Path(m).parent)
+
+
+def detect_input_mode(payloads: list[tuple[Path, dict]]) -> str:
+    """Classify a set of flat-schema inputs as ``single``/``trajectory``/``sweep``.
+
+    Trajectory criteria (ALL must hold):
+      - >=2 inputs, all flat-schema
+      - all have a non-None ``step`` field
+      - the set of step values has size > 1 (not all equal)
+      - all share the same ``model`` parent directory
+
+    Single: exactly 1 input.
+    Sweep: anything else (multiple inputs, but not a trajectory).
+    """
+    if len(payloads) <= 1:
+        return "single"
+    if not all(is_flat_schema(pl) for _, pl in payloads):
+        return "sweep"
+    steps = [pl.get("step") for _, pl in payloads]
+    if any(s is None for s in steps):
+        return "sweep"
+    if len(set(steps)) <= 1:
+        return "sweep"
+    parents = {_model_parent(pl) for _, pl in payloads}
+    if len(parents) != 1 or None in parents:
+        return "sweep"
+    return "trajectory"
+
+
+def detect_varying_field(payloads: list[tuple[Path, dict]]) -> str | None:
+    """For sweep mode: pick the parameter that varies across inputs.
+
+    Preference order: ``beam_width``, ``precision``, ``config_name``,
+    ``step``. Returns None if no preferred field varies (caller should
+    fall back to the filename stem).
+    """
+    if len(payloads) <= 1:
+        return None
+    for field in ("beam_width", "precision", "config_name", "step"):
+        vals = [pl.get(field) for _, pl in payloads]
+        if all(v is not None for v in vals) and len(set(vals)) > 1:
+            return field
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Sweep / single mode (legacy chart triplet)
+# ---------------------------------------------------------------------------
+
+
 def chart_solve_rate_lines(
     payload: dict,
     *,
@@ -118,9 +203,9 @@ def chart_solve_rate_lines(
     items_key: str = "per_walk_depth",
     section_key: str = "results",
 ) -> str:
-    """Solve-rate × walk-depth (or V*) lines, one per width."""
+    """Solve-rate × walk-depth (or V*) lines, one per width / sweep entry."""
     width, height = 900, 380
-    pad_l, pad_r, pad_t, pad_b = 56, 180, 36, 44
+    pad_l, pad_r, pad_t, pad_b = 56, 220, 36, 44
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
 
@@ -129,7 +214,6 @@ def chart_solve_rate_lines(
     if not width_keys:
         return f'<p class="note">_(no entries in {section_key})_</p>'
 
-    # Collect x-values from the first width entry (all widths share the same grid).
     first_pwd = section[width_keys[0]][items_key]
     x_values = [int(item[x_key]) for item in first_pwd]
     x_min, x_max = min(x_values), max(x_values)
@@ -151,7 +235,6 @@ def chart_solve_rate_lines(
         f'<rect x="{pad_l}" y="{pad_t}" width="{plot_w}" height="{plot_h}" '
         f'fill="white" stroke="#ccc"/>',
     ]
-    # Y gridlines (0, 0.25, 0.5, 0.75, 1).
     for tick in [0.0, 0.25, 0.5, 0.75, 1.0]:
         gy = y_for(tick)
         parts.append(
@@ -162,7 +245,6 @@ def chart_solve_rate_lines(
             f'<text x="{pad_l - 6}" y="{gy + 3:.1f}" text-anchor="end" '
             f'font-size="10" fill="#666">{tick:.2f}</text>'
         )
-    # X ticks at every integer.
     for d in x_values:
         gx = x_for(d)
         parts.append(
@@ -173,7 +255,6 @@ def chart_solve_rate_lines(
             f'<text x="{gx:.1f}" y="{pad_t + plot_h + 16}" text-anchor="middle" '
             f'font-size="10" fill="#666">{d}</text>'
         )
-    # Axis labels.
     parts.append(
         f'<text x="{pad_l + plot_w / 2}" y="{height - 8}" text-anchor="middle" '
         f'font-size="11" fill="#333">{x_label}</text>'
@@ -189,7 +270,7 @@ def chart_solve_rate_lines(
     legend_y = pad_t + 4
     parts.append(
         f'<text x="{legend_x}" y="{legend_y}" font-size="11" '
-        f'font-weight="600" fill="#333">beam width</text>'
+        f'font-weight="600" fill="#333">series</text>'
     )
     for i, w_key in enumerate(width_keys):
         color = _width_color(i, n_widths, base_color)
@@ -207,7 +288,6 @@ def chart_solve_rate_lines(
             parts.append(
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.2" fill="{color}"/>'
             )
-        # Legend row.
         ly = legend_y + 16 + i * 16
         wall = entry.get("wall_time_seconds", 0.0)
         parts.append(
@@ -227,9 +307,9 @@ def chart_wall_time_bars(
     *,
     base_color: str,
     section_key: str = "results",
-    title: str = "Wall time per beam width",
+    title: str = "Wall time per series",
 ) -> str:
-    """Bar chart: x=width (log), y=seconds."""
+    """Bar chart: x=series-key, y=seconds."""
     width, height = 720, 280
     pad_l, pad_r, pad_t, pad_b = 56, 16, 36, 50
     plot_w = width - pad_l - pad_r
@@ -257,7 +337,6 @@ def chart_wall_time_bars(
         f'<rect x="{pad_l}" y="{pad_t}" width="{plot_w}" height="{plot_h}" '
         f'fill="white" stroke="#ccc"/>',
     ]
-    # y ticks 5 levels.
     for tk in range(5):
         v = y_max * tk / 4
         gy = pad_t + plot_h - (v / y_max) * plot_h
@@ -302,13 +381,13 @@ def chart_wall_time_bars(
 def chart_heatmap(
     payload: dict,
     *,
-    title: str = "Per-walk-depth × per-width solve-rate heatmap",
+    title: str = "Per-walk-depth × per-series solve-rate heatmap",
     x_key: str = "d",
     x_label: str = "walk depth",
     items_key: str = "per_walk_depth",
     section_key: str = "results",
 ) -> str:
-    """Heatmap rows=x (walk-depth or V*), cols=width."""
+    """Heatmap rows=x (walk-depth or V*), cols=series (width / sweep label)."""
     section = payload.get(section_key, {})
     width_keys = _sort_section_keys(section.keys())
     if not width_keys:
@@ -331,14 +410,12 @@ def chart_heatmap(
         f'font-weight="600" fill="#222">{title}</text>',
     ]
 
-    # Column headers (widths or sweep labels).
     for ci, w_key in enumerate(width_keys):
         cx = pad_l + ci * cell_w + cell_w / 2
         parts.append(
             f'<text x="{cx:.1f}" y="{pad_t - 6}" text-anchor="middle" '
             f'font-size="11" fill="#444">{_format_legend_label(w_key)}</text>'
         )
-    # Row headers (x values).
     for ri, x_val in enumerate(x_values):
         ry = pad_t + ri * cell_h + cell_h / 2 + 4
         parts.append(
@@ -346,7 +423,6 @@ def chart_heatmap(
             f'font-size="11" fill="#444">{x_label}={x_val}</text>'
         )
 
-    # Cells.
     for ci, w_key in enumerate(width_keys):
         items_by_x = {int(it[x_key]): it for it in section[w_key][items_key]}
         for ri, x_val in enumerate(x_values):
@@ -372,53 +448,401 @@ def chart_heatmap(
     return "\n".join(parts)
 
 
-def is_flat_schema(payload: dict) -> bool:
-    """Detect the new flat schema: top-level ``per_walk_depth`` + ``beam_width``."""
-    return "per_walk_depth" in payload and "beam_width" in payload
+# ---------------------------------------------------------------------------
+# Trajectory mode — banded small multiples + reversed-Y heatmap + walltime
+# ---------------------------------------------------------------------------
 
 
-def _legend_label_for_flat(path: Path) -> str:
-    """Pull the ``_<param>=<value>`` suffix off a sweep-output filename, else stem.
-
-    Examples:
-        ``net_final_eval_fast_precision=bf16.json`` → ``precision=bf16``
-        ``net_final_eval_fast.json``                  → ``net_final_eval_fast``
-    """
-    stem = path.stem
-    if "=" in stem:
-        # Take the trailing ``_<key>=<value>`` chunk if present.
-        tail = stem.rsplit("_", 1)[-1]
-        if "=" in tail:
-            return tail
-    return stem
-
-
-def normalize_flat_payloads(
+def _trajectory_runs(
     payloads: list[tuple[Path, dict]],
-) -> dict:
-    """Wrap a list of flat-schema payloads as a single legacy-shaped payload.
+) -> list[tuple[str, str, list[dict]]]:
+    """Group trajectory payloads into one or more runs.
 
-    Synthesizes ``results`` keyed by a stable per-input label (sweep suffix
-    or stem) so the existing chart functions can render the overlay
-    without branching. ``v_star_results`` is similarly synthesized when
-    any payload carries it.
+    Each "run" is a (label, color, sorted-by-step records) tuple. With
+    the current beam_eval_run.py output, all checkpoints from one
+    invocation share a model parent, so we collapse them into a single
+    run colored ``INPUT_COLORS[0]``. (Multi-run overlay is left as a
+    future extension once the use case appears.)
+    """
+    parents: dict[str, list[dict]] = {}
+    for path, payload in payloads:
+        parent = _model_parent(payload) or path.parent.as_posix()
+        rec = dict(payload)
+        rec["_path"] = path
+        parents.setdefault(parent, []).append(rec)
+    runs: list[tuple[str, str, list[dict]]] = []
+    for i, (parent, recs) in enumerate(parents.items()):
+        recs.sort(key=lambda r: int(r["step"]))
+        label = Path(parent).name or parent
+        color = INPUT_COLORS[i % len(INPUT_COLORS)]
+        runs.append((label, color, recs))
+    return runs
+
+
+def chart_trajectory_banded(
+    runs: list[tuple[str, str, list[dict]]],
+    *,
+    title: str = "Per-walk-depth solve rate over training step",
+) -> str:
+    """Three-band 5/5/4 small multiples: x=step, y=solve_rate, polyline per run."""
+    cell_w, cell_h = 220, 160
+    pad = 16
+    pad_l, pad_t, pad_r, pad_b = 38, 24, 8, 26
+
+    band_svgs: list[str] = []
+    for band_title, depths in TRAJECTORY_BANDS:
+        cols = len(depths)
+        total_w = cols * cell_w + pad * (cols + 1)
+        total_h = cell_h + pad * 2 + 40
+        plot_w = cell_w - pad_l - pad_r
+        plot_h = cell_h - pad_t - pad_b
+
+        all_steps = [int(r["step"]) for _, _, recs in runs for r in recs]
+        max_step = max(all_steps, default=1) or 1
+        min_step = min(all_steps, default=0)
+
+        def y_for(v: float, oy: float, plot_h=plot_h, pad_t=pad_t) -> float:
+            cv = max(0.0, min(1.0, v))
+            return oy + pad_t + plot_h - cv * plot_h
+
+        def x_for(
+            s: float,
+            ox: float,
+            plot_w=plot_w,
+            pad_l=pad_l,
+            min_step=min_step,
+            max_step=max_step,
+        ) -> float:
+            span = max_step - min_step or 1
+            return ox + pad_l + (s - min_step) / span * plot_w
+
+        parts: list[str] = [
+            f'<svg viewBox="0 0 {total_w} {total_h}" '
+            f'xmlns="http://www.w3.org/2000/svg">',
+            f'<rect x="0" y="0" width="{total_w}" height="{total_h}" fill="#fafafa"/>',
+            f'<text x="{total_w / 2}" y="22" text-anchor="middle" font-size="13" '
+            f'font-weight="600" fill="#222">{band_title}</text>',
+        ]
+
+        for i, depth in enumerate(depths):
+            ox = pad + i * (cell_w + pad)
+            oy = 30 + pad
+
+            parts.append(
+                f'<rect x="{ox + pad_l}" y="{oy + pad_t}" width="{plot_w}" '
+                f'height="{plot_h}" fill="white" stroke="#ccc"/>'
+            )
+            parts.append(
+                f'<text x="{ox + cell_w / 2}" y="{oy + 14}" text-anchor="middle" '
+                f'font-size="12" font-weight="600" fill="#333">depth {depth}</text>'
+            )
+
+            # Y gridlines + labels (0, 0.25, 0.5, 0.75, 1.0).
+            for tick in [0.0, 0.25, 0.5, 0.75, 1.0]:
+                gy = y_for(tick, oy)
+                parts.append(
+                    f'<line x1="{ox + pad_l}" y1="{gy:.1f}" '
+                    f'x2="{ox + pad_l + plot_w}" y2="{gy:.1f}" '
+                    f'stroke="#eee" stroke-width="1"/>'
+                )
+                parts.append(
+                    f'<text x="{ox + pad_l - 3}" y="{gy + 3:.1f}" text-anchor="end" '
+                    f'font-size="9" fill="#888">{tick:.2f}</text>'
+                )
+
+            # X ticks: a few representative step values.
+            unique_steps = sorted({int(r["step"]) for _, _, recs in runs for r in recs})
+            if unique_steps:
+                if len(unique_steps) <= 4:
+                    tick_steps = unique_steps
+                else:
+                    # First, last, and ~2 middle ticks.
+                    idxs = [
+                        0,
+                        len(unique_steps) // 3,
+                        2 * len(unique_steps) // 3,
+                        len(unique_steps) - 1,
+                    ]
+                    tick_steps = sorted({unique_steps[i] for i in idxs})
+                for s in tick_steps:
+                    gx = x_for(s, ox)
+                    parts.append(
+                        f'<line x1="{gx:.1f}" y1="{oy + pad_t + plot_h}" '
+                        f'x2="{gx:.1f}" y2="{oy + pad_t + plot_h + 3}" '
+                        f'stroke="#888"/>'
+                    )
+                    parts.append(
+                        f'<text x="{gx:.1f}" y="{oy + pad_t + plot_h + 14}" '
+                        f'text-anchor="middle" font-size="9" fill="#666">'
+                        f"{_format_step_label(s)}</text>"
+                    )
+
+            # One polyline per run.
+            for _label, color, recs in runs:
+                pts: list[tuple[float, float]] = []
+                for r in recs:
+                    s = int(r["step"])
+                    items = {int(it["d"]): it for it in r.get("per_walk_depth", [])}
+                    item = items.get(depth)
+                    if item is None:
+                        continue
+                    rate = float(item["solve_rate"])
+                    pts.append((x_for(s, ox), y_for(rate, oy)))
+                if not pts:
+                    continue
+                parts.append(
+                    f'<path d="{_line_path(pts)}" fill="none" stroke="{color}" '
+                    f'stroke-width="1.8" opacity="0.95"/>'
+                )
+                for px, py in pts:
+                    parts.append(
+                        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.0" '
+                        f'fill="{color}"/>'
+                    )
+
+        parts.append("</svg>")
+        band_svgs.append("\n".join(parts))
+
+    return (
+        f'<p class="note">{title} — banded small multiples '
+        f"(Shallow d=1–5 / Mid d=6–10 / Deep d=11–14, 5/5/4 cells). "
+        f"Each cell: x=training step, y=solve rate (0..1), one polyline per run."
+        f"</p>\n" + "\n".join(band_svgs)
+    )
+
+
+def chart_trajectory_heatmap(
+    runs: list[tuple[str, str, list[dict]]],
+    *,
+    title: str = "Per-walk-depth × per-step solve-rate heatmap",
+) -> str:
+    """Heatmap with x=step, y=walk_depth REVERSED (d=14 at top, d=1 at bottom)."""
+    if not runs:
+        return '<p class="note">_(no runs)_</p>'
+    # For now, render the first run's heatmap. (Multi-run heatmap overlay is
+    # awkward in 2D; if needed later, render one per run vertically stacked.)
+    label, _color, recs = runs[0]
+    if not recs:
+        return '<p class="note">_(no records)_</p>'
+
+    steps = sorted({int(r["step"]) for r in recs})
+    walk_depths_present: set[int] = set()
+    for r in recs:
+        for it in r.get("per_walk_depth", []):
+            walk_depths_present.add(int(it["d"]))
+    walk_depths = sorted(walk_depths_present, reverse=True)  # d=14 at top.
+
+    cell_w, cell_h = 76, 26
+    pad_l, pad_r, pad_t, pad_b = 80, 16, 64, 28
+    n_cols, n_rows = len(steps), len(walk_depths)
+    plot_w = n_cols * cell_w
+    plot_h = n_rows * cell_h
+    width = pad_l + plot_w + pad_r
+    height = pad_t + plot_h + pad_b
+
+    parts: list[str] = [
+        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="#fafafa"/>',
+        f'<text x="{width / 2}" y="22" text-anchor="middle" font-size="13" '
+        f'font-weight="600" fill="#222">{title} — {label}</text>',
+    ]
+
+    # Column headers: step labels, with a small rotation to avoid clipping
+    # when there are many checkpoints.
+    rotate = n_cols > 6
+    for ci, s in enumerate(steps):
+        cx = pad_l + ci * cell_w + cell_w / 2
+        ty = pad_t - 8
+        if rotate:
+            parts.append(
+                f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="end" '
+                f'font-size="11" fill="#444" '
+                f'transform="rotate(-45 {cx:.1f} {ty:.1f})">'
+                f"step {_format_step_label(s)}</text>"
+            )
+        else:
+            parts.append(
+                f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" '
+                f'font-size="11" fill="#444">step {_format_step_label(s)}</text>'
+            )
+
+    # Row headers: walk-depth.
+    for ri, d in enumerate(walk_depths):
+        ry = pad_t + ri * cell_h + cell_h / 2 + 4
+        parts.append(
+            f'<text x="{pad_l - 8}" y="{ry:.1f}" text-anchor="end" '
+            f'font-size="11" fill="#444">walk_depth={d}</text>'
+        )
+
+    # Build (step, depth) -> rate index from the run's records.
+    rate_map: dict[tuple[int, int], float] = {}
+    for r in recs:
+        s = int(r["step"])
+        for it in r.get("per_walk_depth", []):
+            rate_map[(s, int(it["d"]))] = float(it["solve_rate"])
+
+    for ci, s in enumerate(steps):
+        for ri, d in enumerate(walk_depths):
+            rate = rate_map.get((s, d))
+            if rate is None:
+                continue
+            cx = pad_l + ci * cell_w
+            cy = pad_t + ri * cell_h
+            color = _heat_color(rate)
+            parts.append(
+                f'<rect x="{cx:.1f}" y="{cy:.1f}" width="{cell_w}" '
+                f'height="{cell_h}" fill="{color}" stroke="#fff" stroke-width="1"/>'
+            )
+            text_color = "#fff" if rate >= 0.55 else "#222"
+            parts.append(
+                f'<text x="{cx + cell_w / 2:.1f}" y="{cy + cell_h / 2 + 4:.1f}" '
+                f'text-anchor="middle" font-size="11" fill="{text_color}">'
+                f"{rate:.2f}</text>"
+            )
+
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def chart_trajectory_walltime(
+    runs: list[tuple[str, str, list[dict]]],
+    *,
+    title: str = "Wall time per checkpoint",
+) -> str:
+    """Line chart: x=step, y=wall_time_seconds, one line per run."""
+    width, height = 720, 280
+    pad_l, pad_r, pad_t, pad_b = 56, 180, 36, 50
+    plot_w = width - pad_l - pad_r
+    plot_h = height - pad_t - pad_b
+
+    if not runs:
+        return '<p class="note">_(no runs)_</p>'
+
+    all_walls = [
+        float(r.get("wall_time_seconds", 0.0)) for _, _, recs in runs for r in recs
+    ]
+    all_steps = [int(r["step"]) for _, _, recs in runs for r in recs]
+    if not all_walls or not all_steps:
+        return '<p class="note">_(no wall-time data)_</p>'
+    y_max = max(all_walls) * 1.10
+    if y_max <= 0:
+        y_max = 1.0
+    min_step, max_step = min(all_steps), max(all_steps)
+    if min_step == max_step:
+        max_step = min_step + 1
+
+    def x_for(s: float) -> float:
+        return pad_l + (s - min_step) / (max_step - min_step) * plot_w
+
+    def y_for(v: float) -> float:
+        return pad_t + plot_h - v / y_max * plot_h
+
+    parts: list[str] = [
+        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="#fafafa"/>',
+        f'<text x="{width / 2}" y="22" text-anchor="middle" font-size="13" '
+        f'font-weight="600" fill="#222">{title}</text>',
+        f'<rect x="{pad_l}" y="{pad_t}" width="{plot_w}" height="{plot_h}" '
+        f'fill="white" stroke="#ccc"/>',
+    ]
+    for tk in range(5):
+        v = y_max * tk / 4
+        gy = y_for(v)
+        parts.append(
+            f'<line x1="{pad_l}" y1="{gy:.1f}" x2="{pad_l + plot_w}" '
+            f'y2="{gy:.1f}" stroke="#eee"/>'
+        )
+        parts.append(
+            f'<text x="{pad_l - 6}" y="{gy + 3:.1f}" text-anchor="end" '
+            f'font-size="10" fill="#666">{v:.1f}s</text>'
+        )
+    unique_steps = sorted(set(all_steps))
+    for s in unique_steps:
+        gx = x_for(s)
+        parts.append(
+            f'<line x1="{gx:.1f}" y1="{pad_t + plot_h}" x2="{gx:.1f}" '
+            f'y2="{pad_t + plot_h + 4}" stroke="#888"/>'
+        )
+        parts.append(
+            f'<text x="{gx:.1f}" y="{pad_t + plot_h + 18}" text-anchor="middle" '
+            f'font-size="10" fill="#666">step {_format_step_label(s)}</text>'
+        )
+
+    legend_x = pad_l + plot_w + 14
+    legend_y = pad_t + 4
+    for i, (label, color, recs) in enumerate(runs):
+        pts = [
+            (x_for(int(r["step"])), y_for(float(r.get("wall_time_seconds", 0.0))))
+            for r in recs
+        ]
+        if pts:
+            parts.append(
+                f'<path d="{_line_path(pts)}" fill="none" stroke="{color}" '
+                f'stroke-width="1.8"/>'
+            )
+            for px, py in pts:
+                parts.append(
+                    f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.4" fill="{color}"/>'
+                )
+        ly = legend_y + 16 + i * 16
+        parts.append(
+            f'<rect x="{legend_x}" y="{ly - 8}" width="14" height="10" fill="{color}"/>'
+        )
+        parts.append(
+            f'<text x="{legend_x + 18}" y="{ly + 1}" font-size="11" fill="#333">'
+            f"{label}</text>"
+        )
+
+    parts.append(
+        f'<text x="14" y="{pad_t + plot_h / 2}" text-anchor="middle" '
+        f'font-size="11" fill="#333" '
+        f'transform="rotate(-90 14 {pad_t + plot_h / 2})">seconds</text>'
+    )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Sweep / single mode glue (legacy normalize → chart triplet)
+# ---------------------------------------------------------------------------
+
+
+def _legend_label_from_field(payload: dict, varying_field: str | None) -> str:
+    """Build a legend label by leading with the varying field's value.
+
+    Falls back to ``net_*`` filename or model stem when no preferred
+    field varies.
+    """
+    if varying_field is not None:
+        v = payload.get(varying_field)
+        return f"{varying_field}={v}"
+    # Fallback: use model filename stem.
+    m = payload.get("model")
+    if m:
+        return Path(m).stem
+    return "?"
+
+
+def normalize_flat_payloads_for_sweep(
+    payloads: list[tuple[Path, dict]],
+    varying_field: str | None,
+) -> dict:
+    """Wrap flat-schema payloads as a single legacy-shaped overlay payload.
+
+    The series key (``results`` keyed entries) is the varying field's
+    value when one is detected, else the input filename stem. ``v_star_results``
+    is similarly synthesized when any payload carries it.
     """
     first = payloads[0][1]
-    # Use beam_width for x-axis ticks — we still need ``walk_depths`` for
-    # the chart's x ticks, but the per_walk_depth lists themselves drive that.
     results: dict[str, dict] = {}
     v_star_results: dict[str, dict] = {}
     any_v_star = False
-    for path, payload in payloads:
-        label = _legend_label_for_flat(path)
+    for _path, payload in payloads:
+        label = _legend_label_from_field(payload, varying_field)
         results[label] = {
             "per_walk_depth": payload["per_walk_depth"],
             "wall_time_seconds": float(payload.get("wall_time_seconds", 0.0)),
             "states_scored": int(payload.get("states_scored", 0)),
-            "_legend_meta": {
-                "beam_width": payload.get("beam_width", "?"),
-                "precision": payload.get("precision", "?"),
-            },
         }
         if "v_star_results" in payload:
             any_v_star = True
@@ -435,6 +859,8 @@ def normalize_flat_payloads(
         "n_per_depth": first.get("n_per_depth", "?"),
         "seed": first.get("seed", "?"),
         "config_name": first.get("config_name", "?"),
+        "beam_width": first.get("beam_width", "?"),
+        "precision": first.get("precision", "?"),
         "results": results,
     }
     if any_v_star:
@@ -442,17 +868,17 @@ def normalize_flat_payloads(
     return out
 
 
-def render_input_section(
+def render_sweep_section(
     payload: dict,
     *,
     label: str,
     base_color: str,
     include_v_star: bool,
+    varying_field: str | None,
     is_flat_overlay: bool = False,
 ) -> str:
-    """Render the three (or five) charts for one input JSON."""
+    """Render the standard chart triplet for sweep / single / legacy inputs."""
     if is_flat_overlay:
-        # Flat-schema overlay: header reflects the sweep, not a single checkpoint.
         meta_line = (
             f"model: <code>{payload.get('model', '?')}</code><br>"
             f"config: <code>{payload.get('config_name', '?')}</code> · "
@@ -460,7 +886,10 @@ def render_input_section(
             f"max_depth: <code>{payload.get('max_walk_depth', '?')}</code> · "
             f"seed: <code>{payload.get('seed', '?')}</code>"
         )
-        chart_x_legend_title = "input"
+        if varying_field:
+            x_legend_title = varying_field
+        else:
+            x_legend_title = "input"
     else:
         meta_line = (
             f"checkpoint: <code>{payload.get('checkpoint', '?')}</code><br>"
@@ -469,35 +898,48 @@ def render_input_section(
             f"n_per_depth: <code>{payload.get('n_per_depth', '?')}</code> · "
             f"seed: <code>{payload.get('seed', '?')}</code>"
         )
-        chart_x_legend_title = "beam width"
+        x_legend_title = "beam width"
     parts: list[str] = [
         f'<h2 style="margin-top:32px">{label}</h2>',
         f'<p class="note">{meta_line}</p>',
-        f"<h3>1. Per-walk-depth solve rate (lines per {chart_x_legend_title})</h3>",
-        chart_solve_rate_lines(payload, base_color=base_color),
-        f"<h3>2. Wall time per {chart_x_legend_title}</h3>",
-        chart_wall_time_bars(payload, base_color=base_color),
-        f"<h3>3. Per-walk-depth × per-{chart_x_legend_title} heatmap</h3>",
-        chart_heatmap(payload),
+        f"<h3>1. Per-walk-depth solve rate (one line per {x_legend_title})</h3>",
+        chart_solve_rate_lines(
+            payload,
+            base_color=base_color,
+            title=(
+                f"Per-walk-depth solve rate (one line per {x_legend_title})"
+            ),
+        ),
+        f"<h3>2. Wall time per {x_legend_title}</h3>",
+        chart_wall_time_bars(
+            payload,
+            base_color=base_color,
+            title=f"Wall time per {x_legend_title}",
+        ),
+        f"<h3>3. Per-walk-depth × per-{x_legend_title} heatmap</h3>",
+        chart_heatmap(
+            payload,
+            title=f"Per-walk-depth × per-{x_legend_title} solve-rate heatmap",
+        ),
     ]
     if include_v_star and "v_star_results" in payload:
-        parts.append("<h3>4. Per-V* solve rate (lines per width)</h3>")
+        parts.append(f"<h3>4. Per-V* solve rate (one line per {x_legend_title})</h3>")
         parts.append(
             chart_solve_rate_lines(
                 payload,
                 base_color=base_color,
-                title="Per-V* solve rate (one line per beam width)",
+                title=f"Per-V* solve rate (one line per {x_legend_title})",
                 x_key="v",
                 x_label="V*",
                 items_key="per_v_star",
                 section_key="v_star_results",
             )
         )
-        parts.append("<h3>5. Per-V* × per-width heatmap</h3>")
+        parts.append(f"<h3>5. Per-V* × per-{x_legend_title} heatmap</h3>")
         parts.append(
             chart_heatmap(
                 payload,
-                title="Per-V* × per-width solve-rate heatmap",
+                title=f"Per-V* × per-{x_legend_title} solve-rate heatmap",
                 x_key="v",
                 x_label="V*",
                 items_key="per_v_star",
@@ -507,6 +949,51 @@ def render_input_section(
     return "\n".join(parts)
 
 
+def render_trajectory_section(
+    payloads: list[tuple[Path, dict]],
+) -> str:
+    """Render the trajectory-mode chart trio (banded / heatmap / walltime)."""
+    runs = _trajectory_runs(payloads)
+    first = payloads[0][1]
+    run_dir = _model_parent(first) or "?"
+    steps = sorted({int(pl["step"]) for _, pl in payloads})
+    step_range = (
+        f"{_format_step_label(steps[0])} → {_format_step_label(steps[-1])}"
+        if steps
+        else "?"
+    )
+    meta_line = (
+        f"run dir: <code>{run_dir}</code><br>"
+        f"checkpoints: <code>{len(payloads)}</code> "
+        f"({step_range}) · "
+        f"config: <code>{first.get('config_name', '?')}</code> · "
+        f"device: <code>{first.get('device', '?')}</code> · "
+        f"beam_width: <code>{first.get('beam_width', '?')}</code> · "
+        f"precision: <code>{first.get('precision', '?')}</code>"
+    )
+    parts: list[str] = [
+        '<h2 style="margin-top:32px">Beam-eval trajectory</h2>',
+        f'<p class="note">{meta_line}</p>',
+        "<h3>1. Per-walk-depth solve rate over training step (banded)</h3>",
+        chart_trajectory_banded(runs),
+        "<h3>2. Heatmap (step × walk-depth)</h3>",
+        '<p class="note">'
+        "x-axis: training step. y-axis: walk-depth, with d=14 at the top "
+        "(deepest walks first). Cells colored by solve_rate; numeric values "
+        "shown in-cell."
+        "</p>",
+        chart_trajectory_heatmap(runs),
+        "<h3>3. Wall time per checkpoint</h3>",
+        chart_trajectory_walltime(runs),
+    ]
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -514,7 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         nargs="+",
         required=True,
-        help="One or more beam-eval JSON paths (output of beam_eval_run.py).",
+        help="One or more beam-eval JSON paths (output of beam_eval_*.py).",
     )
     parser.add_argument(
         "--output",
@@ -543,35 +1030,43 @@ def main(argv: list[str] | None = None) -> int:
 
     sections: list[str] = []
     if flat_payloads:
-        # Single overlay section across all flat-schema inputs.
-        merged = normalize_flat_payloads(flat_payloads)
-        any_v_star = "v_star_results" in merged
-        label = (
-            "Beam-eval overlay (sweep)"
-            if len(flat_payloads) > 1
-            else flat_payloads[0][0].name
-        )
-        sections.append(
-            render_input_section(
-                merged,
-                label=label,
-                base_color=INPUT_COLORS[0],
-                include_v_star=any_v_star,
-                is_flat_overlay=True,
+        mode = detect_input_mode(flat_payloads)
+        if mode == "trajectory":
+            sections.append(render_trajectory_section(flat_payloads))
+        else:
+            varying_field = detect_varying_field(flat_payloads)
+            merged = normalize_flat_payloads_for_sweep(flat_payloads, varying_field)
+            any_v_star = "v_star_results" in merged
+            if mode == "single":
+                label = flat_payloads[0][0].name
+            else:
+                label = (
+                    f"Beam-eval sweep ({varying_field})"
+                    if varying_field
+                    else "Beam-eval overlay"
+                )
+            sections.append(
+                render_sweep_section(
+                    merged,
+                    label=label,
+                    base_color=INPUT_COLORS[0],
+                    include_v_star=any_v_star,
+                    varying_field=varying_field,
+                    is_flat_overlay=True,
+                )
             )
-        )
 
     if legacy_payloads:
-        # Legacy schema: one section per input, multi-width per section.
         any_v_star = any("v_star_results" in payload for _, payload in legacy_payloads)
         for i, (path, payload) in enumerate(legacy_payloads):
             color = INPUT_COLORS[i % len(INPUT_COLORS)]
             sections.append(
-                render_input_section(
+                render_sweep_section(
                     payload,
                     label=path.name,
                     base_color=color,
                     include_v_star=any_v_star,
+                    varying_field=None,
                 )
             )
 
@@ -582,7 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
   <title>Beam-eval report</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-           margin: 24px 32px; max-width: 1100px; color: #222; }}
+           margin: 24px 32px; max-width: 1200px; color: #222; }}
     h1 {{ font-size: 18px; margin: 0 0 4px 0; }}
     h2 {{ font-size: 15px; margin: 32px 0 6px 0; color: #333;
           border-bottom: 1px solid #ddd; padding-bottom: 4px; }}
@@ -595,12 +1090,14 @@ def main(argv: list[str] | None = None) -> int:
 <body>
   <h1>Beam-eval report</h1>
   <p class="note">
-    Generated by <code>scripts/render_beam_eval_report.py</code> from
-    <code>beam_eval_model.py</code> / <code>beam_eval_sweep.py</code>
-    (flat schema) or legacy width-keyed outputs. Flat-schema inputs
-    overlay into a single section; legacy inputs render one section
-    each. The chart triplet (lines / wall-time bars / heatmap) shows
-    capability vs. the swept axis (beam width or sweep label).
+    Generated by <code>scripts/render_beam_eval_report.py</code>. Modes
+    auto-detected: <em>single</em> (one input) → standard chart triplet;
+    <em>trajectory</em> (multiple checkpoints from one run) → banded
+    per-depth solve-rate trajectories + step×depth heatmap (d=14 on top)
+    + wall time over step; <em>sweep</em> (multiple inputs varying in
+    beam_width / precision / etc.) → standard chart triplet keyed off
+    the varying parameter. Legacy width-keyed inputs render as their own
+    sweep-style sections.
   </p>
   {"".join(sections)}
 </body>
