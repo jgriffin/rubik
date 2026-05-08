@@ -291,12 +291,9 @@ def main(argv: list[str] | None = None) -> int:
         oracle_arrays = load_v_star_bounded_3x3_arrays(ORACLE_CACHE_PATH)
 
     written: list[Path] = []
-    for step, ckpt_path in checkpoints:
-        # Output filename uses the step label, not the checkpoint stem, so
-        # net_final.pt resolves to its early-stop-aware step in the name.
-        out_path = results_dir / f"step_{step}_eval_{eval_cfg.source_name}.json"
+    for filename_step, ckpt_path in checkpoints:
         print(
-            f"evaluating {ckpt_path.name} (step={step}) ...",
+            f"evaluating {ckpt_path.name} (filename_step={filename_step}) ...",
             flush=True,
         )
         payload = evaluate_checkpoint(
@@ -306,9 +303,17 @@ def main(argv: list[str] | None = None) -> int:
             training_config=training_config,
             oracle_arrays=oracle_arrays,
         )
-        # Annotate with the step label so per-checkpoint JSONs carry the
-        # context they came from without needing a sibling rollup.
-        payload["step"] = int(step)
+        # Prefer the bundle's authoritative step over the
+        # filename-extracted one — the file can be renamed but the dict
+        # carries the truth. Falls back to filename for legacy
+        # bare-state-dict checkpoints (where checkpoint_step is None).
+        ckpt_step = payload.get("checkpoint_step")
+        step = int(ckpt_step) if ckpt_step is not None else int(filename_step)
+        out_path = results_dir / f"step_{step}_eval_{eval_cfg.source_name}.json"
+        # Annotate with the resolved step so per-checkpoint JSONs carry
+        # the canonical training step they came from without needing a
+        # sibling rollup.
+        payload["step"] = step
         out_path.write_text(json.dumps(payload, indent=2))
         written.append(out_path)
         deep_rate = (

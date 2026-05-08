@@ -88,24 +88,53 @@ def _resolve_training_config(model_path: Path) -> Path:
     )
 
 
-def _load_net(
-    checkpoint: Path, training_config: DAVIConfig, device: torch.device
+def _load_checkpoint(path: Path, device: torch.device) -> tuple[dict, bool]:
+    """Load a checkpoint file. Returns ``(raw, is_bundle)``.
+
+    If the file contains a bundle dict with ``net_state`` (the new
+    training-bundle format), returns ``(dict, True)``. Otherwise treats
+    the contents as a bare state_dict (legacy format) and returns
+    ``(state_dict, False)``. Callers extract the model state via
+    ``ckpt["net_state"] if is_bundle else ckpt``.
+    """
+    raw = torch.load(path, map_location=device, weights_only=False)
+    if isinstance(raw, dict) and "net_state" in raw:
+        return raw, True
+    return raw, False
+
+
+def _build_net(
+    ckpt: dict,
+    is_bundle: bool,
+    training_config: DAVIConfig,
+    device: torch.device,
 ) -> ValueNet:
-    """Reconstruct + load a ValueNet from a training checkpoint."""
+    """Construct a ValueNet from architecture in ``training_config`` and load
+    weights from the loaded ``ckpt``. ``is_bundle`` flags the new bundle
+    format vs legacy bare-state-dict.
+    """
     net = ValueNet(
         CUBE_3X3,
         body_widths=training_config.body_widths,
         n_residual_blocks=training_config.n_residual_blocks,
         normalization=training_config.normalization,
     ).to(device)
-    ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
-    if isinstance(ckpt, dict) and "net_state" in ckpt:
-        net.load_state_dict(ckpt["net_state"])
-    else:
-        # Legacy bare state-dict format.
-        net.load_state_dict(ckpt)
+    state_dict = ckpt["net_state"] if is_bundle else ckpt
+    net.load_state_dict(state_dict)
     net.eval()
     return net
+
+
+def _load_net(
+    checkpoint: Path, training_config: DAVIConfig, device: torch.device
+) -> ValueNet:
+    """Backwards-compatible thin wrapper around ``_load_checkpoint`` +
+    ``_build_net``. Discards the bundle metadata. Kept in case any out-of-
+    tree script imports this name directly; new code should call the two
+    primitives separately so it can read the bundle metadata fields.
+    """
+    ckpt, is_bundle = _load_checkpoint(checkpoint, device)
+    return _build_net(ckpt, is_bundle, training_config, device)
 
 
 def _walk_eval(
@@ -197,16 +226,38 @@ def evaluate_checkpoint(
 
     Returns the JSON payload (flat schema, no on-disk write).
     """
-    net = _load_net(model_path, training_config, device)
+    ckpt, is_bundle = _load_checkpoint(model_path, device)
+    net = _build_net(ckpt, is_bundle, training_config, device)
     dtype = PRECISION_DTYPES[eval_cfg.precision]
     if dtype is not torch.float32:
         net = net.to(dtype)
+
+    # Bundle-metadata pass-through. Each field is None when the
+    # checkpoint is legacy (bare state_dict) or when training didn't
+    # populate that particular optional field. Surfacing them in the
+    # payload lets downstream consumers (beam_eval_run.py, plots) prefer
+    # dict-step over filename-extracted step and tag results with the
+    # originating wandb run.
+    checkpoint_step: int | None = (
+        int(ckpt["step"]) if is_bundle and "step" in ckpt else None
+    )
+    checkpoint_wall_time_seconds: float | None = (
+        float(ckpt["wall_time_seconds"])
+        if is_bundle and "wall_time_seconds" in ckpt
+        else None
+    )
+    checkpoint_wandb_run_id: str | None = (
+        str(ckpt["wandb_run_id"]) if is_bundle and "wandb_run_id" in ckpt else None
+    )
 
     per_walk_depth, wall = _walk_eval(net, eval_cfg, eval_cfg.seed)
     states_scored = sum(int(item["n"]) for item in per_walk_depth)
 
     out: dict = {
         "model": str(model_path.resolve()),
+        "checkpoint_step": checkpoint_step,
+        "checkpoint_wall_time_seconds": checkpoint_wall_time_seconds,
+        "checkpoint_wandb_run_id": checkpoint_wandb_run_id,
         "config_name": eval_cfg.source_name,
         "config_description": eval_cfg.description,
         "device": str(device),

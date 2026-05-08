@@ -403,6 +403,98 @@ def test_beam_eval_model_unknown_config_errors(tiny_run, tmp_path):
     assert "eval-configs" in combined  # search path
 
 
+def test_beam_eval_model_carries_bundle_metadata(tiny_run, tiny_eval_config, tmp_path):
+    """Bundle with step/wall_time_seconds/wandb_run_id → payload mirrors them.
+
+    The eval consumer surfaces these provenance fields in the JSON
+    output so downstream readers (and beam_eval_run.py) can prefer the
+    bundle's authoritative step over filename-extracted step.
+    """
+    # Replace the fixture's bare-bundle checkpoint with a fully-populated
+    # one carrying the provenance fields.
+    cfg_kwargs = _tiny_config_kwargs()
+    net = ValueNet(
+        CUBE_3X3,
+        body_widths=tuple(cfg_kwargs["body_widths"]),
+        n_residual_blocks=cfg_kwargs["n_residual_blocks"],
+        normalization=cfg_kwargs["normalization"],
+    )
+    net.eval()
+    target = ValueNet(
+        CUBE_3X3,
+        body_widths=tuple(cfg_kwargs["body_widths"]),
+        n_residual_blocks=cfg_kwargs["n_residual_blocks"],
+        normalization=cfg_kwargs["normalization"],
+    )
+    optim = torch.optim.Adam(net.parameters(), lr=1e-3)
+    ckpt_path: Path = tiny_run["checkpoint"]
+    torch.save(
+        {
+            "net_state": net.state_dict(),
+            "target_net_state": target.state_dict(),
+            "optimizer_state": optim.state_dict(),
+            "step": 7777,
+            "wall_time_seconds": 33.25,
+            "wandb_run_id": "wandbrun42",
+        },
+        ckpt_path,
+    )
+
+    out_path = tmp_path / "out.json"
+    result = _run_script(
+        str(ckpt_path),
+        "--config",
+        str(tiny_eval_config),
+        "--device",
+        "cpu",
+        "--output-json",
+        str(out_path),
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(out_path.read_text())
+    assert payload["checkpoint_step"] == 7777
+    assert payload["checkpoint_wall_time_seconds"] == pytest.approx(33.25)
+    assert payload["checkpoint_wandb_run_id"] == "wandbrun42"
+
+
+def test_beam_eval_model_missing_bundle_metadata_yields_none(
+    tiny_run, tiny_eval_config, tmp_path
+):
+    """Bundle with only ``net_state`` + ``step`` → metadata fields = None."""
+    cfg_kwargs = _tiny_config_kwargs()
+    net = ValueNet(
+        CUBE_3X3,
+        body_widths=tuple(cfg_kwargs["body_widths"]),
+        n_residual_blocks=cfg_kwargs["n_residual_blocks"],
+        normalization=cfg_kwargs["normalization"],
+    )
+    net.eval()
+    ckpt_path: Path = tiny_run["checkpoint"]
+    # Bundle (has net_state) but lacks the provenance fields and even
+    # ``step``. checkpoint_step should come back as None.
+    torch.save({"net_state": net.state_dict()}, ckpt_path)
+
+    out_path = tmp_path / "out.json"
+    result = _run_script(
+        str(ckpt_path),
+        "--config",
+        str(tiny_eval_config),
+        "--device",
+        "cpu",
+        "--output-json",
+        str(out_path),
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(out_path.read_text())
+    # Keys ARE present (top-level schema is stable) but values are None.
+    assert "checkpoint_step" in payload
+    assert "checkpoint_wall_time_seconds" in payload
+    assert "checkpoint_wandb_run_id" in payload
+    assert payload["checkpoint_step"] is None
+    assert payload["checkpoint_wall_time_seconds"] is None
+    assert payload["checkpoint_wandb_run_id"] is None
+
+
 def test_beam_eval_model_path_config(tiny_run, tiny_eval_config, tmp_path):
     """``--config /path/to/file.yaml`` accepts a literal filesystem path."""
     out_path = tmp_path / "out.json"

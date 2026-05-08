@@ -39,7 +39,7 @@ EXPERIMENT_DIR = REPO_ROOT / "experiments" / "davi-3x3"
 if str(EXPERIMENT_DIR) not in sys.path:
     sys.path.insert(0, str(EXPERIMENT_DIR))
 
-from run import _load_warm_start  # noqa: E402
+from run import _load_warm_start, _save_checkpoint  # noqa: E402
 
 
 def _tiny_net() -> ValueNet:
@@ -122,6 +122,58 @@ def test_load_warm_start_dict_format(tmp_path):
         "target_net unexpectedly identical to the saved target_net_state — "
         "warm-start should ignore that key"
     )
+
+
+def test_save_checkpoint_bundle_with_provenance(tmp_path):
+    """Bundle carries wall_time_seconds + wandb_run_id when supplied."""
+    net = _tiny_net()
+    target = _tiny_net()
+    optim = torch.optim.Adam(net.parameters(), lr=1e-3)
+    ckpt_path = tmp_path / "with_provenance.pt"
+    _save_checkpoint(
+        ckpt_path,
+        net,
+        target,
+        optim,
+        step=4242,
+        wall_time_seconds=12.5,
+        wandb_run_id="abc123xyz",
+    )
+    raw = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    assert isinstance(raw, dict)
+    # Core fields.
+    assert "net_state" in raw
+    assert "target_net_state" in raw
+    assert "optimizer_state" in raw
+    assert raw["step"] == 4242
+    # New provenance fields land with the right types/values.
+    assert raw["wall_time_seconds"] == pytest.approx(12.5)
+    assert isinstance(raw["wall_time_seconds"], float)
+    assert raw["wandb_run_id"] == "abc123xyz"
+    assert isinstance(raw["wandb_run_id"], str)
+
+
+def test_save_checkpoint_omits_provenance_when_unset(tmp_path):
+    """When wall_time_seconds/wandb_run_id are None, the keys are absent.
+
+    Backwards-compat invariant: legacy readers must not see ``None``
+    placeholders for fields they don't know about. The keys are simply
+    omitted from the saved dict.
+    """
+    net = _tiny_net()
+    target = _tiny_net()
+    optim = torch.optim.Adam(net.parameters(), lr=1e-3)
+    ckpt_path = tmp_path / "minimal.pt"
+    _save_checkpoint(ckpt_path, net, target, optim, step=100)
+    raw = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    assert isinstance(raw, dict)
+    assert "wall_time_seconds" not in raw
+    assert "wandb_run_id" not in raw
+    # Core fields still present.
+    assert raw["step"] == 100
+    assert "net_state" in raw
+    assert "target_net_state" in raw
+    assert "optimizer_state" in raw
 
 
 def test_load_warm_start_arch_mismatch_raises(tmp_path):

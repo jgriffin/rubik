@@ -268,6 +268,88 @@ def test_steps_csv_unknown_step_errors(tiny_run_dir, tiny_eval_config_yaml):
     assert "999999" in (result.stderr + result.stdout)
 
 
+def test_dict_step_overrides_filename_step(tmp_path, tiny_eval_config_yaml):
+    """A bundle whose dict step disagrees with the filename → dict wins.
+
+    Simulates post-rename drift: filename says ``net_step_5000.pt`` but
+    the bundle's ``step`` field says 5050. The output filename and the
+    payload's ``step`` field both reflect the dict value (the truth),
+    not the filename.
+    """
+    run_dir = tmp_path / "drift-run"
+    run_dir.mkdir()
+    cfg = _tiny_config_kwargs()
+    (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    net = _make_tiny_net()
+    target = _make_tiny_net()
+    optim = torch.optim.Adam(net.parameters(), lr=1e-3)
+    bundle = {
+        "net_state": net.state_dict(),
+        "target_net_state": target.state_dict(),
+        "optimizer_state": optim.state_dict(),
+        "step": 5050,  # mismatches the filename below
+    }
+    # Filename says 5000, dict says 5050.
+    torch.save(bundle, run_dir / "net_step_5000.pt")
+
+    result = _run_script(
+        str(run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode == 0, result.stderr
+    results_dir = run_dir / "results"
+    # Output filename uses the dict step, not the filename step.
+    expected = results_dir / "step_5050_eval_tiny.json"
+    not_expected = results_dir / "step_5000_eval_tiny.json"
+    actual_names = sorted(p.name for p in results_dir.iterdir())
+    assert expected.exists(), (
+        f"expected dict-step filename {expected.name}; got {actual_names}"
+    )
+    assert not not_expected.exists(), (
+        "filename-step JSON should not be written when dict step disagrees"
+    )
+    payload = json.loads(expected.read_text())
+    assert payload["step"] == 5050
+    assert payload["checkpoint_step"] == 5050
+
+
+def test_legacy_bare_state_dict_falls_back_to_filename(tmp_path, tiny_eval_config_yaml):
+    """Legacy bare state_dict (no ``net_state`` key) → filename step is used.
+
+    The bundle has no provenance metadata, so ``checkpoint_step`` is None
+    and the run-wrapper falls back to the filename-extracted step.
+    """
+    run_dir = tmp_path / "legacy-run"
+    run_dir.mkdir()
+    cfg = _tiny_config_kwargs()
+    (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    net = _make_tiny_net()
+    # Save a bare state_dict (no top-level dict wrapper) — the legacy format.
+    torch.save(net.state_dict(), run_dir / "net_step_1234.pt")
+
+    result = _run_script(
+        str(run_dir),
+        "--config",
+        str(tiny_eval_config_yaml),
+        "--device",
+        "cpu",
+    )
+    assert result.returncode == 0, result.stderr
+    expected = run_dir / "results" / "step_1234_eval_tiny.json"
+    assert expected.exists(), (
+        f"expected filename-step fallback {expected.name}; "
+        f"got {sorted(p.name for p in (run_dir / 'results').iterdir())}"
+    )
+    payload = json.loads(expected.read_text())
+    assert payload["step"] == 1234
+    assert payload["checkpoint_step"] is None
+
+
 def test_no_post_run_beam_eval_json_when_checkpoints_present(
     tiny_run_dir, tiny_eval_config_yaml
 ):

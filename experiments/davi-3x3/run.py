@@ -168,16 +168,30 @@ def _save_checkpoint(
     target_net: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     step: int,
+    *,
+    wall_time_seconds: float | None = None,
+    wandb_run_id: str | None = None,
 ) -> None:
-    torch.save(
-        {
-            "net_state": net.state_dict(),
-            "target_net_state": target_net.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-            "step": step,
-        },
-        path,
-    )
+    """Persist a training-checkpoint bundle.
+
+    The core fields (``net_state``, ``target_net_state``, ``optimizer_state``,
+    ``step``) are always present. ``wall_time_seconds`` (training-run
+    wall-clock) and ``wandb_run_id`` are optional provenance fields — when
+    omitted by the caller, the corresponding key is OMITTED from the
+    payload entirely (no ``None`` placeholders) so historical readers
+    don't trip on it.
+    """
+    payload: dict = {
+        "net_state": net.state_dict(),
+        "target_net_state": target_net.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "step": step,
+    }
+    if wall_time_seconds is not None:
+        payload["wall_time_seconds"] = float(wall_time_seconds)
+    if wandb_run_id is not None:
+        payload["wandb_run_id"] = str(wandb_run_id)
+    torch.save(payload, path)
 
 
 def main() -> None:
@@ -249,6 +263,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Wall-clock origin for the run — captured before any heavy work so
+    # checkpoint ``wall_time_seconds`` reflects real training time elapsed
+    # (init + loop), not just loop time. Bundled into every checkpoint
+    # save so downstream readers can plot loss/eval against wall-clock
+    # without having to cross-reference metrics.jsonl.
+    run_start_perf = time.perf_counter()
+
     # Argument cross-checks for --warm-start / --from-step.
     if args.warm_start is not None and args.resume is not None:
         parser.error(
@@ -284,6 +305,7 @@ def main() -> None:
     # Optional W&B sink. wandb is opt-out (--no-wandb); auth/network
     # failures degrade gracefully to JSONL-only with a stderr warning.
     wandb_run: WandbAdapter | None = None
+    wandb_run_id: str | None = None
     wandb_started = False
     if not args.no_wandb:
         try:
@@ -303,6 +325,11 @@ def main() -> None:
             # configuration. See experiments/davi-3x3/wandb_workspace.md.
             wandb.define_metric("*", step_metric="step")
             wandb_run = WandbAdapter(wandb.run)
+            # Capture the wandb run id once at init so checkpoint saves
+            # don't need to reach back into the wandb module (and to
+            # keep the value stable if wandb.run gets nulled out at
+            # finish-time).
+            wandb_run_id = wandb.run.id if wandb.run is not None else None
             wandb_started = True
         except Exception as e:
             print(
@@ -542,15 +569,31 @@ def main() -> None:
 
                 if config.checkpoint_every and step % config.checkpoint_every == 0:
                     ckpt_path = out_dir / f"net_step_{step}.pt"
-                    _save_checkpoint(ckpt_path, net, target_net, optimizer, step)
+                    wall = time.perf_counter() - run_start_perf
+                    _save_checkpoint(
+                        ckpt_path,
+                        net,
+                        target_net,
+                        optimizer,
+                        step,
+                        wall_time_seconds=wall,
+                        wandb_run_id=wandb_run_id,
+                    )
                     logger.log(event="checkpoint", step=step, path=str(ckpt_path.name))
 
             # Final checkpoint regardless of stop reason. Use the last step
             # actually trained (= ``step`` from the loop variable, which
             # holds either the early-stop step or n_steps).
             final_step = step  # noqa: F821 — bound by the loop above
+            wall = time.perf_counter() - run_start_perf
             _save_checkpoint(
-                out_dir / "net_final.pt", net, target_net, optimizer, final_step
+                out_dir / "net_final.pt",
+                net,
+                target_net,
+                optimizer,
+                final_step,
+                wall_time_seconds=wall,
+                wandb_run_id=wandb_run_id,
             )
 
             # run_end carries finals so downstream analysis doesn't need to
