@@ -4,19 +4,11 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
-## 2026-05-08 — LN/K_max=30 fresh training run (30k) 🟡 in-progress
+## 2026-05-08 — LN/K_max=30 fresh training run (30k → 100k via warm-start) ✅ done — both runs trained healthily; eval tooling refactored mid-block; full re-eval under fast_kmax30 shows d=14 saturates by ~step 40k, d=30=0.76 at end-of-training
 **Goal:** Real comparison run for the LN+K_max=30 path. The pre-flight smoke (LOG entry below) ran 5k steps under this config and showed an unexpectedly favorable trajectory: macro_v_star_mae 2.29 → 0.18 by step 5k, d=14=0.30 — vs full_train (BN, K_max=20, no curriculum) at d=14≈0 at the same step count and d=14=0.78 only at step 16k. 30k steps lets us see whether the curve sustains, whether LN's claimed drift-resistance shows up at scale, and whether the d=14 capability climb past 5k matches or exceeds what BN+K_max=20 produced over a longer horizon. Out of scope: comparison against curriculum-enabled variants (separate cycle).
 **Milestone:** M8 phase 3 — first non-smoke run on the LN line ([roadmap entry](ROADMAP.md#m8))
 **Approach:** Branch `ln-kmax30-fresh-run` from main HEAD `a34b560`. Single deliverable: a 30k-step fresh-init run with `experiments/davi-3x3/configs/ln_kmax30.yaml` (mirrors smoke_ln_kmax30.yaml, only `n_steps` differs: 10000 → 30000). wandb on (per the just-locked-in default). Checkpoint cadence stays at 500 steps (60 checkpoints). Use `ensure_run_results.py` periodically during the run to keep eval reports current — the new tooling enables this. After training completes (or is killed early), final eval pass + writeup of comparison vs full_train at matched step counts.
-**Next:** Resume after `/clear`. The day's eval-tooling refactor is committed (4 commits ahead of `a84f9d9`); 669 tests passing. The 100k continuation re-eval was killed mid-run (after 5/7 ckpts on the OLD code path, before the per-checkpoint flush fix landed) — no `beam_eval_fast_kmax30.jsonl` was persisted. Restart it under the new tooling so the user can watch records flush to disk per-checkpoint as they complete:
-
-```
-uv run python scripts/beam_eval_run.py \
-  experiments/davi-3x3/runs/20260508T084940Z_ln_kmax30_100k \
-  --config fast_kmax30 --stride 10000 --render-html
-```
-
-Largest-first traversal means `net_final.pt` writes within ~4-5 min. Total ~25-30 min for the 7 ckpts. After 100k completes, run the same command on `experiments/davi-3x3/runs/20260508T054741Z_ln_kmax30` (the 30k run) to get its trajectory.
+**Next:** Block closed. User pivoting to other work; the unfinished comparison writeup vs full_train (and adding fast_kmax30 trajectory data to `error_trajectories.html`) carries forward as followups noted in **Outcome**. Open a new block when the next goal crystallizes.
 
 **In progress:**
 - Block opened. Branch `ln-kmax30-fresh-run` from main HEAD `a34b560`. Config landed at `experiments/davi-3x3/configs/ln_kmax30.yaml` (30k).
@@ -34,10 +26,37 @@ Largest-first traversal means `net_final.pt` writes within ~4-5 min. Total ~25-3
   - **`ensure_run_results.py` is now a thin shim** delegating to `beam_eval_run.py` (kept because `/tmp/ln_kmax30_chain.sh` still calls it; can be deleted once that script is gone).
   - **Test count: 642 → 669** (+27 net across the day).
 - **Backlog item added** (`ROADMAP.md`): drive-by rename `beam_eval_*` → `eval_*` since "beam" is implied. Surface area covers all four scripts + the JSONL/HTML filenames in run-dir results.
+- **Re-eval pass under new tooling (post-/clear, post-handoff).** With the eval-tooling refactor committed, ran `beam_eval_run.py --config fast_kmax30 --stride 10000 --render-html` on both run dirs. Per-checkpoint flush + largest-first traversal worked as designed: `net_final.pt` for 100k landed in 238.8s (d=30=0.760). 100k re-eval: 7/7 records, ~2400s total. 30k re-eval: 3/3 records, ~1360s total. Both `eval_trajectory_fast_kmax30.html` reports rendered. **Trajectory data:**
 
-**Pause state — safe to /clear after this LOG entry persists.** All eval-tooling work committed across 4 commits (`e597997` configs, `6a779e9` renderer + RUNS, `eb2cbe4` run-dir+model workflow, `5893ecc` training-run artifacts). A new agent picking up should run `uv run pytest -q tests/scripts/` to confirm the 669-passing baseline, then kick off the 100k re-eval per the **Next** command above.
+  | step    | d=14  | d=20  | d=25  | d=30  |
+  |--------:|------:|------:|------:|------:|
+  | 10000   | 0.620 | 0.580 | 0.400 | 0.440 |
+  | 20000   | 0.800 | 0.740 | 0.520 | 0.780 |
+  | 30000   | 0.880 | 0.740 | 0.660 | 0.660 |
+  | 40000   | 0.980 | 0.740 | 0.680 | 0.680 |
+  | 50000   | 0.980 | 0.680 | 0.740 | 0.660 |
+  | 60000   | 0.980 | 0.720 | 0.720 | 0.740 |
+  | 70000   | 0.980 | 0.740 | 0.780 | 0.720 |
+  | 80000   | 0.980 | 0.780 | 0.720 | 0.780 |
+  | 90000   | 0.940 | 0.840 | 0.800 | 0.740 |
+  | 100000  | 0.980 | 0.780 | 0.800 | 0.760 |
 
-**Commits (block in progress):** `7059804` (open), `b45f024` (100k config), `a84f9d9` (amend — 100k scope), `e597997` (eval-config layer), `6a779e9` (renderer + error_trajectories RUNS), `eb2cbe4` (run-dir + model workflow), `5893ecc` (training-run artifacts), `<this commit>` (LOG amend + ROADMAP backlog).
+  Quick read: d=14 saturates by step 40k (≥0.94 thereafter); deeper-V* capability (d=20/25/30) keeps climbing through step 100k. The 30k → 40k jump on d=14 (0.88 → 0.98) coincides with the warm-start boundary; deeper depths' moves are below the noise floor (n=50 gives SE ±6.5pp at p≈0.7).
+
+**Outcome:**
+- **Block goal met across both training runs and the eval pass.** 30k fresh-init run reached macro_v_star_mae 0.055 (final), 100k continuation reached 0.018. Both ran clean overnight via the chained warm-start. Curve sustained: `d=14 ≥ 0.94` from step 40k onward, deeper depths still rising at step 100k.
+- **Substantive scope expansion: eval-tooling refactor.** Initially scoped as a "real comparison run" block, it absorbed a day of refactor work after the user noticed the chained eval reports were capped at d=14 despite training at K_max=30. Resulted in YAML config layer, K_max-aware auto-derive of eval depth, dynamic trajectory bands (5/5/4 → 6×5 for d=30), `--stride` + ensure-by-default + `--force` semantics, per-checkpoint flush (load-bearing for safe long evals), schema check on JSONL read, and the renderer dynamic-bands path. Test count `642 → 669` (+27).
+- **Decisions worth recording:**
+  - **Per-checkpoint flush is non-negotiable for long eval passes.** The original buffered-write design lost data on kill. The fix (flush after each checkpoint) plus largest-first traversal means a kill at any time leaves the most-trained checkpoints already on disk. This pattern is now the contract; the schema-check on read enforces consistency across resumes.
+  - **`fast_kmax30` (length-30 walks, n=50/depth) is the right cycle-screening config for K_max=30 training.** SE ±6.5pp at deep tail (p≈0.7) is wide but cheap; pairs with `default` (length-18, n=100, SE ±4.6pp) or a future thorough-K_max30 variant for milestone-quality.
+  - **Run-dir results/ files are committed alongside the run.** Following the prior block's pattern (.pt files gitignored, JSONL + HTML tracked).
+- **Followups (user pivoting; not done in this block):**
+  - **Comparison writeup vs full_train at matched step counts.** The block's original ambition. Eval data is in hand for ln_kmax30; full_train was last evaluated under fast.yaml (length-14) only — re-eval under fast_kmax30 is a prerequisite for an apples-to-apples deep comparison. Pick up when returning.
+  - **`error_trajectories.html` under fast_kmax30.** The renderer's RUNS table already lists both ln_kmax30 runs (committed `6a779e9`), but the cross-run aggregate plot consumes fast.yaml (length-14). Adding fast_kmax30 (length-30) coverage means either extending `render_error_trajectories.py` to multi-config or adding a sibling `render_error_trajectories_kmax30.py`. Not urgent — single-run trajectory HTMLs cover the same data per-run.
+  - **Backlog item: rename `beam_eval_*` → `eval_*`** (already in `ROADMAP.md` backlog from prior amend). Touch surface: 4 scripts + JSONL/HTML filenames in run-dir results + tests.
+  - **`net_final.pt` always re-eval'd by ensure path** (carried from prior block; not addressed in this re-eval pass either). Cost: at most one redundant eval per ensure call. If annoying, the dict's `step` field can be loaded once to filter.
+
+**Commits:** `7059804` (open), `b45f024` (100k config), `a84f9d9` (amend — 100k scope), `e597997` (eval-config layer), `6a779e9` (renderer + error_trajectories RUNS), `eb2cbe4` (run-dir + model workflow), `5893ecc` (training-run artifacts), `4bb3134` (amend — eval-tooling refactor handoff), `f47a198` (re-eval artifacts: 30k + 100k cont under fast_kmax30), `<this commit>` (close + outcome).
 
 ## 2026-05-07 — Checkpoint provenance polish + LN/K_max=30 smoke ✅ done — pipeline ready for fresh 30k LN run; smoke trajectory looks favorable
 **Goal:** Get the 3x3 training pipeline ready for a clean LN + K_max=30 fresh run by (a) tightening checkpoint provenance so eval scripts stop parsing filenames for `step` (it's already in the bundle, scripts just don't read it) and adding `wall_time_seconds` (and `wandb_run_id` when active) to the save bundle, and (b) running a 10k-step smoke training with `normalization: ln`, flat `max_scramble_depth: 30` (no curriculum), checkpoint every 500 steps. The smoke validates: new save path emits the right metadata, eval picks it up through the new code path, trajectory HTML renders, and the LN+K_max=30 config doesn't crash or NaN. Capability is not the bar — "didn't crash, files exist, eval reads them, plots look sensible" is the bar. Out of scope: the real ~3h fresh training run (separate block once smoke is clean).
