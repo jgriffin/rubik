@@ -58,6 +58,10 @@ Surfaced: 2026-05-06
 3x3 work goes to a separate `rubik-3x3` project to prevent cross-contamination. For symmetry, rename the existing 2x2 project from `rubik` to `rubik-2x2`. Note: wandb project renames may break links in old run dirs / README references. Decide whether to rename via UI (lossless for the project; existing run URLs may auto-redirect) or freeze old runs in `rubik` and create `rubik-2x2` afresh for new work.
 Surfaced: 2026-05-06
 
+### Drive-by: rename `beam_eval_*` → `eval_*` (drop redundant prefix)
+The "beam" part of the eval tooling is implicit now — solve-time beam search is the only eval shape we use. Rename the user-facing surface: `scripts/beam_eval_run.py` → `scripts/eval_run.py`, `scripts/beam_eval_model.py` → `scripts/eval_model.py`, `scripts/beam_eval_sweep.py` → `scripts/eval_sweep.py`, `scripts/render_beam_eval_report.py` → `scripts/render_eval_report.py`, `<run-dir>/results/beam_eval_<config>.jsonl` → `<run-dir>/results/eval_<config>.jsonl`, ditto `eval_trajectory_<config>.html`. Migration path: keep the old filenames as a back-compat read-fallback in the renderer for one cycle, then drop. Touches LOG.md historical references too — leave those as-is (pre-rename context).
+Surfaced: 2026-05-08
+
 ## Paused — 2x2 M5-followup (post-3x3)
 
 Parked 2026-05-06 when we pivoted the active surface to 3x3 (see Sequencing note above). 2x2 still has its V\* oracle, the M6 capability gap is real but documented, and any of these items remains a coherent block to open if/when we return. Not abandoned — just out of the active path.
