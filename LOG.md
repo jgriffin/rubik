@@ -4,6 +4,14 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-09 — Solver demo polish 🟡 in-progress
+**Goal:** Make the M9.1 web demo more useful for inspection, not just demonstration. Scope: (1) replace the hardcoded length-14 button with a length picker (range 1–30, plus a "Surprise Me" entry); (2) add cube-state and move-sequence text fields at the top — both copy-out (to share) and paste-in (to reproduce / inspect a particular state); (3) make the per-move strip view the primary visualization — show every intermediate state stacked vertically (or in a compact grid) with the move label that produced it, so a human can validate moves frame-by-frame; demote the existing animation player to secondary. Pulls forward most of M9.3's "alt input + polish" plus a new visualization mode that wasn't in any prior plan.
+**Milestone:** drive-by polish on M9.1; effectively pulls M9.3 scope forward + adds a new strip-view UX ([roadmap entry](ROADMAP.md#milestones), [M9 plan](plans/m9-ui.md))
+**Approach:** Branch `solver-demo-polish` from main HEAD `361d29a` (the M9.1 merge commit). Detailed plan lands in `plans/solver-demo-polish.md` via plan mode before any implementation commits — open questions to resolve there: paste-notation parsing (cubing.js's `Alg`/`KPattern` API vs hand-roll over the existing `applyMove` table), strip-view layout (vertical scroll vs grid wrap; row sizing at length=14 vs length=30), length-picker UX (slider + numeric vs dropdown + "Surprise Me"), and whether the move-sequence paste path also implies an "Apply moves to current state" button distinct from solve.
+**Next:** Enter plan mode, sketch the breakdown into atomic commits matching the M9.1 cadence (subagent-per-commit), get user approval on the breakdown, then execute.
+**In progress:**
+- Block opened. Branch `solver-demo-polish` from main HEAD `361d29a`. M9.1 (`m9.1-solver-demo`, 11 commits) merged via `--no-ff` and the source branch deleted.
+
 ## 2026-05-08 23:12 — M9.1 solver demo MVP ✅ done — Web demo MVP working: scramble → trained LN net solves → animated step-through; all e2e + unit + integration tests green
 **Goal:** Web UI MVP that demonstrates the trained 3x3 ValueNet solving cubes. Random-scramble button → flat sideways-cross 2D render → Solve button → display moves → step-through animation. FastAPI backend wraps existing `beam_solve_batch`; React + TS + Vite frontend; cubing.js for notation parsing and scramble generation (and `<twisty-player>` later in M9.2). First block of M9 — pivot from M8 (we have a usable trained model: `ln_kmax30_100k`, d=14=0.98, d=30=0.76 at width=256 BF16).
 **Milestone:** M9.1 — first block under the [M9 plan](plans/m9-ui.md) ([roadmap entry](ROADMAP.md#milestones))
