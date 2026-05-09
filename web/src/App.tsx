@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import FlatCubeRenderer from "./components/FlatCubeRenderer";
-import ScrambleButton from "./components/ScrambleButton";
+import ScrambleControls from "./components/ScrambleControls";
 import SolveButton from "./components/SolveButton";
 import MoveList from "./components/MoveList";
 import StepControls from "./components/StepControls";
@@ -78,7 +78,7 @@ export default function App() {
       <h1>rubik solver</h1>
       <FlatCubeRenderer facelet={displayedState} sizePx={240} />
       <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
-        <ScrambleButton onScramble={handleScramble} disabled={!ready || isSolving} />
+        <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
         <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
       </div>
       <MoveList moves={solution} solved={solved} />

@@ -60,6 +60,36 @@ test.describe("scramble + solve flow", () => {
       .getAttribute("data-solved");
     expect(["true", "false"]).toContain(dataSolved);
   });
+
+  test("length slider drives /api/scramble request body; Surprise Me yields a valid length", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Wait for health → buttons enabled.
+    await expect(page.getByTestId("scramble-button")).toBeEnabled();
+
+    // Drag slider to 6, verify readout, then Scramble — assert request payload.
+    const slider = page.getByTestId("length-slider");
+    await slider.fill("6");
+    await expect(page.getByTestId("length-readout")).toHaveText("length: 6");
+
+    const requestPromise = page.waitForRequest("**/api/scramble");
+    await page.getByTestId("scramble-button").click();
+    const req = await requestPromise;
+    const body = req.postDataJSON();
+    expect(body.length).toBe(6);
+
+    // Surprise Me — readout text matches contract `length: <int>`,
+    // value in [1, 30]. (Don't assert change; same-value rolls are valid.)
+    await page.getByTestId("surprise-button").click();
+    const after = await page.getByTestId("length-readout").textContent();
+    const m = after?.match(/^length: (\d+)$/);
+    expect(m).not.toBeNull();
+    const n = Number(m![1]);
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(n).toBeLessThanOrEqual(30);
+  });
 });
 
 test.describe("real-backend scramble + solve", () => {
