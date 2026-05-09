@@ -4,6 +4,8 @@ import ScrambleControls from "./components/ScrambleControls";
 import SolveButton from "./components/SolveButton";
 import MoveList from "./components/MoveList";
 import StepControls from "./components/StepControls";
+import StateField from "./components/StateField";
+import MovesField from "./components/MovesField";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health } from "./api/client";
@@ -63,6 +65,21 @@ export default function App() {
     }
   }
 
+  function handleSetState(newState: string) {
+    setError(null);
+    setSolution(null);
+    setSolved(null);
+    setStepIdx(0);
+    setScrambleState(newState);
+  }
+
+  function handleSetMoves(moves: MoveStr[]) {
+    setError(null);
+    setStepIdx(0);
+    setSolution(moves);
+    setSolved(null);
+  }
+
   // Server emits valid Singmaster strings — cast is safe in M9.1.
   const displayedState = useMemo(() => {
     if (!solution || solution.length === 0) return scrambleState;
@@ -80,6 +97,18 @@ export default function App() {
       <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
         <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
         <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
+      </div>
+      <div style={{ display: "flex", gap: "1rem", margin: "1rem 0", flexWrap: "wrap" }}>
+        <StateField
+          key={scrambleState}
+          scrambleState={scrambleState}
+          onSetState={handleSetState}
+        />
+        <MovesField
+          key={solution === null ? "null" : solution.join(" ")}
+          solution={solution}
+          onSetMoves={handleSetMoves}
+        />
       </div>
       <MoveList moves={solution} solved={solved} />
       {solution !== null && solution.length > 0 && (
