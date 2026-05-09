@@ -4,6 +4,18 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-08 23:12 — M9.1 solver demo MVP 🟡 in-progress
+**Goal:** Web UI MVP that demonstrates the trained 3x3 ValueNet solving cubes. Random-scramble button → flat sideways-cross 2D render → Solve button → display moves → step-through animation. FastAPI backend wraps existing `beam_solve_batch`; React + TS + Vite frontend; cubing.js for notation parsing and scramble generation (and `<twisty-player>` later in M9.2). First block of M9 — pivot from M8 (we have a usable trained model: `ln_kmax30_100k`, d=14=0.98, d=30=0.76 at width=256 BF16).
+**Milestone:** M9.1 — first block under the [M9 plan](plans/m9-ui.md) ([roadmap entry](ROADMAP.md#milestones))
+**Approach:** Branch `m9.1-solver-demo` from main HEAD `fa25ebe`. Two parallel scaffolds (per [`plans/m9-ui.md`](plans/m9-ui.md) "M9.1 — Solver demo MVP"):
+- **Backend** at `src/rubik/server/`. FastAPI app with lifespan that loads `experiments/davi-3x3/runs/20260508T084940Z_ln_kmax30_100k/net_final.pt` and warms one solve before the server reports healthy. Endpoints: `POST /api/scramble`, `POST /api/solve`, `GET /api/health`. Optional-dep group `[server]` in `pyproject.toml` for `fastapi` + `uvicorn`. `rubik-serve` script entry-point. CORS open to `http://localhost:5173` in dev.
+- **Frontend** at `web/`. Vite + React + TS scaffold with pnpm. cubing.js npm dep. Components: `FlatCubeRenderer` (SVG sideways-cross), `ScrambleButton`, `SolveButton`, `MoveList`, `StepControls`. cubing.js applies moves client-side from facelet state.
+
+Detailed task breakdown lands in `plans/m9.1-solver-demo.md` when execution starts (post-/clear) — written via plan mode before any implementation commits.
+**Next:** Open `plans/m9.1-solver-demo.md` in plan mode. Break M9.1 into atomic commits: (a) backend skeleton + endpoint stubs + tests; (b) real beam_solve wiring with model warmup; (c) frontend scaffold (Vite + React + TS + cubing.js); (d) flat sideways-cross renderer; (e) wire `/api/scramble` + `/api/solve` from frontend; (f) step controls + smoke test end-to-end. Get user approval on the breakdown before executing.
+**In progress:**
+- Block opened. Branch `m9.1-solver-demo` from main HEAD `fa25ebe`. Milestone plan landed at `plans/m9-ui.md` (commit `fa25ebe`); ROADMAP M9 entry replaced (was placeholder, now planned with sub-phase breakdown); kociemba comparison added as backlog item.
+
 ## 2026-05-08 — LN/K_max=30 fresh training run (30k → 100k via warm-start) ✅ done — both runs trained healthily; eval tooling refactored mid-block; full re-eval under fast_kmax30 shows d=14 saturates by ~step 40k, d=30=0.76 at end-of-training
 **Goal:** Real comparison run for the LN+K_max=30 path. The pre-flight smoke (LOG entry below) ran 5k steps under this config and showed an unexpectedly favorable trajectory: macro_v_star_mae 2.29 → 0.18 by step 5k, d=14=0.30 — vs full_train (BN, K_max=20, no curriculum) at d=14≈0 at the same step count and d=14=0.78 only at step 16k. 30k steps lets us see whether the curve sustains, whether LN's claimed drift-resistance shows up at scale, and whether the d=14 capability climb past 5k matches or exceeds what BN+K_max=20 produced over a longer horizon. Out of scope: comparison against curriculum-enabled variants (separate cycle).
 **Milestone:** M8 phase 3 — first non-smoke run on the LN line ([roadmap entry](ROADMAP.md#m8))
