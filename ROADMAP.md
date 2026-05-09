@@ -20,7 +20,11 @@ mode produces them; we don't pre-create stubs).
   - 3x3 DAVI scaffold + T0 capacity calibration (M8 phases 1+2, "does 3x3 train?") — ✅ done (LOG 2026-05-06)
   - 3x3 DAVI champion cycles (M8 phase 3+) — *active; two attempts completed*: (a) full_train K=20 from random init reached d=14=0.78 at step 16k before early-stop misfired; (b) warm_continue K=20 from step 16k regressed to d=14=0.24 over 100k steps (slow-drift collapse, see LOG 2026-05-07). Next experiment: warm-continue with K_max raised to 25 or 30 to test "escape the local max" hypothesis.
   - 3x3 beam search + perf verification (10M transitions/sec target) — *upcoming*
-- **M9 (stretch)** — 3D / web frontend + solution-trace analysis — *not yet planned*
+- **M9** — Web UI + solver demo — *next, planned* ([plan](plans/m9-ui.md))
+  - M9.1 Solver demo MVP (FastAPI + React/Vite + flat 2D render; scramble → solve → step-through) — *active*
+  - M9.2 3D rendering via cubing.js `<twisty-player>`
+  - M9.3 Alt input + polish (paste notation, manual color entry, share URL, mobile)
+- **M10 (stretch)** — CV input: photos of a physical cube → state → solver
 
 > **Sequencing note (revised 2026-05-06).** Original plan was 2x2 end-to-end (env → train → search → perf-2) before 3x3. We hit diminishing returns on the 2x2 training side after M5 cycle-4: M6 has a documented deep-depth gap, M5-followup has three plausible levers, but each costs hours per cycle and the marginal scientific yield is shrinking. Pivoting to 3x3 now — broader information per hour, exercises the `CubeSpec` bet at the training/search level (it already paid off at the env level in M8 bringup), and the 2x2 followup work stays revisitable. The 2x2 V\* oracle remains a unique asset for ground-truth eval, just not the active surface.
 
@@ -57,6 +61,10 @@ Surfaced: 2026-05-06
 ### Drive-by: rename 2x2 wandb project from `rubik` to `rubik-2x2`
 3x3 work goes to a separate `rubik-3x3` project to prevent cross-contamination. For symmetry, rename the existing 2x2 project from `rubik` to `rubik-2x2`. Note: wandb project renames may break links in old run dirs / README references. Decide whether to rename via UI (lossless for the project; existing run URLs may auto-redirect) or freeze old runs in `rubik` and create `rubik-2x2` afresh for new work.
 Surfaced: 2026-05-06
+
+### Kociemba comparison: how optimal are our solutions?
+Use a kociemba-style two-phase solver as a near-optimal reference; compare its move counts to our value-network beam solutions on a fixed scramble corpus. Pure Python, no UI dependency — produces a comparison report (distribution of move-count delta, where the gap concentrates by V\*, examples of pathological cases). Kociemba typically produces ≤ ~22 moves (not strictly optimal — god's number is 20). The interesting question: are we tight on shallow scrambles and wide on deep, or roughly even? Useful checkpoint-quality metric beyond `solve_rate@d`. Could land as `experiments/kociemba-compare/` following the cycle-reporting pattern.
+Surfaced: 2026-05-08
 
 ### Drive-by: rename `beam_eval_*` → `eval_*` (drop redundant prefix)
 The "beam" part of the eval tooling is implicit now — solve-time beam search is the only eval shape we use. Rename the user-facing surface: `scripts/beam_eval_run.py` → `scripts/eval_run.py`, `scripts/beam_eval_model.py` → `scripts/eval_model.py`, `scripts/beam_eval_sweep.py` → `scripts/eval_sweep.py`, `scripts/render_beam_eval_report.py` → `scripts/render_eval_report.py`, `<run-dir>/results/beam_eval_<config>.jsonl` → `<run-dir>/results/eval_<config>.jsonl`, ditto `eval_trajectory_<config>.html`. Migration path: keep the old filenames as a back-compat read-fallback in the renderer for one cycle, then drop. Touches LOG.md historical references too — leave those as-is (pre-rename context).
