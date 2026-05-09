@@ -6,6 +6,7 @@ import MoveList from "./components/MoveList";
 import StepControls from "./components/StepControls";
 import StateField from "./components/StateField";
 import MovesField from "./components/MovesField";
+import MoveStripView from "./components/MoveStripView";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health } from "./api/client";
@@ -90,14 +91,10 @@ export default function App() {
 
   return (
     <main
-      style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 720 }}
+      style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 1100 }}
     >
       <h1>rubik solver</h1>
-      <FlatCubeRenderer facelet={displayedState} sizePx={240} />
-      <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
-        <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
-        <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
-      </div>
+      {/* TOP: state + moves text fields. */}
       <div style={{ display: "flex", gap: "1rem", margin: "1rem 0", flexWrap: "wrap" }}>
         <StateField
           key={scrambleState}
@@ -110,15 +107,42 @@ export default function App() {
           onSetMoves={handleSetMoves}
         />
       </div>
-      <MoveList moves={solution} solved={solved} />
-      {solution !== null && solution.length > 0 && (
-        <StepControls
-          stepIdx={stepIdx}
-          totalSteps={solution.length}
-          onStepChange={setStepIdx}
-          disabled={isSolving}
-        />
-      )}
+      {/* Action zone: scramble + solve. */}
+      <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
+        <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
+        <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
+      </div>
+      {/* Primary visualization: per-move strip. */}
+      <MoveStripView
+        scrambleState={scrambleState}
+        solution={solution}
+        stepIdx={stepIdx}
+        onJumpTo={setStepIdx}
+      />
+      {/* Secondary animation player — demoted visual weight. */}
+      <section>
+        <h2
+          style={{
+            fontSize: "0.9rem",
+            opacity: 0.7,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            marginTop: "2rem",
+          }}
+        >
+          animation player
+        </h2>
+        <FlatCubeRenderer facelet={displayedState} sizePx={160} />
+        <MoveList moves={solution} solved={solved} />
+        {solution !== null && solution.length > 0 && (
+          <StepControls
+            stepIdx={stepIdx}
+            totalSteps={solution.length}
+            onStepChange={setStepIdx}
+            disabled={isSolving}
+          />
+        )}
+      </section>
       {error && (
         <pre data-testid="api-error" style={{ color: "crimson" }}>
           error: {error}

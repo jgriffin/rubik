@@ -1,6 +1,10 @@
 type Props = {
   facelet: string;
   sizePx?: number;
+  // Default `"flat-cube"`. Pass `null` to omit the testid entirely
+  // (used by MoveStripView so per-cell renderers don't collide with
+  // the contract-bearing big secondary cube).
+  testId?: string | null;
 };
 
 const COLOR_FOR_LETTER: Record<string, string> = {
@@ -33,7 +37,11 @@ const FACE_GRID: Record<string, { col: number; row: number }> = {
   D: { col: 1, row: 2 },
 };
 
-export default function FlatCubeRenderer({ facelet, sizePx = 240 }: Props) {
+export default function FlatCubeRenderer({
+  facelet,
+  sizePx = 240,
+  testId,
+}: Props) {
   if (facelet.length !== 54) {
     throw new Error(
       `FlatCubeRenderer: facelet must be 54 chars, got ${facelet.length}`
@@ -71,13 +79,19 @@ export default function FlatCubeRenderer({ facelet, sizePx = 240 }: Props) {
     }
   }
 
+  // testId === null → omit the data-testid entirely.
+  // testId === undefined (default) → "flat-cube" for back-compat.
+  // Any other string → use it.
+  const testIdProp =
+    testId === null ? {} : { "data-testid": testId ?? "flat-cube" };
+
   return (
     <svg
       width={widthPx}
       height={heightPx}
       viewBox={`0 0 ${widthPx} ${heightPx}`}
       style={{ display: "block" }}
-      data-testid="flat-cube"
+      {...testIdProp}
     >
       {stickers.map((s) => (
         <rect
