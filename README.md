@@ -11,39 +11,40 @@ Ever since I was a young computer programmer, I've often thought about solving a
 Over the years I've tried it many times. My earlier attempts were pretty naive — I played with a lot of different encodings, move representations, search techniques — but I never really made any progress on the computational side. Modern desktop GPUs (in my case, an M4 Mac Studio) seem to put things within reach now, and having Claude Code with the custom agentic workflows I've built around it makes solving the cube accessible in a way it hadn't been in the past. There's also a side mission here: play with DNN and other techniques and see what happens on the GPU with a literal toy problem.
 
 
-## General Idea
+## How it works
 
-The general shape of the approach is straightforward: Start from a solved cube and scramble it, i.e. make random moves, a bunch of times — the more times you scramble it, the further the state is likely to be from solved. Train a neural network on batches of those scrambled states and the move count to get there in order to teach it to estimate the **depth**, i.e. number of moves required from the state to solved. This is conventionally called the **Value** network, where the value is correlated with the expected **depth**. With a trained value network, you then flip the process around: take a fresh scrambled cube and walk it back toward solved, at each step looking at all states resulting from one of 12 rotations, using the value network to predict the depth from that adjacent state, keeping the ones with the smallest expected depth, and iterating. The walk is implemented as a **batched beam search** on the GPU — exploring many candidate paths in parallel and keeping the most promising ones each step until one lands on the solved state.
+### Random walks from solved estimating depth
 
-That's the high-level picture. The tricky bit is that number of scrambles taken to get to a particular state, is systematically higher than the true ideal depth. There are a lot of move sequences that loop back to the same states reachable from solved in fewer steps, as you explore higher depths, the drift grows. In practice what that means is the network's MAE consistently drifts higher (toward the mean error of all states), even though in a different sense the network is actually improving, i.e. becoming more useful.
+The general shape of the approach is straightforward: Start from a solved cube and scramble it, i.e. make random moves, a bunch of times — the more times you scramble it, the further the state is likely to be from solved. Train a neural network on batches of those scrambled states and the move count to get there in order to teach it to estimate the **depth**, i.e. number of moves required from the state to solved. This is conventionally called the **Value** network, where the value is correlated with the expected **depth**. 
 
-The key insight/methodology/trick I got from previous **DeepCubeA** efforts (references below). DAVI (Deep Approximate Value Iteration) trains a neural network to estimate cost-to-go by repeatedly generating random scrambles, computing Bellman targets from a frozen copy of the network, and regressing the live network toward those targets — with the frozen copy periodically synced to the live one. The trick is that the only ground-truth signal is V(solved) = 0, hard-coded as an override; everything else is bootstrapped by iteratively refining the network's own predictions. I know what all that means now, I'm not sure I would have come up with it on my own.
+### Informed searches back to solved
+
+With a trained value network, you then flip the process around. take a fresh scrambled cube and walk it back toward solved, at each step looking at all states resulting from one of 12 rotations, using the value network to predict the depth from that adjacent state, keeping the ones with the smallest expected depth, and iterating. The walk is implemented as a **batched beam search** on the GPU — exploring many candidate paths in parallel and keeping the most promising ones each step until one lands on the solved state.
+
+### DAVI - Bellman + groundstate, with wavefront
+
+The tricky bit is that number of scrambles taken to get to a particular state, is systematically higher than the true ideal depth. There are a lot of move sequences that loop back to the same states reachable from solved in fewer steps, as you explore higher depths, the drift grows. In practice what that means is the network's MAE consistently drifts higher (toward the mean error of all states), even though in a different sense the network is actually improving, i.e. becoming more useful.
+
+The key insight/methodology/trick I got from previous **DeepCubeA** efforts (references below). DAVI (Deep Approximate Value Iteration) trains a neural network to estimate cost-to-go by repeatedly generating random scrambles, computing Bellman targets from a frozen copy of the network, and regressing the live network toward those targets — with the frozen copy periodically synced to the live one. The trick is that the only ground-truth signal is V(solved) = 0, hard-coded as an override; everything else is bootstrapped by iteratively refining the network's own predictions. I know what all that means now, I'm not sure I would have come up with it on my own. The hyperparameters and architectural choices, on the other hand, are mine — picked by running small experiments on this hardware rather than borrowed from prior work.
+
+### Start smaller first
 
 I started on the **2x2** cube because it's small enough to fully enumerate (3.6M states; a BFS oracle gives ground-truth distance for every state) but rich enough that all the same algorithmic plumbing has to work. Once the loop ran end-to-end on 2x2, the same code path took on 3x3 by swapping the spec.
 
-## How it works
+## A tour of the code
 
-The shape of the algorithm follows a **value-iteration** pattern that's appeared in cube-solving research before, but the specific design — architecture, training schedule, search settings — is all built up here from running experiments on this hardware. No hyperparameters borrowed from prior work. Every load-bearing knob has been picked by running small tier-0 experiments on this specific machine and this specific problem; the project's point is to learn what the loop *actually* does on an M4 Max GPU, not to recreate someone else's published numbers.
+If you want to read the code, here's where to start. Everything is parameterized on a single `CubeSpec` — add a new puzzle size or move set by adding a spec, not by forking.
 
-### State, moves, and the parameterized cube
-
-A single `CubeSpec` describes everything size-specific in one place: sticker count, faces, color count, and precomputed move tables that say "applying move R takes sticker 17 to position 25." The whole pipeline — environment, training, search, visualizers — consumes a `CubeSpec`. Adding a new puzzle size or move set is a config change, not a fork.
-
-State is a flat sticker-position permutation; the network sees a one-hot color-per-position. The current move set is **QTM** — six faces × two directions = 12 quarter-turn moves, no double-turns.
-
-There are scripts and tests for generating this stuff and a favorite pattern of mine is generating human-verifiable outputs in parallel, for this project often html: [2x2 rotations](visuals/oracle_rotations_2x2.html) [3x3 rotations](visuals/oracle_rotations_3x3.html)
-
-### The value network
-
-A residual MLP with layer norm. Training generates cubes by applying random scrambles to a solved cube; for each cube, the target value is computed one move ahead — try every move, and the target is `1 + V_target(s')` for the move that lands on the state V_target thinks is closest to solved. `V_target` is a slowly-updated copy of the network being trained, so the optimizer is chasing its own slightly-stale opinion. From random initialization this bootstraps a useful value function, no labels needed.
-
-The whole training loop runs on the M4 Max GPU via PyTorch's MPS backend, with BF16 inference for search.
-
-### Search
-
-At inference time, scrambles are solved with **batched beam search** on the GPU. Greedy decoding doesn't work well — the network's ordering of "good" moves is noisier than its overall distance estimate, so the argmax gets fooled. Beam search at width 256 is the production default; it consumes the network's output quality where it actually lives — across the top-K, not at a single argmax.
-
-The eval pipeline and the production solver share the same primitive (`beam_solve_batch`), so improvements to either one are improvements to both.
+- **`src/rubik/cube/spec.py` — `CubeSpec`.** The single source of truth: sticker count, face count, color count, precomputed move tables that say "applying move R takes sticker 17 to position 25." Every layer downstream consumes one of these.
+- **`src/rubik/cube/env.py` — the fast tensor cube.** `apply_moves`, `apply_all_moves`, `is_solved`, `random_scrambles`, `valid_next_moves_mask`. Pure tensor ops on MPS, batched, no Python loops in the hot path.
+- **`src/rubik/oracle/cubie.py` — the slow witness.** Hand-rolled corners-as-position-plus-orientation cube. Slow, obviously correct, used in equivalence tests against the env.
+- **`src/rubik/oracle/v_star_2x2.py`, `v_star_bounded_3x3.py` — V\* oracles.** Full BFS for 2x2 (3.6M states, every distance known), bounded BFS up to depth 6 for 3x3. Ground-truth labels for evaluation.
+- **`src/rubik/model/network.py` — the value network.** Residual MLP parameterized on `CubeSpec` (input dim derives from `n_stickers × n_colors`). `body_widths`, `n_residual_blocks`, and `normalization` are required kwargs — no opinionated default. fp32 during training, BF16 at inference.
+- **`src/rubik/training/davi.py` — the DAVI step.** `compute_targets` (Bellman 1-step), `davi_step` (a training step), `sync_target` (refresh the frozen target net). The actual training run loops live one level out, in `experiments/davi-3x3/run.py` and `experiments/davi-2x2/run.py`.
+- **`src/rubik/search/beam.py` — `beam_solve_batch`.** The single primitive shared by the eval pipeline and the production solver. Width 256 is the default; greedy (width-1) doesn't work well — the network's *ordering* of moves is noisier than its overall distance estimate, so the argmax gets fooled. Beam search consumes the ordering where it actually lives, across the top-K.
+- **`src/rubik/notation/{moves,state}.py`.** The 12 QTM moves (`R R' L L' U U' D D' F F' B B'`), sticker-indexing conventions.
+- **`src/rubik/viz/`.** `ascii.py` for tests/REPL, `svg.py` + `colors.py` for the static-HTML preview pattern (e.g. [2x2 rotations](visuals/oracle_rotations_2x2.html), [3x3 rotations](visuals/oracle_rotations_3x3.html)).
+- **`experiments/davi-2x2/`, `experiments/davi-3x3/`.** Each has reproducible run scripts, a `runs/` directory of training output, an `analysis/` layer (analyze → capture → render), and a top-level `results.md` + `intuition.md` capturing observations and hypotheses across cycles.
 
 ## Where we are
 
@@ -125,5 +126,5 @@ uv run python scripts/beam_eval_model.py path/to/net_final.pt --config fast_kmax
 
 ## License
 
-Wrote this for myself — do whatever you want with it.
+Wrote this for myself — but do whatever you want with it.
 
