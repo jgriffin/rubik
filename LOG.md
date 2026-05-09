@@ -11,6 +11,7 @@ ahead, `SPEC.md` for the full project spec. Process docs at
 **Next:** Enter plan mode, sketch the breakdown into atomic commits matching the M9.1 cadence (subagent-per-commit), get user approval on the breakdown, then execute.
 **In progress:**
 - Block opened. Branch `solver-demo-polish` from main HEAD `361d29a`. M9.1 (`m9.1-solver-demo`, 11 commits) merged via `--no-ff` and the source branch deleted.
+- **Plan landed at `plans/solver-demo-polish.md`** (commit `803e43e`). Six atomic commits planned: (1) plan, (2) `parseMoves.ts` parser+formatter, (3) `ScrambleControls.tsx` length picker, (4) `StateField`/`MovesField` paste/copy, (5) `MoveStripView` + animation-player demote, (6) close. Locked decisions: hand-roll parser over MoveStr (QTM-only), 6-col grid strip layout, slider+Surprise length picker, paste-moves replaces solution only.
 
 ## 2026-05-08 23:12 — M9.1 solver demo MVP ✅ done — Web demo MVP working: scramble → trained LN net solves → animated step-through; all e2e + unit + integration tests green
 **Goal:** Web UI MVP that demonstrates the trained 3x3 ValueNet solving cubes. Random-scramble button → flat sideways-cross 2D render → Solve button → display moves → step-through animation. FastAPI backend wraps existing `beam_solve_batch`; React + TS + Vite frontend; cubing.js for notation parsing and scramble generation (and `<twisty-player>` later in M9.2). First block of M9 — pivot from M8 (we have a usable trained model: `ln_kmax30_100k`, d=14=0.98, d=30=0.76 at width=256 BF16).
