@@ -1,0 +1,107 @@
+import { useEffect, useMemo, useState } from "react";
+import FlatCubeRenderer from "./components/FlatCubeRenderer";
+import ScrambleButton from "./components/ScrambleButton";
+import SolveButton from "./components/SolveButton";
+import MoveList from "./components/MoveList";
+import StepControls from "./components/StepControls";
+import { applyMoves } from "./state/applyMove";
+import type { MoveStr } from "./state/faceletMoves";
+import { apiHealth, apiScramble, apiSolve, type Health } from "./api/client";
+
+const SOLVED_3X3 =
+  "U".repeat(9) +
+  "R".repeat(9) +
+  "F".repeat(9) +
+  "D".repeat(9) +
+  "L".repeat(9) +
+  "B".repeat(9);
+
+export default function App() {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+
+  // The post-scramble entry; doesn't change as the user steps through
+  // the solution. Replaced on every Scramble click.
+  const [scrambleState, setScrambleState] = useState<string>(SOLVED_3X3);
+  const [solution, setSolution] = useState<string[] | null>(null);
+  const [solved, setSolved] = useState<boolean | null>(null);
+  const [isSolving, setIsSolving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    apiHealth()
+      .then(setHealth)
+      .catch((e) => setHealthError(String(e)));
+  }, []);
+
+  async function handleScramble(length: number) {
+    setError(null);
+    setSolution(null);
+    setSolved(null);
+    setStepIdx(0);
+    try {
+      const r = await apiScramble({ length });
+      setScrambleState(r.state);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleSolve() {
+    setError(null);
+    setIsSolving(true);
+    setStepIdx(0);
+    try {
+      const r = await apiSolve({ state: scrambleState });
+      setSolution(r.moves);
+      setSolved(r.solved);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIsSolving(false);
+    }
+  }
+
+  // Server emits valid Singmaster strings — cast is safe in M9.1.
+  const displayedState = useMemo(() => {
+    if (!solution || solution.length === 0) return scrambleState;
+    return applyMoves(scrambleState, solution.slice(0, stepIdx) as MoveStr[]);
+  }, [scrambleState, solution, stepIdx]);
+
+  const ready = health !== null && health.warmup_done;
+
+  return (
+    <main
+      style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 720 }}
+    >
+      <h1>rubik solver</h1>
+      <FlatCubeRenderer facelet={displayedState} sizePx={240} />
+      <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
+        <ScrambleButton onScramble={handleScramble} disabled={!ready || isSolving} />
+        <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
+      </div>
+      <MoveList moves={solution} solved={solved} />
+      {solution !== null && solution.length > 0 && (
+        <StepControls
+          stepIdx={stepIdx}
+          totalSteps={solution.length}
+          onStepChange={setStepIdx}
+          disabled={isSolving}
+        />
+      )}
+      {error && (
+        <pre data-testid="api-error" style={{ color: "crimson" }}>
+          error: {error}
+        </pre>
+      )}
+      <hr style={{ marginTop: "2rem" }} />
+      {healthError && <pre data-testid="health-error">error: {healthError}</pre>}
+      {health ? (
+        <pre data-testid="health-json">{JSON.stringify(health, null, 2)}</pre>
+      ) : (
+        <p>loading...</p>
+      )}
+    </main>
+  );
+}
