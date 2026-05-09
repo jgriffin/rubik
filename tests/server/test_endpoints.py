@@ -1,13 +1,23 @@
-"""Tests for the FastAPI solver server skeleton.
+"""Tests for the FastAPI solver server.
 
-Commit 2 ships pure stubs — TestClient runs without MPS or a real
-checkpoint. Schema shape, validation rejection, and CORS preflight only.
+Set ``RUBIK_USE_STUB_NET=1`` at module level (before importing
+``rubik.server.app``) so the lifespan installs a zero-returning stub
+Module and skips MPS warmup. This keeps the suite fast and CI-runnable
+without a checkpoint or MPS device. The stub net's solve doesn't
+actually solve — these tests only assert wire shape.
 """
 
-import pytest
-from fastapi.testclient import TestClient
+import os
 
-from rubik.server.app import app
+# Module-scoped because pytest's built-in monkeypatch is function-scoped
+# and the env var must be set BEFORE FastAPI's lifespan runs (which
+# happens at TestClient context entry, before any test function).
+os.environ["RUBIK_USE_STUB_NET"] = "1"
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from rubik.server.app import app  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -18,7 +28,7 @@ def client():
         yield c
 
 
-def test_health_returns_initial_stub_state(client):
+def test_health_returns_loaded_stub_state(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
@@ -32,20 +42,29 @@ def test_health_returns_initial_stub_state(client):
     assert isinstance(body["model_path"], str)
     assert isinstance(body["warmup_done"], bool)
     assert isinstance(body["cube_size"], int)
-    assert body["model_loaded"] is False
-    assert body["warmup_done"] is False
+    # Stub-net mode: model is loaded, warmup is short-circuited.
+    assert body["model_loaded"] is True
+    assert body["warmup_done"] is True
+    assert body["model_path"] == "<stub-net>"
     assert body["cube_size"] == 3
 
 
-def test_scramble_returns_shape_correct_stub(client):
-    r = client.post("/api/scramble", json={"length": 5})
+def test_scramble_returns_real_random_state(client):
+    r = client.post("/api/scramble", json={"length": 5, "seed": 0})
     assert r.status_code == 200
     body = r.json()
     assert set(body.keys()) == {"moves", "state"}
     assert isinstance(body["moves"], list)
     assert all(isinstance(m, str) for m in body["moves"])
+    assert len(body["moves"]) == 5
     assert isinstance(body["state"], str)
     assert len(body["state"]) == 54
+    # Length-5 scramble is not the solved state.
+    solved = "U" * 9 + "R" * 9 + "F" * 9 + "D" * 9 + "L" * 9 + "B" * 9
+    assert body["state"] != solved
+    # Each face letter still appears 9 times (sticker count is conserved).
+    for letter in "URFDLB":
+        assert body["state"].count(letter) == 9
 
 
 def test_scramble_rejects_negative_length(client):
@@ -53,12 +72,15 @@ def test_scramble_rejects_negative_length(client):
     assert r.status_code == 422
 
 
-def test_solve_returns_shape_correct_stub(client):
+def test_solve_returns_shape_correct_under_stub(client):
     facelet = "U" * 9 + "R" * 9 + "F" * 9 + "D" * 9 + "L" * 9 + "B" * 9
     r = client.post("/api/solve", json={"state": facelet})
     assert r.status_code == 200
     body = r.json()
     assert set(body.keys()) == {"solved", "moves", "stats"}
+    # Stub net returns zeros for all states, so solve outcome is
+    # whatever the beam happens to land on; only the wire shape is
+    # asserted here.
     assert isinstance(body["solved"], bool)
     assert isinstance(body["moves"], list)
     assert all(isinstance(m, str) for m in body["moves"])

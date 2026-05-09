@@ -13,6 +13,7 @@ dependencies = [
 server = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
@@ -43,6 +44,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: opt-in slow tests (load real model, exercise MPS)",
+]
+addopts = "-m 'not slow'"
 
 [tool.basedpyright]
 pythonVersion = "3.12"
