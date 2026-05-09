@@ -1,31 +1,44 @@
 """Tests for the FastAPI solver server.
 
-Set ``RUBIK_USE_STUB_NET=1`` at module level (before importing
-``rubik.server.app``) so the lifespan installs a zero-returning stub
-Module and skips MPS warmup. This keeps the suite fast and CI-runnable
-without a checkpoint or MPS device. The stub net's solve doesn't
-actually solve — these tests only assert wire shape.
+Set ``RUBIK_USE_STUB_NET=1`` inside the ``client`` fixture (before the
+TestClient context manager fires the FastAPI lifespan) so the lifespan
+installs a zero-returning stub Module and skips MPS warmup. This keeps
+the suite fast and CI-runnable without a checkpoint or MPS device. The
+stub net's solve doesn't actually solve — these tests only assert wire
+shape.
+
+The env-var write lives in the fixture (not at module scope) so pytest
+collection of this module does not contaminate other test modules that
+expect ``RUBIK_USE_STUB_NET`` unset (e.g. the slow integration test in
+``tests/server/test_inference_integration.py``).
 """
 
 import os
 
-# Module-scoped because pytest's built-in monkeypatch is function-scoped
-# and the env var must be set BEFORE FastAPI's lifespan runs (which
-# happens at TestClient context entry, before any test function).
-os.environ["RUBIK_USE_STUB_NET"] = "1"
+import pytest
+from fastapi.testclient import TestClient
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from rubik.server.app import app  # noqa: E402
+from rubik.server.app import app
 
 
 @pytest.fixture(scope="module")
 def client():
-    # Using as a context manager triggers FastAPI lifespan startup/shutdown,
-    # which populates app.state.app_state.
-    with TestClient(app) as c:
-        yield c
+    # Set BEFORE entering the TestClient context manager — that's what
+    # triggers FastAPI lifespan startup, which reads the env var.
+    # Module-scoped because pytest's built-in monkeypatch is
+    # function-scoped. Restore prior value (or unset) on teardown so
+    # other test modules collected in the same session aren't
+    # contaminated.
+    prev = os.environ.get("RUBIK_USE_STUB_NET")
+    os.environ["RUBIK_USE_STUB_NET"] = "1"
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        if prev is None:
+            os.environ.pop("RUBIK_USE_STUB_NET", None)
+        else:
+            os.environ["RUBIK_USE_STUB_NET"] = prev
 
 
 def test_health_returns_loaded_stub_state(client):
