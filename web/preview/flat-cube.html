@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Flat cube renderer preview</title>
+  <!--
+    Static preview for FlatCubeRenderer.tsx
+    -------------------------------------------
+    How to view: open web/preview/flat-cube.html
+
+    What this is: a no-build, no-React reproduction of the React renderer's SVG
+    output for human aesthetic eyeballing. The TSX component
+    (web/src/components/FlatCubeRenderer.tsx) MUST visually match what this
+    file shows — duplication of the constants and rendering loop is on
+    purpose so we can sign off on the design without depending on the React
+    build pipeline.
+
+    Three facelet strings are embedded as JS constants below, generated once
+    via uv run python -c "..." (see plans/m9.1-solver-demo.md commit 5):
+      - SOLVED:        a solved 3x3 (every face is its own canonical color).
+      - LEN7  (seed=42):   length-7 random scramble from random_scrambles.
+      - LEN20 (seed=1337): length-20 random scramble from random_scrambles.
+
+    Each cube is rendered at three sizes (96px, 192px, 384px), in light and
+    dark themes side-by-side. The size value is the SVG height; width is
+    sizePx * 4/3 because the unfolded cross is 4 face-slots wide × 3 tall.
+
+    Color scheme is the standard Rubik's palette:
+      U = white   R = red    F = green
+      D = yellow  L = orange B = blue
+  -->
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0; min-height: 100vh; }
+    .col { padding: 1.5rem; }
+    .light { background: #fff; color: #111; }
+    .dark  { background: #111; color: #eee; }
+    h2 { margin-top: 0; font-size: 0.9rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; }
+    .cubes { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; margin-bottom: 2rem; }
+    .cube-label { font-size: 0.75rem; opacity: 0.6; margin-top: 0.4rem; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="row">
+  <div class="col light">
+    <h2>Light theme</h2>
+    <div id="light-cubes"></div>
+  </div>
+  <div class="col dark">
+    <h2>Dark theme</h2>
+    <div id="dark-cubes"></div>
+  </div>
+</div>
+<script>
+const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+const LEN7   = 'BRUFUFLRUFDBRRRFURDDLFFBFURDLUDDBFDBDUBLLLDLLLFRUBBUBR';
+const LEN20  = 'BBLBURLDFUUFFRURFBBLRUFLFRFDDDBDDDDULLURLFBULURDLBFRBR';
+
+const COLOR_FOR_LETTER = { U:'#ffffff', R:'#cc1f25', F:'#0eaf3f', D:'#ffd200', L:'#ff7423', B:'#1453d6' };
+const FACE_OFFSETS = { U:0, R:9, F:18, D:27, L:36, B:45 };
+const FACE_GRID = {
+  U: { col: 1, row: 0 },
+  L: { col: 0, row: 1 },
+  F: { col: 1, row: 1 },
+  R: { col: 2, row: 1 },
+  B: { col: 3, row: 1 },
+  D: { col: 1, row: 2 },
+};
+
+function svgForFacelet(facelet, sizePx) {
+  const stickerPx = sizePx / 9;
+  const widthPx = stickerPx * 12;
+  const heightPx = stickerPx * 9;
+  const gap = stickerPx * 0.06;
+  const rects = [];
+  for (const face of Object.keys(FACE_OFFSETS)) {
+    const { col, row } = FACE_GRID[face];
+    const offset = FACE_OFFSETS[face];
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const idx = offset + r * 3 + c;
+        const letter = facelet[idx];
+        const x = (col * 3 + c) * stickerPx;
+        const y = (row * 3 + r) * stickerPx;
+        const fill = COLOR_FOR_LETTER[letter] || '#444';
+        const sw = Math.max(1, stickerPx * 0.04);
+        rects.push(
+          `<rect x="${x + gap/2}" y="${y + gap/2}" width="${stickerPx - gap}" height="${stickerPx - gap}" fill="${fill}" stroke="#111" stroke-width="${sw}" />`
+        );
+      }
+    }
+  }
+  return `<svg width="${widthPx}" height="${heightPx}" viewBox="0 0 ${widthPx} ${heightPx}" style="display:block">${rects.join('')}</svg>`;
+}
+
+function renderCubes(containerId) {
+  const variants = [
+    { label: 'solved', facelet: SOLVED },
+    { label: 'len=7',  facelet: LEN7 },
+    { label: 'len=20', facelet: LEN20 },
+  ];
+  const sizes = [96, 192, 384];
+  const wrap = document.getElementById(containerId);
+  for (const s of sizes) {
+    const row = document.createElement('div');
+    row.className = 'cubes';
+    for (const v of variants) {
+      const cell = document.createElement('div');
+      cell.innerHTML = svgForFacelet(v.facelet, s) + `<div class="cube-label">${v.label} &middot; ${s}px</div>`;
+      row.appendChild(cell);
+    }
+    wrap.appendChild(row);
+  }
+}
+
+renderCubes('light-cubes');
+renderCubes('dark-cubes');
+</script>
+</body>
+</html>

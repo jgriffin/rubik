@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import FlatCubeRenderer from "./components/FlatCubeRenderer";
 
 type Health = {
   model_loaded: boolean;
@@ -6,6 +7,14 @@ type Health = {
   warmup_done: boolean;
   cube_size: number;
 };
+
+const SOLVED_3X3 =
+  "U".repeat(9) +
+  "R".repeat(9) +
+  "F".repeat(9) +
+  "D".repeat(9) +
+  "L".repeat(9) +
+  "B".repeat(9);
 
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -21,6 +30,7 @@ export default function App() {
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
       <h1>rubik solver</h1>
+      <FlatCubeRenderer facelet={SOLVED_3X3} sizePx={240} />
       {error && <pre data-testid="health-error">error: {error}</pre>}
       {health ? (
         <pre data-testid="health-json">{JSON.stringify(health, null, 2)}</pre>
