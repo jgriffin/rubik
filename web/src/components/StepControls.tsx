@@ -17,14 +17,12 @@ export default function StepControls({
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (playing) {
-      timerRef.current = window.setInterval(() => {
-        onStepChange(Math.min(stepIdx + 1, totalSteps));
-      }, 500); // 2 moves/sec
-    } else if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    if (!playing || stepIdx >= totalSteps) return;
+    timerRef.current = window.setInterval(() => {
+      const next = Math.min(stepIdx + 1, totalSteps);
+      onStepChange(next);
+      if (next >= totalSteps) setPlaying(false);
+    }, 500); // 2 moves/sec
     return () => {
       if (timerRef.current !== null) {
         clearInterval(timerRef.current);
@@ -32,11 +30,6 @@ export default function StepControls({
       }
     };
   }, [playing, stepIdx, totalSteps, onStepChange]);
-
-  // Auto-stop at the end.
-  useEffect(() => {
-    if (playing && stepIdx >= totalSteps) setPlaying(false);
-  }, [playing, stepIdx, totalSteps]);
 
   if (totalSteps === 0) return null;
 
