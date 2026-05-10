@@ -1,8 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import FlatCubeRenderer from "./components/FlatCubeRenderer";
+import { useEffect, useState } from "react";
 import SolveButton from "./components/SolveButton";
-import StepControls from "./components/StepControls";
-import MoveStripView from "./components/MoveStripView";
 import Wordmark from "./components/Wordmark";
 import CubeSizeSwitch from "./components/CubeSizeSwitch";
 import SolvedFooter from "./components/SolvedFooter";
@@ -10,7 +7,9 @@ import SectionHeader from "./components/SectionHeader";
 import StateGrid from "./components/StateGrid";
 import LengthPack from "./components/LengthPack";
 import MovesGrid from "./components/MovesGrid";
-import { applyMoves } from "./state/applyMove";
+import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionGrid";
+import RenderModeSwitch from "./components/RenderModeSwitch";
+import ColumnsSwitch from "./components/ColumnsSwitch";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
 
@@ -21,9 +20,6 @@ const SOLVED_3X3 =
   "D".repeat(9) +
   "L".repeat(9) +
   "B".repeat(9);
-
-const STRIP_SIZES = { small: 80, medium: 120, large: 160 } as const;
-type StripSize = keyof typeof STRIP_SIZES;
 
 function formatMeta(modelPath: string | null, timeMs: number | null): string | null {
   if (!modelPath || timeMs == null) return null;
@@ -44,9 +40,10 @@ export default function App() {
   const [solveStats, setSolveStats] = useState<SolveStats | null>(null);
   const [isSolving, setIsSolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stepIdx, setStepIdx] = useState(0);
-  const [stripSize, setStripSize] = useState<StripSize>("medium");
+  const [activeIdx, setActiveIdx] = useState(0);
   const [cubeSize, setCubeSize] = useState<2 | 3>(3);
+  const [renderMode, setRenderMode] = useState<RenderMode>("net");
+  const [cols, setCols] = useState<Cols>(3);
 
   useEffect(() => {
     apiHealth()
@@ -58,7 +55,7 @@ export default function App() {
     setSolution(null);
     setSolved(null);
     setSolveStats(null);
-    setStepIdx(0);
+    setActiveIdx(0);
   }
 
   async function handleScramble() {
@@ -76,7 +73,7 @@ export default function App() {
   async function handleSolve() {
     setError(null);
     setIsSolving(true);
-    setStepIdx(0);
+    setActiveIdx(0);
     try {
       const r = await apiSolve({ state: scrambleState });
       setSolution(r.moves);
@@ -102,11 +99,6 @@ export default function App() {
     setScrambleState(newState);
     setScrambleMoves([]);
   }
-
-  const displayedState = useMemo(() => {
-    if (!solution || solution.length === 0) return scrambleState;
-    return applyMoves(scrambleState, solution.slice(0, stepIdx) as MoveStr[]);
-  }, [scrambleState, solution, stepIdx]);
 
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
@@ -160,86 +152,33 @@ export default function App() {
       />
       <MovesGrid moves={scrambleMoves} />
 
-      {/* Transitional: solve trigger + strip + animation player.
-          Section iii (Phase 4) absorbs Solve into its header and replaces
-          MoveStripView/StepControls/FlatCubeRenderer-as-player. */}
-      <div style={{ display: "flex", gap: "0.5rem", margin: "1.5rem 0 1rem" }}>
-        <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
-      </div>
-
-      <div
-        data-testid="strip-size-controls"
-        style={{
-          display: "flex",
-          gap: "0.5rem",
-          alignItems: "center",
-          margin: "1rem 0 0.5rem",
-          fontSize: "0.8rem",
-        }}
-      >
-        <span
-          style={{
-            opacity: 0.6,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-          }}
-        >
-          cube size
-        </span>
-        {(["small", "medium", "large"] as const).map((sz) => (
-          <button
-            key={sz}
-            data-testid={`strip-size-${sz}`}
-            onClick={() => setStripSize(sz)}
-            style={{
-              padding: "0.25rem 0.6rem",
-              borderRadius: 4,
-              border:
-                stripSize === sz
-                  ? "1.5px solid #4299ff"
-                  : "1.5px solid #ccc",
-              background:
-                stripSize === sz ? "rgba(66, 153, 255, 0.1)" : "transparent",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              textTransform: "capitalize",
-            }}
-          >
-            {sz}
-          </button>
-        ))}
-      </div>
-      <MoveStripView
+      {/* Section iii — solution (cards with column + render toggles) */}
+      <SectionHeader
+        roman="iii."
+        name="solution"
+        right={
+          <>
+            <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
+            <span className="scramble-divider" />
+            <span className="seg-label">render</span>
+            <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
+            <span className="seg-label">columns</span>
+            <ColumnsSwitch value={cols} onChange={setCols} />
+          </>
+        }
+      />
+      <SolutionGrid
         scrambleState={scrambleState}
         solution={solution}
-        stepIdx={stepIdx}
-        onJumpTo={setStepIdx}
-        cubeSize={STRIP_SIZES[stripSize]}
+        isSolving={isSolving}
+        cols={cols}
+        renderMode={renderMode}
+        activeIdx={activeIdx}
+        onActiveChange={setActiveIdx}
       />
-      <section>
-        <h2
-          style={{
-            fontSize: "0.9rem",
-            opacity: 0.7,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            marginTop: "2rem",
-          }}
-        >
-          animation player
-        </h2>
-        <FlatCubeRenderer facelet={displayedState} sizePx={160} />
-        {solution !== null && solution.length > 0 && (
-          <StepControls
-            stepIdx={stepIdx}
-            totalSteps={solution.length}
-            onStepChange={setStepIdx}
-            disabled={isSolving}
-          />
-        )}
-      </section>
+
       {error && (
-        <pre data-testid="api-error" style={{ color: "crimson" }}>
+        <pre data-testid="api-error" style={{ color: "crimson", marginTop: "1rem" }}>
           error: {error}
         </pre>
       )}
@@ -251,12 +190,10 @@ export default function App() {
       />
 
       {healthError && <pre data-testid="health-error">error: {healthError}</pre>}
-      {health ? (
-        <pre data-testid="health-json" style={{ fontSize: 10, color: "var(--dim)" }}>
-          {JSON.stringify(health, null, 2)}
-        </pre>
-      ) : (
-        <p>loading...</p>
+      {!health && !healthError && (
+        <p style={{ color: "var(--dim)", fontSize: 11, marginTop: "1rem" }}>
+          loading…
+        </p>
       )}
     </main>
   );

@@ -304,6 +304,160 @@
   opacity: 0.55;
 }
 
+/* Section iii — solution grid --------------------------------------- */
+.sol-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(var(--cols, 3), 1fr);
+}
+.sol-cell {
+  background: transparent;
+  border: 1px solid var(--rule);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.12s, background 0.12s;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.sol-cell:hover {
+  border-color: var(--ink);
+}
+.sol-cell.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.sol-cell.zero {
+  border-style: dashed;
+}
+.sol-cell .top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sol-cell .step-num {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+.sol-cell .move-glyph {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.sol-cell .move-glyph em {
+  font-style: italic;
+  color: var(--accent);
+}
+.sol-cell .move-glyph.zero {
+  font-style: italic;
+  color: var(--dim);
+  font-size: 18px;
+}
+.sol-cell .render {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+.sol-cell .render .net {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.sol-cell .render .net svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Per-column overrides ---------------------------------------------- */
+.sol-grid.cols-2 .sol-cell .move-glyph {
+  font-size: 32px;
+}
+.sol-grid.cols-3 .sol-cell .move-glyph {
+  font-size: 26px;
+}
+.sol-grid.cols-4 .sol-cell .move-glyph {
+  font-size: 22px;
+}
+.sol-grid.cols-6 .sol-cell {
+  padding: 6px;
+  gap: 4px;
+}
+.sol-grid.cols-6 .sol-cell .move-glyph {
+  font-size: 16px;
+}
+.sol-grid.cols-6 .sol-cell .move-glyph.zero {
+  font-size: 12px;
+}
+.sol-grid.cols-6 .sol-cell .step-num {
+  font-size: 9px;
+}
+
+/* Loading placeholder ----------------------------------------------- */
+.sol-loading {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 24px 0;
+}
+
+/* Solid pill button (Solve action) ---------------------------------- */
+.btn-pill {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-pill:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-pill.solid {
+  background: var(--ink);
+  color: var(--paper);
+}
+.btn-pill.solid:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.btn-pill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Right-side label text inside section header (e.g. "render", "columns") */
+.lbl .right .seg-label {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
 /* Solved footer ------------------------------------------------------ */
 .summary {
   display: flex;
