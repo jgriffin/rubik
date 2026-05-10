@@ -7,8 +7,8 @@ type Props = {
 
 const MODES: Array<{ value: RenderMode; label: string; disabled: boolean; reason?: string }> = [
   { value: "net", label: "2D", disabled: false },
-  { value: "iso", label: "3D", disabled: true, reason: "isometric renderer ships in v2" },
-  { value: "dual", label: "split", disabled: true, reason: "split view ships in v2" },
+  { value: "iso", label: "3D", disabled: false },
+  { value: "dual", label: "split", disabled: false },
 ];
 
 export default function RenderModeSwitch({ value, onChange }: Props) {

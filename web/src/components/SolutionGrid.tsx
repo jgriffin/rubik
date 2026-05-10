@@ -25,11 +25,21 @@ const CUBE_SIZE_BY_COLS: Record<Cols, number> = {
   6: 90,
 };
 
+// Halved sizes for dual (split) mode — two renderers fit per card.
+const DUAL_SIZE_BY_COLS: Record<Cols, number> = {
+  1: 200,
+  2: 160,
+  3: 100,
+  4: 90,
+  6: 60,
+};
+
 export default function SolutionGrid({
   scrambleState,
   solution,
   isSolving,
   cols,
+  renderMode,
   activeIdx,
   onActiveChange,
 }: Props) {
@@ -47,7 +57,8 @@ export default function SolutionGrid({
     return out;
   }, [scrambleState, solution]);
 
-  const sizePx = CUBE_SIZE_BY_COLS[cols];
+  const sizePx =
+    renderMode === "dual" ? DUAL_SIZE_BY_COLS[cols] : CUBE_SIZE_BY_COLS[cols];
   const gridStyle = { "--cols": cols } as CSSProperties;
 
   return (
@@ -61,6 +72,7 @@ export default function SolutionGrid({
         moveLabel={null}
         facelet={states[0]}
         sizePx={sizePx}
+        renderMode={renderMode}
         isStart
         isActive={activeIdx === 0}
         onClick={() => onActiveChange(0)}
@@ -72,6 +84,7 @@ export default function SolutionGrid({
           moveLabel={m}
           facelet={states[i + 1]}
           sizePx={sizePx}
+          renderMode={renderMode}
           isStart={false}
           isActive={activeIdx === i + 1}
           onClick={() => onActiveChange(i + 1)}
