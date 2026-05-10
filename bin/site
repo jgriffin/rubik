@@ -1,0 +1,361 @@
+#!/usr/bin/env bash
+# bin/site — ensure the rubik dev site (FastAPI :8000 + Vite :5173) is running.
+#
+# Usage:
+#   bin/site up [--stub]     start whatever's not already up
+#   bin/site down            stop both
+#   bin/site status          show state
+#   bin/site logs <name>     tail .dev/logs/<name>.log    (name = backend|frontend)
+#   bin/site restart [--stub]
+#
+# State lives under .dev/ (gitignored): pid + mode files in .dev/run/, output
+# in .dev/logs/. Idempotent — `up` probes :8000/api/health and :5173 before
+# starting anything.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+DEV_DIR=".dev"
+LOG_DIR="$DEV_DIR/logs"
+RUN_DIR="$DEV_DIR/run"
+
+BACKEND_URL="http://127.0.0.1:8000/api/health"
+FRONTEND_URL="http://127.0.0.1:5173/"
+BACKEND_TIMEOUT=45    # real-model warmup is ~5s on M4 Max; pad for cold starts.
+FRONTEND_TIMEOUT=15
+
+mkdir -p "$LOG_DIR" "$RUN_DIR"
+
+# ---- color helpers (only when stdout is a tty) -----------------------------
+
+if [[ -t 1 ]]; then
+  C_DIM=$'\033[2m'; C_OK=$'\033[32m'; C_WARN=$'\033[33m'
+  C_ERR=$'\033[31m'; C_BOLD=$'\033[1m'; C_RST=$'\033[0m'
+else
+  C_DIM=""; C_OK=""; C_WARN=""; C_ERR=""; C_BOLD=""; C_RST=""
+fi
+
+say()  { printf '  %s\n' "$*"; }
+ok()   { printf '  %s%s%s\n'    "$C_OK"   "$*" "$C_RST"; }
+warn() { printf '  %s%s%s\n'    "$C_WARN" "$*" "$C_RST"; }
+err()  { printf '  %s%s%s\n' >&2 "$C_ERR" "$*" "$C_RST"; }
+hdr()  { printf '%s%s%s\n' "$C_BOLD" "$*" "$C_RST"; }
+
+# ---- pid / port helpers ----------------------------------------------------
+
+pidfile()  { echo "$RUN_DIR/$1.pid"; }
+modefile() { echo "$RUN_DIR/$1.mode"; }
+logfile()  { echo "$LOG_DIR/$1.log"; }
+
+read_pid() {
+  local f; f="$(pidfile "$1")"
+  [[ -f "$f" ]] && cat "$f" || true
+}
+
+pid_alive() {
+  local pid="$1"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+port_responding() {
+  local url="$1"
+  curl -fsS -o /dev/null -m 2 "$url" 2>/dev/null
+}
+
+backend_warmed() {
+  # Only treat backend as up once /api/health reports warmup_done:true.
+  # /api/health returns {model_loaded, model_path, warmup_done, cube_size} —
+  # the cube_size field is our unique fingerprint vs random other services.
+  local body
+  body=$(curl -fsS -m 2 "$BACKEND_URL" 2>/dev/null) || return 1
+  [[ "$body" == *'"warmup_done":'*'true'* ]] || return 1
+  [[ "$body" == *'"cube_size":'* ]] || return 1
+}
+
+frontend_fingerprints_ours() {
+  # The Vite dev server serves web/index.html which carries our title.
+  curl -fsS -m 2 "$FRONTEND_URL" 2>/dev/null \
+    | grep -q '<title>rubik solver</title>'
+}
+
+# Find the pid listening on a TCP port (LISTEN state). Empty if none.
+pid_on_port() {
+  local port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
+    | awk 'NR>1 {print $2; exit}'
+}
+
+# Returns:
+#   0 = up (we own it, healthy)
+#   1 = pid stale (we have a pid file but process is gone)
+#   2 = foreign (port held by something we can't fingerprint)
+#   3 = down (port free, no pid file)
+#   4 = adoptable (port held by our app, no pid file)
+service_state() {
+  local name="$1" url="$2" check="$3"
+  local pid; pid="$(read_pid "$name")"
+  local fingerprints=1
+  if [[ "$check" == "warmed" ]]; then
+    backend_warmed && fingerprints=0
+  else
+    frontend_fingerprints_ours && fingerprints=0
+  fi
+
+  if pid_alive "$pid"; then
+    return 0   # we own it; caller may still need to wait for the probe
+  fi
+
+  if (( fingerprints == 0 )); then
+    # Port responds with our fingerprint but no pid file → adoptable.
+    return 4
+  fi
+
+  # Port might be held by a foreign process, or might be free.
+  local port
+  port="${url##*://}"; port="${port%%/*}"; port="${port##*:}"
+  local foreign_pid; foreign_pid="$(pid_on_port "$port")"
+  if [[ -n "$foreign_pid" ]]; then return 2; fi
+  [[ -n "$pid" ]] && return 1
+  return 3
+}
+
+adopt_service() {
+  # Find the pid on the service's port, claim it via .dev/run/.
+  local name="$1" port="$2"
+  local pid; pid="$(pid_on_port "$port")"
+  if [[ -z "$pid" ]]; then
+    err "$name : adopt failed (no pid on :$port)"; return 1
+  fi
+  echo "$pid" > "$(pidfile "$name")"
+  echo "adopted" > "$(modefile "$name")"
+  ok "$name : adopted (pid $pid)"
+}
+
+# ---- start helpers ---------------------------------------------------------
+
+start_backend() {
+  local mode="$1"   # "real" | "stub"
+  local log; log="$(logfile backend)"
+  : > "$log"
+  local env_prefix=""
+  [[ "$mode" == "stub" ]] && env_prefix="RUBIK_USE_STUB_NET=1 "
+  say "${C_DIM}backend  : starting ($mode)${C_RST}"
+  # nohup + redirect + disown fully detaches from this script.
+  nohup env $env_prefix uv run --extra server rubik-serve \
+    >>"$log" 2>&1 </dev/null &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" > "$(pidfile backend)"
+  echo "$mode" > "$(modefile backend)"
+  say "${C_DIM}  pid $pid → $log${C_RST}"
+}
+
+start_frontend() {
+  local log; log="$(logfile frontend)"
+  : > "$log"
+  say "${C_DIM}frontend : starting${C_RST}"
+  nohup pnpm --prefix web dev \
+    >>"$log" 2>&1 </dev/null &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" > "$(pidfile frontend)"
+  say "${C_DIM}  pid $pid → $log${C_RST}"
+}
+
+# Wait for a service to respond, with a timeout. Bails early if the pid dies.
+wait_for() {
+  local name="$1" url="$2" check="$3" timeout_s="$4"
+  local pid; pid="$(read_pid "$name")"
+  local start_ts; start_ts=$(date +%s)
+  local probe
+  while true; do
+    if [[ "$check" == "warmed" ]]; then probe=backend_warmed
+    else probe="port_responding $url"; fi
+    if eval "$probe"; then
+      local now; now=$(date +%s)
+      ok "$name     : ready  ($((now - start_ts))s)"
+      return 0
+    fi
+    if ! pid_alive "$pid"; then
+      err "$name     : died during startup. Tail: $(logfile "$name")"
+      return 1
+    fi
+    local now; now=$(date +%s)
+    if (( now - start_ts > timeout_s )); then
+      err "$name     : timeout after ${timeout_s}s. Tail: $(logfile "$name")"
+      return 1
+    fi
+    sleep 0.4
+  done
+}
+
+# ---- subcommands -----------------------------------------------------------
+
+cmd_up() {
+  local mode="real"
+  for a in "$@"; do
+    case "$a" in
+      --stub) mode="stub" ;;
+      --real) mode="real" ;;
+      *) err "unknown flag: $a"; return 2 ;;
+    esac
+  done
+
+  hdr "ensure rubik dev site"
+
+  # Backend
+  set +e
+  service_state backend "$BACKEND_URL" warmed
+  local b_state=$?
+  set -e
+  case $b_state in
+    0)
+      local pid; pid="$(read_pid backend)"
+      local m; m="$(cat "$(modefile backend)" 2>/dev/null || echo unknown)"
+      if backend_warmed; then
+        ok "backend  : already up (pid $pid, mode=$m)"
+      else
+        warn "backend  : pid $pid alive but /api/health not warmed yet — waiting"
+        wait_for backend "$BACKEND_URL" warmed "$BACKEND_TIMEOUT" || return 1
+      fi
+      ;;
+    1) warn "backend  : stale pid file (process gone) — starting"
+       rm -f "$(pidfile backend)"
+       start_backend "$mode"
+       wait_for backend "$BACKEND_URL" warmed "$BACKEND_TIMEOUT" || return 1
+       ;;
+    2) err "backend  : port :8000 busy by a foreign process. Free it and retry."
+       err "         hint: lsof -nP -iTCP:8000 -sTCP:LISTEN"
+       return 1
+       ;;
+    3) start_backend "$mode"
+       wait_for backend "$BACKEND_URL" warmed "$BACKEND_TIMEOUT" || return 1
+       ;;
+    4) adopt_service backend 8000 ;;
+  esac
+
+  # Frontend
+  set +e
+  service_state frontend "$FRONTEND_URL" port
+  local f_state=$?
+  set -e
+  case $f_state in
+    0)
+      local pid; pid="$(read_pid frontend)"
+      ok "frontend : already up (pid $pid)"
+      ;;
+    1) warn "frontend : stale pid file — starting"
+       rm -f "$(pidfile frontend)"
+       start_frontend
+       wait_for frontend "$FRONTEND_URL" port "$FRONTEND_TIMEOUT" || return 1
+       ;;
+    2) err "frontend : port :5173 busy by a foreign process. Free it and retry."
+       err "         hint: lsof -nP -iTCP:5173 -sTCP:LISTEN"
+       return 1
+       ;;
+    3) start_frontend
+       wait_for frontend "$FRONTEND_URL" port "$FRONTEND_TIMEOUT" || return 1
+       ;;
+    4) adopt_service frontend 5173 ;;
+  esac
+
+  printf '\n  %s→ %shttp://localhost:5173/%s\n' "$C_DIM" "$C_BOLD" "$C_RST"
+}
+
+cmd_down() {
+  hdr "stop rubik dev site"
+  local any=0
+  for name in backend frontend; do
+    local pid; pid="$(read_pid "$name")"
+    if pid_alive "$pid"; then
+      say "${C_DIM}$name : kill $pid${C_RST}"
+      # Try graceful first, then -9 if still alive.
+      kill "$pid" 2>/dev/null || true
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        pid_alive "$pid" || break
+        sleep 0.3
+      done
+      if pid_alive "$pid"; then
+        warn "$name : still alive after SIGTERM, sending SIGKILL"
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+      any=1
+    elif [[ -n "$pid" ]]; then
+      say "${C_DIM}$name : pid file stale (process gone)${C_RST}"
+    else
+      say "${C_DIM}$name : not running${C_RST}"
+    fi
+    rm -f "$(pidfile "$name")" "$(modefile "$name")"
+  done
+  (( any == 0 )) && say "${C_DIM}nothing to stop${C_RST}"
+  ok "down."
+}
+
+cmd_status() {
+  hdr "rubik dev site status"
+  for name in backend frontend; do
+    local url check
+    if [[ "$name" == "backend" ]]; then url="$BACKEND_URL"; check=warmed
+    else url="$FRONTEND_URL"; check=port; fi
+
+    set +e
+    service_state "$name" "$url" "$check"
+    local s=$?
+    set -e
+    local pid; pid="$(read_pid "$name")"
+    local mode; mode="$(cat "$(modefile "$name")" 2>/dev/null || true)"
+    local mode_str=""
+    [[ -n "$mode" ]] && mode_str=" mode=$mode"
+    case $s in
+      0) ok   "$name : up         pid=$pid$mode_str" ;;
+      1) warn "$name : stale      pid=$pid (process gone)" ;;
+      2) err  "$name : foreign    port held by another process" ;;
+      3) say  "$name : down" ;;
+      4) warn "$name : adoptable  ours on port but no pid file (run \`bin/site up\`)" ;;
+    esac
+  done
+}
+
+cmd_logs() {
+  local name="${1:-}"
+  case "$name" in
+    backend|frontend)
+      local f; f="$(logfile "$name")"
+      [[ -f "$f" ]] || { err "no log: $f"; return 1; }
+      exec tail -F "$f"
+      ;;
+    *) err "logs: pick 'backend' or 'frontend'"; return 2 ;;
+  esac
+}
+
+cmd_restart() {
+  cmd_down
+  cmd_up "$@"
+}
+
+cmd_help() {
+  cat <<EOF
+bin/site — ensure the rubik dev site is running.
+
+  up [--stub|--real]   start whatever's not already up (default: --real)
+  down                 stop both processes
+  status               show state for each
+  logs backend|frontend   tail the log
+  restart [--stub|--real]
+EOF
+}
+
+# ---- dispatch --------------------------------------------------------------
+
+sub="${1:-up}"; shift || true
+case "$sub" in
+  up)      cmd_up "$@" ;;
+  down)    cmd_down ;;
+  status)  cmd_status ;;
+  logs)    cmd_logs "$@" ;;
+  restart) cmd_restart "$@" ;;
+  help|-h|--help) cmd_help ;;
+  *) err "unknown subcommand: $sub"; cmd_help; exit 2 ;;
+esac
