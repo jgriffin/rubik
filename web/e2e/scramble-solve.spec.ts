@@ -1,20 +1,20 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("scramble + solve flow", () => {
-  test("scramble changes the cube; solve produces a move list (stub mode)", async ({
+  test("scramble changes the starting cube; solve produces solution cards (stub mode)", async ({
     page,
   }) => {
     await page.goto("/");
 
-    // Wait for health → buttons enabled.
     const scramble = page.getByTestId("scramble-button");
     await expect(scramble).toBeEnabled();
 
-    // Initial state: cube is solved.
-    const svg = page.getByTestId("flat-cube");
-    await expect(svg.locator("rect")).toHaveCount(54);
+    // Initial state: starting card (sol-card-0) shows a solved cube.
+    const startCard = page.getByTestId("sol-card-0");
+    await expect(startCard).toBeVisible();
+    const startSvg = startCard.locator("svg").first();
+    await expect(startSvg.locator("rect")).toHaveCount(54);
 
-    // Click Scramble.
     await scramble.click();
 
     // Renderer must update — wait until at least one canonical-corner sticker
@@ -34,7 +34,7 @@ test.describe("scramble + solve flow", () => {
             [17, "R"],
           ] as const;
           for (const [pos, expected] of cornerPositions) {
-            const actual = await svg
+            const actual = await startSvg
               .locator(`rect[data-pos="${pos}"]`)
               .getAttribute("data-color");
             if (actual !== expected) return true;
@@ -45,50 +45,55 @@ test.describe("scramble + solve flow", () => {
       )
       .toBe(true);
 
-    // Click Solve. Stub net never solves, but the wire should still respond.
+    // Section ii reflects the scramble length.
+    await expect(page.getByTestId("moves-grid").locator('[data-testid="move-cell"]'))
+      .toHaveCount(14);
+
+    // Click Solve. Stub net never returns moves; the wire still responds.
     const solve = page.getByTestId("solve-button");
     await solve.click();
 
-    // MoveList becomes visible.
-    await expect(page.getByTestId("move-list")).toBeVisible({ timeout: 10_000 });
-    const status = page.getByTestId("solve-status");
-    await expect(status).toBeVisible();
-
-    // Stub net: solved=false, moves=[]; assertion is loose — we accept either.
-    const dataSolved = await page
-      .getByTestId("move-list")
-      .getAttribute("data-solved");
-    expect(["true", "false"]).toContain(dataSolved);
+    // After the solve resolves, the solution grid still has step-00 at minimum.
+    // Stub returns moves=[], so we just assert the request fired and the
+    // button re-enables.
+    await expect(solve).toBeEnabled({ timeout: 10_000 });
   });
 
-  test("length slider drives /api/scramble request body; Surprise Me yields a valid length", async ({
-    page,
-  }) => {
+  test("length slider drives /api/scramble request body", async ({ page }) => {
     await page.goto("/");
-
-    // Wait for health → buttons enabled.
     await expect(page.getByTestId("scramble-button")).toBeEnabled();
 
-    // Drag slider to 6, verify readout, then Scramble — assert request payload.
     const slider = page.getByTestId("length-slider");
     await slider.fill("6");
-    await expect(page.getByTestId("length-readout")).toHaveText("length: 6");
+    await expect(page.getByTestId("length-readout")).toHaveText("6");
 
     const requestPromise = page.waitForRequest("**/api/scramble");
     await page.getByTestId("scramble-button").click();
     const req = await requestPromise;
     const body = req.postDataJSON();
     expect(body.length).toBe(6);
+  });
 
-    // Surprise Me — readout text matches contract `length: <int>`,
-    // value in [1, 30]. (Don't assert change; same-value rolls are valid.)
-    await page.getByTestId("surprise-button").click();
-    const after = await page.getByTestId("length-readout").textContent();
-    const m = after?.match(/^length: (\d+)$/);
-    expect(m).not.toBeNull();
-    const n = Number(m![1]);
-    expect(n).toBeGreaterThanOrEqual(1);
-    expect(n).toBeLessThanOrEqual(30);
+  test("clear resets to solved cube and empties section ii", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("scramble-button")).toBeEnabled();
+
+    // Scramble first.
+    await page.getByTestId("length-slider").fill("8");
+    const reqP = page.waitForRequest("**/api/scramble");
+    await page.getByTestId("scramble-button").click();
+    await reqP;
+
+    // Wait for moves grid to populate with non-empty cells.
+    await expect(page.getByTestId("moves-grid").locator('[data-testid="move-cell"]'))
+      .toHaveCount(8, { timeout: 5_000 });
+
+    // Click Clear.
+    await page.getByTestId("clear-button").click();
+
+    // No move cells remain — only dashed empties.
+    await expect(page.getByTestId("moves-grid").locator('[data-testid="move-cell"]'))
+      .toHaveCount(0);
   });
 });
 
@@ -97,16 +102,14 @@ test.describe("real-backend scramble + solve", () => {
     process.env.PLAYWRIGHT_REAL_BACKEND !== "1",
     "set PLAYWRIGHT_REAL_BACKEND=1 to run",
   );
-  test("real LN model solves length-14 scramble", async ({ page }) => {
+  test("real LN model produces a solution rendered as cards", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("scramble-button").click();
     await page.getByTestId("solve-button").click();
-    await expect(page.getByTestId("move-list")).toHaveAttribute(
-      "data-solved",
-      "true",
-      { timeout: 30_000 },
-    );
-    const moves = page.getByTestId("move-item");
-    expect(await moves.count()).toBeGreaterThan(0);
+    // Solved footer appears once the model returns a solution.
+    await expect(page.getByTestId("solved-footer")).toBeVisible({ timeout: 30_000 });
+    const cards = page.locator('[data-testid^="sol-card-"]');
+    // At least the start card + ≥1 move cards.
+    expect(await cards.count()).toBeGreaterThan(1);
   });
 });

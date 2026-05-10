@@ -7,11 +7,13 @@ type Props = {
 export default function SolveButton({ onSolve, disabled, isSolving }: Props) {
   return (
     <button
+      type="button"
+      className="btn-pill solid"
       data-testid="solve-button"
       onClick={onSolve}
       disabled={disabled || isSolving}
     >
-      {isSolving ? "Solving..." : "Solve"}
+      {isSolving ? "solving…" : "solve"}
     </button>
   );
 }
