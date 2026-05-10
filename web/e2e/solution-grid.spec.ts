@@ -23,7 +23,7 @@ test.describe("solution grid — toggles + card selection", () => {
     await expect(page.getByTestId("columns-1")).toBeDisabled();
   });
 
-  test("3D toggle swaps renderer between flat (rect[data-pos]) and iso (polygon[data-face])", async ({
+  test("3D toggle swaps renderer between flat (rect[data-pos]) and twisty-player wrapper", async ({
     page,
   }) => {
     // Start card always renders — no scramble/solve needed (stub returns
@@ -32,26 +32,31 @@ test.describe("solution grid — toggles + card selection", () => {
     const card = page.getByTestId("sol-card-0");
     await expect(card).toBeVisible();
 
-    // Default: net mode → 54 flat rects, no iso polygons.
+    // Default: net mode → 54 flat rects, no twisty wrapper.
     await expect(card.locator("rect[data-pos]")).toHaveCount(54);
-    await expect(card.locator("polygon[data-face]")).toHaveCount(0);
+    await expect(card.getByTestId("twisty-cube")).toHaveCount(0);
 
     // Click 3D.
     await page.getByTestId("render-mode-iso").click();
     await expect(page.getByTestId("render-mode-iso")).toHaveClass(/on/);
 
-    // Iso mode: 27 polygons (3 visible faces × 9 stickers), no flat rects.
+    // 3D mode: TwistyPlayerWrapper present (1 wrapper for sol-card-0); no
+    // flat rects. The wrapper presence IS the contract — we don't pierce
+    // cubing.js's shadow DOM. Static-mode <twisty-player> renders inside
+    // and may take a tick to mount its WebGL canvas; the React-managed
+    // wrapper div is synchronous.
     await expect(card.locator("rect[data-pos]")).toHaveCount(0);
-    await expect(card.locator("polygon[data-face]")).toHaveCount(27);
+    await expect(card.getByTestId("twisty-cube")).toBeVisible();
+    await expect(card.getByTestId("twisty-cube")).toHaveCount(1);
 
-    // Click 2D — flat returns.
+    // Click 2D — flat returns; twisty wrapper unmounts.
     await page.getByTestId("render-mode-net").click();
     await expect(page.getByTestId("render-mode-net")).toHaveClass(/on/);
     await expect(card.locator("rect[data-pos]")).toHaveCount(54);
-    await expect(card.locator("polygon[data-face]")).toHaveCount(0);
+    await expect(card.getByTestId("twisty-cube")).toHaveCount(0);
   });
 
-  test("split toggle renders both flat and iso side-by-side", async ({
+  test("split toggle renders both flat and twisty-player side-by-side", async ({
     page,
   }) => {
     const card = page.getByTestId("sol-card-0");
@@ -63,18 +68,18 @@ test.describe("solution grid — toggles + card selection", () => {
 
     // Both pair-testid renderers are present.
     await expect(card.getByTestId("flat-cube-pair")).toBeVisible();
-    await expect(card.getByTestId("iso-cube-pair")).toBeVisible();
+    await expect(card.getByTestId("twisty-cube-pair")).toBeVisible();
 
-    // The card carries both flat rects and iso polygons.
+    // FlatCubeRenderer's contract still holds: 54 stickers as <rect data-pos>.
+    // We don't make a count claim on the twisty side — wrapper presence is
+    // its contract; shadow-DOM pixels are out of scope.
     await expect(card.locator("rect[data-pos]")).toHaveCount(54);
-    await expect(card.locator("polygon[data-face]")).toHaveCount(27);
 
     // Toggle back to net — pair testids gone, only flat rects remain.
     await page.getByTestId("render-mode-net").click();
     await expect(page.getByTestId("render-mode-net")).toHaveClass(/on/);
     await expect(card.getByTestId("flat-cube-pair")).toHaveCount(0);
-    await expect(card.getByTestId("iso-cube-pair")).toHaveCount(0);
-    await expect(card.locator("polygon[data-face]")).toHaveCount(0);
+    await expect(card.getByTestId("twisty-cube-pair")).toHaveCount(0);
     await expect(card.locator("rect[data-pos]")).toHaveCount(54);
   });
 
