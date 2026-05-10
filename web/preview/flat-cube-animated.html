@@ -107,12 +107,14 @@
     <p class="intro">
       Each panel shows the pre-move state on load. Click a "replay" button (or
       "Play all") to run the cycle: 400 ms hold on the pre-move state, 600 ms
-      animation, settle on the post-move state. Affected edge stickers slide
-      <em>locally</em> per face — old stickers slide outward through the face's
-      active edge while new stickers slide inward through the same edge. No
-      cross-net translation. The turned face's 9 stickers rotate as a group
-      around the face center; corners pop outside the face during rotation
-      (intentionally not clipped).
+      animation, settle on the post-move state. <strong>Conveyor model:</strong>
+      on each affected adjacent face, the 3 active-edge stickers + an
+      offscreen 3-strip of incoming new colors translate together along the
+      active edge's axis. Old slides off one end of the edge; new slides on
+      from the other end. Both strips are clipped by the face's 3×3 region,
+      so motion is always visually local to that face. The turned face's 9
+      stickers rotate as a group around the face center; corners pop outside
+      the face during rotation (intentionally not clipped).
     </p>
     <div class="play-all-row">
       <button class="primary" id="play-all">Play all</button>
@@ -130,8 +132,8 @@
 
     <script>
       // ---------------------------------------------------------------
-      // Inlined constants (mirrored from the production code; this file
-      // is standalone — no imports, opens via `open` with no Vite resolve).
+      // Inlined constants (mirrored from production; this preview is
+      // standalone — no imports, opens via `open` with no Vite resolve).
       //   - wcaPalette                  → web/src/components/palettes.ts
       //   - INK_STROKE                  → web/src/components/cubePalette.ts
       //   - FACE_OFFSETS                → web/src/components/cubePalette.ts
@@ -160,7 +162,6 @@
         D: { col: 1, row: 2 },
       };
 
-      // 54-index permutations: post[i] = pre[FACELET_MOVES[move][i]].
       const FACELET_MOVES = {
         U: [
           6, 3, 0, 7, 4, 1, 8, 5, 2, 45, 46, 47, 12, 13, 14, 15, 16, 17, 9, 10,
@@ -224,47 +225,6 @@
         ],
       };
 
-      // Active-edge / outward-direction table.
-      // Keyed by `${turnedFace}|${adjacentFace}`. Outward dir is in net
-      // sticker-pixel units (one component non-zero, ±1).
-      // Verified against FACELET_MOVES: e.g. R affects U/F/D right cols
-      // and B left col; F affects U-bottom, R-left, D-top, L-right; etc.
-      // Same table for primed and unprimed moves — only face rotation
-      // direction differs; edges always slide OUT of the active edge.
-      const ACTIVE_EDGE = {
-        // Turned face R
-        "R|U": { edge: "right", dx: 1, dy: 0 },
-        "R|F": { edge: "right", dx: 1, dy: 0 },
-        "R|D": { edge: "right", dx: 1, dy: 0 },
-        "R|B": { edge: "left", dx: -1, dy: 0 },
-        // Turned face L
-        "L|U": { edge: "left", dx: -1, dy: 0 },
-        "L|F": { edge: "left", dx: -1, dy: 0 },
-        "L|D": { edge: "left", dx: -1, dy: 0 },
-        "L|B": { edge: "right", dx: 1, dy: 0 },
-        // Turned face U
-        "U|F": { edge: "top", dx: 0, dy: -1 },
-        "U|R": { edge: "top", dx: 0, dy: -1 },
-        "U|B": { edge: "top", dx: 0, dy: -1 },
-        "U|L": { edge: "top", dx: 0, dy: -1 },
-        // Turned face D
-        "D|F": { edge: "bottom", dx: 0, dy: 1 },
-        "D|R": { edge: "bottom", dx: 0, dy: 1 },
-        "D|B": { edge: "bottom", dx: 0, dy: 1 },
-        "D|L": { edge: "bottom", dx: 0, dy: 1 },
-        // Turned face F
-        "F|U": { edge: "bottom", dx: 0, dy: 1 },
-        "F|R": { edge: "left", dx: -1, dy: 0 },
-        "F|D": { edge: "top", dx: 0, dy: -1 },
-        "F|L": { edge: "right", dx: 1, dy: 0 },
-        // Turned face B
-        "B|U": { edge: "top", dx: 0, dy: -1 },
-        "B|R": { edge: "right", dx: 1, dy: 0 },
-        "B|D": { edge: "bottom", dx: 0, dy: 1 },
-        "B|L": { edge: "left", dx: -1, dy: 0 },
-      };
-
-      // Solved facelet: 9 of each face letter in URFDLB order.
       const SOLVED =
         "U".repeat(9) +
         "R".repeat(9) +
@@ -283,14 +243,12 @@
         for (let i = 0; i < 54; i++) out += facelet[perm[i]];
         return out;
       }
-
       function applyMoves(facelet, moves) {
         let s = facelet;
         for (const m of moves) s = applyMove(s, m);
         return s;
       }
 
-      // Map a facelet index to its (faceLetter, localRow, localCol).
       function indexToFaceLocal(i) {
         for (const face of Object.keys(FACE_OFFSETS)) {
           const off = FACE_OFFSETS[face];
@@ -301,8 +259,6 @@
         }
         throw new Error("bad facelet index " + i);
       }
-
-      // Net-grid (top-left) coordinates of a facelet index, in sticker units.
       function indexToNetXY(i) {
         const { face, r, c } = indexToFaceLocal(i);
         const { col, row } = FACE_GRID[face];
@@ -312,18 +268,98 @@
       function turnedFace(move) {
         return move.charAt(0);
       }
-
-      // Rotation angle in degrees (SVG: positive = CW visually). All
-      // unprimed QTM moves rotate the turned face +90° CW from outside;
-      // primes are -90°. Verified by inspecting perm[firstFaceIdx] for
-      // each unprimed move (e.g. R perm[9]=15 maps face-local (2,0) →
-      // (0,0), which is CW from outside).
+      // SVG positive = CW visually. All unprimed QTM rotate the turned
+      // face +90° CW (verified by tracing perm[firstFaceIdx] for each
+      // unprimed move). Primes are -90°.
       function moveAngleDeg(move) {
         return move.endsWith("'") ? -90 : 90;
       }
 
       // ---------------------------------------------------------------
-      // Geometry derived from sizePx (matches FlatCubeRenderer.tsx math).
+      // Empirical flow-direction derivation per (move, adjacentFace).
+      // For each move:
+      //   1. Find the 12 affected non-turned-face indices.
+      //   2. Group them by the face they live on (the 4 adjacent faces).
+      //   3. For each group of 3, derive:
+      //        - active edge axis: row (constant local r → horizontal
+      //          axis = x) or column (constant local c → vertical
+      //          axis = y).
+      //        - flow direction: sign of
+          //          (mean(dest_axis_coords) - mean(src_axis_coords)),
+      //          where src is perm[p] rendered on its own face in net
+      //          coords (i.e. where the source sticker sits BEFORE the
+      //          move). New stickers will be parked at this projected
+      //          source location and slide along the flow direction
+      //          to reach the active edge.
+      //
+      // Entire 48-entry table is computed once at script start.
+      // ---------------------------------------------------------------
+
+      function computeMoveFlowTable() {
+        const table = {};
+        for (const move of Object.keys(FACELET_MOVES)) {
+          const perm = FACELET_MOVES[move];
+          const turned = turnedFace(move);
+          const turnedOff = FACE_OFFSETS[turned];
+
+          const byFace = {};
+          for (let i = 0; i < 54; i++) {
+            if (perm[i] === i) continue;
+            if (i >= turnedOff && i < turnedOff + 9) continue;
+            const f = indexToFaceLocal(i).face;
+            (byFace[f] = byFace[f] || []).push(i);
+          }
+
+          const moveEntries = {};
+          for (const adj of Object.keys(byFace)) {
+            const dests = byFace[adj];
+            const localRs = new Set(dests.map((p) => indexToFaceLocal(p).r));
+            const localCs = new Set(dests.map((p) => indexToFaceLocal(p).c));
+            let axis;
+            let activeEdge;
+            if (localRs.size === 1 && localCs.size === 3) {
+              axis = "x";
+              const r = [...localRs][0];
+              activeEdge = r === 0 ? "top-row" : r === 2 ? "bottom-row" : "mid-row";
+            } else if (localCs.size === 1 && localRs.size === 3) {
+              axis = "y";
+              const c = [...localCs][0];
+              activeEdge = c === 0 ? "left-col" : c === 2 ? "right-col" : "mid-col";
+            } else {
+              throw new Error(
+                `non-edge affected stickers on ${adj} for ${move}`,
+              );
+            }
+
+            const destAxisVals = dests.map((p) => {
+              const xy = indexToNetXY(p);
+              return axis === "x" ? xy.x : xy.y;
+            });
+            const srcAxisVals = dests.map((p) => {
+              const xy = indexToNetXY(perm[p]);
+              return axis === "x" ? xy.x : xy.y;
+            });
+            const destMean =
+              destAxisVals.reduce((a, b) => a + b, 0) / destAxisVals.length;
+            const srcMean =
+              srcAxisVals.reduce((a, b) => a + b, 0) / srcAxisVals.length;
+            const delta = destMean - srcMean;
+            const dir = delta === 0 ? 0 : delta > 0 ? 1 : -1;
+            const flow = axis === "x"
+              ? { dx: dir, dy: 0 }
+              : { dx: 0, dy: dir };
+
+            moveEntries[adj] = { activeEdge, axis, flow };
+          }
+          table[move] = moveEntries;
+        }
+        return table;
+      }
+
+      const MOVE_FLOW = computeMoveFlowTable();
+
+      // ---------------------------------------------------------------
+      // Geometry (matches FlatCubeRenderer.tsx math).
       // ---------------------------------------------------------------
 
       function makeGeometry(sizePx) {
@@ -339,142 +375,91 @@
           rx: 1,
         };
       }
-
       function netToPx(netX, netY, geo) {
         return { x: netX * geo.stickerPx, y: netY * geo.stickerPx };
       }
 
       // ---------------------------------------------------------------
-      // Move kinematics.
-      //   - faceRotation: 9 stickers on the turned face; rotate the <g>
-      //     by ±90° around the face's net-coords center.
-      //   - edgeSlides: per affected non-turned-face sticker p,
-      //     { p, oldLetter, newLetter, faceLetter, dxPx, dyPx } where
-      //     (dxPx, dyPx) is the outward slide vector (1 sticker-width).
-      //     Old slides FROM (0,0) TO (dxPx,dyPx). New slides FROM
-      //     (-dxPx,-dyPx) TO (0,0). (i.e. new starts 1 sticker outside
-      //     the face boundary on the opposite side of the active edge —
-      //     no, same side: new enters through the same edge old leaves
-      //     through. Outside means offset OUTWARD by 1 sticker, then
-      //     slides INWARD.)
-      // ---------------------------------------------------------------
-
-      function computeKinematics(move, preFacelet, postFacelet, geo) {
-        const perm = FACELET_MOVES[move];
-        const turned = turnedFace(move);
-        const turnedOff = FACE_OFFSETS[turned];
-
-        const faceRotIndices = [];
-        for (let i = turnedOff; i < turnedOff + 9; i++) faceRotIndices.push(i);
-        const fg = FACE_GRID[turned];
-        const centerNetX = fg.col * 3 + 1.5;
-        const centerNetY = fg.row * 3 + 1.5;
-
-        const edgeSlides = [];
-        for (let i = 0; i < 54; i++) {
-          if (perm[i] === i) continue;
-          if (i >= turnedOff && i < turnedOff + 9) continue;
-          const adjacentFace = indexToFaceLocal(i).face;
-          const key = turned + "|" + adjacentFace;
-          const ae = ACTIVE_EDGE[key];
-          if (!ae) {
-            throw new Error("missing ACTIVE_EDGE entry: " + key);
-          }
-          edgeSlides.push({
-            p: i,
-            adjacentFace,
-            oldLetter: preFacelet[i],
-            newLetter: postFacelet[i],
-            dxPx: ae.dx * geo.stickerPx,
-            dyPx: ae.dy * geo.stickerPx,
-          });
-        }
-
-        return {
-          faceRotation: {
-            indices: faceRotIndices,
-            centerNetX,
-            centerNetY,
-            angleDeg: moveAngleDeg(move),
-          },
-          edgeSlides,
-        };
-      }
-
-      // ---------------------------------------------------------------
-      // Build SVG. Layers (bottom → top in document order, which is
-      // also paint order):
-      //   1. Static base: 33 unaffected stickers, drawn at canonical
-      //      positions, always visible.
-      //   2. Edge-cycle "old" stickers: 12 rects at canonical positions,
-      //      colored with preFacelet[p], clipped by their face's
-      //      clipPath. Slide outward (1 sticker-width) over t=0..1.
-      //      Hidden during pre-pause (still at offset 0, opacity 1) —
-      //      they ARE the pre-move face stickers on the affected edges.
-      //   3. Edge-cycle "new" stickers: 12 rects, colored with
-      //      postFacelet[p], started 1 sticker-width OUTSIDE the face
-      //      (i.e. at offset −outwardDir × stickerPx), clipped by the
-      //      same face clipPath. Slide INWARD over t=0..1 to reach the
-      //      canonical position. Opacity 0 during pre-pause (so they
-      //      don't leak past the clip into adjacent gap pixels — since
-      //      strokes have width, a fully-clipped rect can still bleed
-      //      a half-pixel; using opacity 0 is cleaner).
-      //   4. Face-rotation <g>: 9 stickers, NOT clipped (corners pop
-      //      out during rotation, intentional). Visible during
-      //      animation, rotates 0 → angleDeg over t=0..1.
-      //   5. Settled overlay: full canonical post-move facelet at
-      //      opacity 0; fades to 1 only after the animation completes,
-      //      replacing layers 2/3/4.
+      // SVG construction.
       //
-      // clipPath: one per affected face (the face's 3×3 net-coords
-      // bounding rect, no margin — strokes already inset by gap/2).
-      // clipPath IDs are namespaced by panelKey to avoid collisions
-      // (we render the same panels twice across light/dark themes).
+      // Layers (paint order, bottom → top):
+      //   1. Static base: 33 unaffected stickers, canonical positions.
+      //   2. Edge-cycle conveyor — per affected adjacent face F:
+      //        OLD strip: 3 rects at F's active-edge canonical positions,
+      //          pre-move colors. translate(0,0) at t=0; translate(3·f)
+      //          at t=1, where f = (fx, fy) is the per-face flow vector
+      //          in stickerPx units.
+      //        NEW strip: 3 rects at F's active-edge canonical positions,
+      //          post-move colors. translate(-3·f) at t=0 (parked OPP-
+      //          OSITE the flow direction, just outside the active
+      //          edge). translate(0,0) at t=1.
+      //      Both clipped by F's 3×3 clip rect — old slides past the
+      //      downstream end of the edge and disappears; new slides in
+      //      from the upstream end. The 6-sticker virtual conveyor
+      //      moves as a rigid unit (constant 3·f offset between strips),
+      //      so there's no gap at the seam.
+      //   3. Face-rotation <g>: 9 stickers, NOT clipped (corners pop
+      //      out mid-rotation; this is intentional).
+      //   4. Settled overlay: full canonical post-move facelet, hidden
+      //      until t=1 then revealed. Anchors the settle pixel-precisely.
+      //
+      // clipPath IDs are namespaced per panel (counter-suffixed) since
+      // the same panels render twice in one DOM (light + dark themes).
       // ---------------------------------------------------------------
 
       let _panelIdCounter = 0;
       function buildPanelSVG(panel, geo) {
         const { preFacelet, move } = panel;
         const postFacelet = applyMove(preFacelet, move);
-        const kine = computeKinematics(move, preFacelet, postFacelet, geo);
         const turned = turnedFace(move);
-        const turnedSet = new Set(kine.faceRotation.indices);
-        // Set of indices that are part of the edge-slide layer (so we
-        // don't double-render them in the static base layer).
-        const edgeSet = new Set(kine.edgeSlides.map((e) => e.p));
-        const panelId = "p" + ++_panelIdCounter;
+        const turnedOff = FACE_OFFSETS[turned];
+        const flowEntries = MOVE_FLOW[move];
 
+        const faceRotIndices = [];
+        for (let i = turnedOff; i < turnedOff + 9; i++) faceRotIndices.push(i);
+        const fg = FACE_GRID[turned];
+        const rotCenterPx = netToPx(fg.col * 3 + 1.5, fg.row * 3 + 1.5, geo);
+        const angleDeg = moveAngleDeg(move);
+
+        const perm = FACELET_MOVES[move];
+        const edgeIndicesByFace = {};
+        for (let i = 0; i < 54; i++) {
+          if (perm[i] === i) continue;
+          if (i >= turnedOff && i < turnedOff + 9) continue;
+          const f = indexToFaceLocal(i).face;
+          (edgeIndicesByFace[f] = edgeIndicesByFace[f] || []).push(i);
+        }
+        const turnedSet = new Set(faceRotIndices);
+        const edgeSet = new Set(
+          [].concat(...Object.values(edgeIndicesByFace)),
+        );
+
+        const panelId = "p" + ++_panelIdCounter;
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute("width", String(geo.widthPx));
         svg.setAttribute("height", String(geo.heightPx));
         svg.setAttribute("viewBox", `0 0 ${geo.widthPx} ${geo.heightPx}`);
 
-        // <defs> + clipPath per face that has at least one edge slide.
-        // We compute the set of affected faces from the slides.
+        // <defs> + clipPath per affected face.
         const defs = document.createElementNS(svgNS, "defs");
-        const affectedFaces = new Set(kine.edgeSlides.map((e) => e.adjacentFace));
-        for (const face of affectedFaces) {
-          const fg = FACE_GRID[face];
-          const x0 = fg.col * 3 * geo.stickerPx;
-          const y0 = fg.row * 3 * geo.stickerPx;
-          const w = 3 * geo.stickerPx;
-          const h = 3 * geo.stickerPx;
+        for (const adj of Object.keys(edgeIndicesByFace)) {
+          const fg2 = FACE_GRID[adj];
+          const x0 = fg2.col * 3 * geo.stickerPx;
+          const y0 = fg2.row * 3 * geo.stickerPx;
           const cp = document.createElementNS(svgNS, "clipPath");
-          cp.setAttribute("id", `clip-${panelId}-${face}`);
+          cp.setAttribute("id", `clip-${panelId}-${adj}`);
           const r = document.createElementNS(svgNS, "rect");
           r.setAttribute("x", String(x0));
           r.setAttribute("y", String(y0));
-          r.setAttribute("width", String(w));
-          r.setAttribute("height", String(h));
+          r.setAttribute("width", String(3 * geo.stickerPx));
+          r.setAttribute("height", String(3 * geo.stickerPx));
           cp.appendChild(r);
           defs.appendChild(cp);
         }
         svg.appendChild(defs);
 
-        // Layer 1: static base — unaffected stickers from the (pre = post)
-        // letters. Pre and post agree on these indices, so either source
-        // works; using preFacelet is simpler.
+        // Layer 1: static base.
         const staticG = document.createElementNS(svgNS, "g");
         staticG.setAttribute("data-layer", "static");
         for (let i = 0; i < 54; i++) {
@@ -482,80 +467,63 @@
           if (edgeSet.has(i)) continue;
           const xy = indexToNetXY(i);
           const { x, y } = netToPx(xy.x, xy.y, geo);
-          const letter = preFacelet[i];
-          const rect = makeStickerRect(svgNS, x, y, letter, geo, i, "static");
+          const rect = makeStickerRect(
+            svgNS, x, y, preFacelet[i], geo, i, "static");
           staticG.appendChild(rect);
         }
         svg.appendChild(staticG);
 
-        // Layer 2: edge-old stickers. Drawn at canonical p position,
-        // pre-move color, clipped by their face. transform="translate(0,0)"
-        // initially → "translate(dxPx*t, dyPx*t)" while animating.
+        // Layer 2: conveyor strips.
+        const strips = [];
         const oldG = document.createElementNS(svgNS, "g");
         oldG.setAttribute("data-layer", "edge-old");
-        const oldRects = [];
-        for (const e of kine.edgeSlides) {
-          const xy = indexToNetXY(e.p);
-          const { x, y } = netToPx(xy.x, xy.y, geo);
-          const r = makeStickerRect(svgNS, x, y, e.oldLetter, geo, e.p, "edge-old");
-          r.setAttribute("clip-path", `url(#clip-${panelId}-${e.adjacentFace})`);
-          oldG.appendChild(r);
-          oldRects.push({ rect: r, dxPx: e.dxPx, dyPx: e.dyPx });
-        }
-        svg.appendChild(oldG);
-
-        // Layer 3: edge-new stickers. Drawn at canonical p position,
-        // post-move color, clipped by their face. transform initial =
-        // translate(+dxPx, +dyPx) — one sticker-width OUTWARD past
-        // the active edge (same direction old will slide). Animating →
-        // translate(dxPx*(1-t), dyPx*(1-t)) → settles at (0,0). New
-        // and old slide in the SAME direction; new just starts one
-        // sticker ahead of the action and arrives at canonical when
-        // old has fully exited. Visually: stickers leave through the
-        // active edge as new ones enter through the same edge from
-        // outside.
         const newG = document.createElementNS(svgNS, "g");
         newG.setAttribute("data-layer", "edge-new");
-        const newRects = [];
-        for (const e of kine.edgeSlides) {
-          const xy = indexToNetXY(e.p);
-          const { x, y } = netToPx(xy.x, xy.y, geo);
-          const r = makeStickerRect(svgNS, x, y, e.newLetter, geo, e.p, "edge-new");
-          r.setAttribute("clip-path", `url(#clip-${panelId}-${e.adjacentFace})`);
-          // Initial: parked outside the active edge — invisible (clipped).
-          r.setAttribute("transform", `translate(${e.dxPx}, ${e.dyPx})`);
-          newG.appendChild(r);
-          newRects.push({ rect: r, dxPx: e.dxPx, dyPx: e.dyPx });
+
+        for (const adj of Object.keys(edgeIndicesByFace)) {
+          const fe = flowEntries[adj];
+          const fxPx = fe.flow.dx * geo.stickerPx;
+          const fyPx = fe.flow.dy * geo.stickerPx;
+          const dests = edgeIndicesByFace[adj];
+
+          const oldRects = [];
+          const newRects = [];
+          for (const p of dests) {
+            const xy = indexToNetXY(p);
+            const { x, y } = netToPx(xy.x, xy.y, geo);
+            const rOld = makeStickerRect(
+              svgNS, x, y, preFacelet[p], geo, p, "edge-old");
+            rOld.setAttribute("clip-path", `url(#clip-${panelId}-${adj})`);
+            oldG.appendChild(rOld);
+            oldRects.push(rOld);
+            const rNew = makeStickerRect(
+              svgNS, x, y, postFacelet[p], geo, p, "edge-new");
+            rNew.setAttribute("clip-path", `url(#clip-${panelId}-${adj})`);
+            rNew.setAttribute(
+              "transform", `translate(${-3 * fxPx}, ${-3 * fyPx})`);
+            newG.appendChild(rNew);
+            newRects.push(rNew);
+          }
+          strips.push({ adj, oldRects, newRects, fxPx, fyPx });
         }
+        svg.appendChild(oldG);
         svg.appendChild(newG);
 
-        // Layer 4: face-rotation group. 9 stickers, rotate around face
-        // center. NOT clipped (corner stickers legitimately pop outside
-        // the 3×3 face area mid-rotation; that's the visual cue this is
-        // a face turn, not a slide).
+        // Layer 3: face-rotation group (unclipped).
         const rotG = document.createElementNS(svgNS, "g");
         rotG.setAttribute("data-layer", "rotation");
-        const rotCenterPx = netToPx(
-          kine.faceRotation.centerNetX,
-          kine.faceRotation.centerNetY,
-          geo,
-        );
-        for (const i of kine.faceRotation.indices) {
+        for (const i of faceRotIndices) {
           const xy = indexToNetXY(i);
           const { x, y } = netToPx(xy.x, xy.y, geo);
-          const r = makeStickerRect(svgNS, x, y, preFacelet[i], geo, i, "rot");
+          const r = makeStickerRect(
+            svgNS, x, y, preFacelet[i], geo, i, "rot");
           rotG.appendChild(r);
         }
         rotG.setAttribute(
-          "transform",
-          `rotate(0, ${rotCenterPx.x}, ${rotCenterPx.y})`,
-        );
+          "transform", `rotate(0, ${rotCenterPx.x}, ${rotCenterPx.y})`);
         svg.appendChild(rotG);
 
-        // Layer 5: settled overlay — full canonical post-move facelet.
-        // Hidden until t=1; then we hide layers 2/3/4 and reveal this
-        // so the cube settles to the same pixels FlatCubeRenderer would
-        // produce for postFacelet.
+        // Layer 4: settled overlay.
         const settledG = document.createElementNS(svgNS, "g");
         settledG.setAttribute("data-layer", "settled");
         settledG.setAttribute("opacity", "0");
@@ -572,9 +540,9 @@
         return {
           svg,
           oldG, newG, rotG, settledG,
-          oldRects, newRects,
+          strips,
           rotCenterPx,
-          angleDeg: kine.faceRotation.angleDeg,
+          angleDeg,
         };
       }
 
@@ -595,36 +563,35 @@
       }
 
       // ---------------------------------------------------------------
-      // Per-panel runtime: pre-pause → animate → settle.
-      //   - hold for HOLD_MS at pre-move state (full pre-move visible:
-      //     base + old stickers at offset 0 + rot at angle 0; new
-      //     stickers parked outside, opacity 0).
-      //   - animate ANIM_MS with eased t.
-      //   - settle: replace animated layers with the static post-move
-      //     overlay.
-      // No auto-play; only triggered by button.
+      // Animation runtime: 400 ms hold pre-move → 600 ms eased animation
+      // → settle. No auto-play; only triggered by button.
+      //
+      // Conveyor formula — both strips shift by t·3·f from their initial
+      // positions:
+      //   - Old at t: translate(t·3·f).      Initial 0; final 3·f.
+      //   - New at t: translate((t-1)·3·f).  Initial -3·f; final 0.
+      // Difference is constant 3·f for all t ⇒ no gap at the seam.
       // ---------------------------------------------------------------
 
       const HOLD_MS = 400;
       const ANIM_MS = 600;
-
       function easeOutCubic(t) {
         return 1 - Math.pow(1 - t, 3);
       }
 
       function setPreMoveState(built) {
-        // Pre-move = old stickers at canonical pos, new stickers parked
-        // outside (invisible to the eye since they're past the clip,
-        // but we also opacity 0 to dodge any subpixel stroke leak),
-        // rotation at angle 0, settled overlay hidden.
-        for (const o of built.oldRects) {
-          o.rect.setAttribute("transform", "translate(0, 0)");
-          o.rect.setAttribute("opacity", "1");
-        }
-        for (const n of built.newRects) {
-          n.rect.setAttribute(
-            "transform", `translate(${n.dxPx}, ${n.dyPx})`);
-          n.rect.setAttribute("opacity", "0");
+        for (const strip of built.strips) {
+          for (const r of strip.oldRects) {
+            r.setAttribute("transform", "translate(0, 0)");
+            r.setAttribute("opacity", "1");
+          }
+          for (const r of strip.newRects) {
+            r.setAttribute(
+              "transform",
+              `translate(${-3 * strip.fxPx}, ${-3 * strip.fyPx})`,
+            );
+            r.setAttribute("opacity", "1");
+          }
         }
         built.rotG.setAttribute(
           "transform",
@@ -644,21 +611,18 @@
       }
 
       function applyAnimationFrame(built, t) {
-        // Old stickers: slide outward by t × stickerWidth.
-        for (const o of built.oldRects) {
-          const tx = o.dxPx * t;
-          const ty = o.dyPx * t;
-          o.rect.setAttribute("transform", `translate(${tx}, ${ty})`);
+        for (const strip of built.strips) {
+          const tx = t * 3 * strip.fxPx;
+          const ty = t * 3 * strip.fyPx;
+          for (const r of strip.oldRects) {
+            r.setAttribute("transform", `translate(${tx}, ${ty})`);
+          }
+          const ntx = (t - 1) * 3 * strip.fxPx;
+          const nty = (t - 1) * 3 * strip.fyPx;
+          for (const r of strip.newRects) {
+            r.setAttribute("transform", `translate(${ntx}, ${nty})`);
+          }
         }
-        // New stickers: start at (+dx, +dy) (outside the active edge),
-        // end at (0, 0). transform = translate(dx*(1-t), dy*(1-t)).
-        for (const n of built.newRects) {
-          const tx = n.dxPx * (1 - t);
-          const ty = n.dyPx * (1 - t);
-          n.rect.setAttribute("transform", `translate(${tx}, ${ty})`);
-          n.rect.setAttribute("opacity", "1");
-        }
-        // Rotation.
         const angle = built.angleDeg * t;
         built.rotG.setAttribute(
           "transform",
@@ -667,9 +631,6 @@
       }
 
       function startCycle(panelState) {
-        // Always reset to pre-move and run the full hold→animate→settle
-        // cycle on every click. If a previous cycle is in flight, cancel
-        // its RAF and timer so we don't get overlapping schedules.
         if (panelState.rafId != null) {
           cancelAnimationFrame(panelState.rafId);
           panelState.rafId = null;
@@ -678,10 +639,8 @@
           clearTimeout(panelState.holdTimer);
           panelState.holdTimer = null;
         }
-
         const { built } = panelState;
         setPreMoveState(built);
-
         panelState.holdTimer = setTimeout(() => {
           panelState.holdTimer = null;
           const startTime = performance.now();
@@ -703,9 +662,8 @@
 
       // ---------------------------------------------------------------
       // Panels.
-      // Mid-scramble facelet: deterministic 10-move alg
-      // U R F' L' B U' R' F D' L (involves every face; arbitrary
-      // otherwise — chosen for visual variety on the last two panels).
+      // Mid-scramble: deterministic 10-move alg (arbitrary, picked for
+      // visual variety on the last two panels).
       // ---------------------------------------------------------------
 
       const SCRAMBLE_ALG = ["U", "R", "F'", "L'", "B", "U'", "R'", "F", "D'", "L"];
@@ -739,7 +697,6 @@
         for (const panelDef of PANELS) {
           const panel = document.createElement("div");
           panel.className = "panel";
-
           const label = document.createElement("div");
           label.className = "panel-label";
           label.innerHTML =
@@ -752,11 +709,8 @@
           const host = document.createElement("div");
           host.className = "cube-host";
           panel.appendChild(host);
-
           const built = buildPanelSVG(panelDef, geo);
           host.appendChild(built.svg);
-
-          // Initial render = pre-move static state. No auto-play.
           setPreMoveState(built);
 
           const replay = document.createElement("button");
@@ -764,11 +718,7 @@
           replay.textContent = "replay " + panelDef.alg;
           panel.appendChild(replay);
 
-          const state = {
-            built,
-            rafId: null,
-            holdTimer: null,
-          };
+          const state = { built, rafId: null, holdTimer: null };
           replay.addEventListener("click", () => startCycle(state));
           themeContainer.appendChild(panel);
           allPanelStates.push(state);
@@ -783,12 +733,10 @@
       }
 
       document.querySelectorAll(".grid").forEach((g) => mountTheme(g));
-
       document.getElementById("play-all").addEventListener("click", () => {
         for (const s of allPanelStates) startCycle(s);
       });
-
-      // No auto-play. Page loads to pre-move static state.
+      // No auto-play.
     </script>
   </body>
 </html>
