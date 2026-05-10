@@ -3,30 +3,16 @@
 // Sequence design reference. SVG is rendered at the requested pixel size
 // with display: block; parents control flow/centering.
 
+import {
+  COLOR_FOR_LETTER,
+  FACE_OFFSETS,
+  INK_STROKE,
+} from "../styles/cubePalette";
+
 type Props = {
   facelet: string;
   sizePx?: number;
   testId?: string | null;
-};
-
-// Chrome palette — designer-tuned, slightly muted vs speedcube classic.
-const COLOR_FOR_LETTER: Record<string, string> = {
-  U: "#f5f3ee",
-  R: "#d24244",
-  F: "#5cb27a",
-  D: "#f0c64a",
-  L: "#e08a4a",
-  B: "#3a6ee0",
-};
-
-// Indices into a 54-char facelet string (URFDLB order).
-const FACE_OFFSETS: Record<string, number> = {
-  U: 0,
-  R: 9,
-  F: 18,
-  D: 27,
-  L: 36,
-  B: 45,
 };
 
 // Position of each face in the cross grid (4 cols × 3 rows).
@@ -53,7 +39,7 @@ export default function FlatCubeRenderer({
   const widthPx = stickerPx * 12;
   const heightPx = stickerPx * 9;
   const gap = stickerPx * 0.06;
-  const stroke = "#131210";
+  const stroke = INK_STROKE;
   const strokeWidth = Math.max(0.5, stickerPx * 0.025);
 
   const stickers: Array<{
