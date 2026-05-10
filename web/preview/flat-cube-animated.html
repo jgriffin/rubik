@@ -105,12 +105,14 @@
   <body>
     <h1>Block 1B — 2D move animation preview (P0 eyeball gate)</h1>
     <p class="intro">
-      Each panel renders a starting state, then animates a single move when the
-      button is clicked. The "Play all" button replays every panel
-      simultaneously. Wrap-stress moves (R, R', L, L', U, U', D, D' — anything
-      touching the B face on the unfolded net's right edge) use cross-fade for
-      the wrap stickers; visual quality of that cross-fade is the gate
-      question.
+      Each panel shows the pre-move state on load. Click a "replay" button (or
+      "Play all") to run the cycle: 400 ms hold on the pre-move state, 600 ms
+      animation, settle on the post-move state. Affected edge stickers slide
+      <em>locally</em> per face — old stickers slide outward through the face's
+      active edge while new stickers slide inward through the same edge. No
+      cross-net translation. The turned face's 9 stickers rotate as a group
+      around the face center; corners pop outside the face during rotation
+      (intentionally not clipped).
     </p>
     <div class="play-all-row">
       <button class="primary" id="play-all">Play all</button>
@@ -222,6 +224,46 @@
         ],
       };
 
+      // Active-edge / outward-direction table.
+      // Keyed by `${turnedFace}|${adjacentFace}`. Outward dir is in net
+      // sticker-pixel units (one component non-zero, ±1).
+      // Verified against FACELET_MOVES: e.g. R affects U/F/D right cols
+      // and B left col; F affects U-bottom, R-left, D-top, L-right; etc.
+      // Same table for primed and unprimed moves — only face rotation
+      // direction differs; edges always slide OUT of the active edge.
+      const ACTIVE_EDGE = {
+        // Turned face R
+        "R|U": { edge: "right", dx: 1, dy: 0 },
+        "R|F": { edge: "right", dx: 1, dy: 0 },
+        "R|D": { edge: "right", dx: 1, dy: 0 },
+        "R|B": { edge: "left", dx: -1, dy: 0 },
+        // Turned face L
+        "L|U": { edge: "left", dx: -1, dy: 0 },
+        "L|F": { edge: "left", dx: -1, dy: 0 },
+        "L|D": { edge: "left", dx: -1, dy: 0 },
+        "L|B": { edge: "right", dx: 1, dy: 0 },
+        // Turned face U
+        "U|F": { edge: "top", dx: 0, dy: -1 },
+        "U|R": { edge: "top", dx: 0, dy: -1 },
+        "U|B": { edge: "top", dx: 0, dy: -1 },
+        "U|L": { edge: "top", dx: 0, dy: -1 },
+        // Turned face D
+        "D|F": { edge: "bottom", dx: 0, dy: 1 },
+        "D|R": { edge: "bottom", dx: 0, dy: 1 },
+        "D|B": { edge: "bottom", dx: 0, dy: 1 },
+        "D|L": { edge: "bottom", dx: 0, dy: 1 },
+        // Turned face F
+        "F|U": { edge: "bottom", dx: 0, dy: 1 },
+        "F|R": { edge: "left", dx: -1, dy: 0 },
+        "F|D": { edge: "top", dx: 0, dy: -1 },
+        "F|L": { edge: "right", dx: 1, dy: 0 },
+        // Turned face B
+        "B|U": { edge: "top", dx: 0, dy: -1 },
+        "B|R": { edge: "right", dx: 1, dy: 0 },
+        "B|D": { edge: "bottom", dx: 0, dy: 1 },
+        "B|L": { edge: "left", dx: -1, dy: 0 },
+      };
+
       // Solved facelet: 9 of each face letter in URFDLB order.
       const SOLVED =
         "U".repeat(9) +
@@ -267,16 +309,15 @@
         return { x: col * 3 + c, y: row * 3 + r };
       }
 
-      // Which face does a move turn?
       function turnedFace(move) {
-        return move.charAt(0); // first char is the face letter
+        return move.charAt(0);
       }
 
-      // Rotation angle in degrees (SVG: positive = CW visually).
-      // All unprimed QTM moves rotate the visible face +90° CW in the net;
-      // primes are -90°. Verified by inspecting perm[firstFaceIdx] for each
-      // move (e.g. R perm[9]=15 → sticker started at local (2,0), ends at
-      // (0,0) → CW from outside).
+      // Rotation angle in degrees (SVG: positive = CW visually). All
+      // unprimed QTM moves rotate the turned face +90° CW from outside;
+      // primes are -90°. Verified by inspecting perm[firstFaceIdx] for
+      // each unprimed move (e.g. R perm[9]=15 maps face-local (2,0) →
+      // (0,0), which is CW from outside).
       function moveAngleDeg(move) {
         return move.endsWith("'") ? -90 : 90;
       }
@@ -304,39 +345,49 @@
       }
 
       // ---------------------------------------------------------------
-      // Move kinematics — 21 affected stickers split into face-rotation
-      // (9 stickers belonging to the turned face, animated as a rotating
-      // <g>) + edge-cycle (12 stickers translated from src→dest, with
-      // wrap stickers cross-faded when src OR dest is on the B face).
+      // Move kinematics.
+      //   - faceRotation: 9 stickers on the turned face; rotate the <g>
+      //     by ±90° around the face's net-coords center.
+      //   - edgeSlides: per affected non-turned-face sticker p,
+      //     { p, oldLetter, newLetter, faceLetter, dxPx, dyPx } where
+      //     (dxPx, dyPx) is the outward slide vector (1 sticker-width).
+      //     Old slides FROM (0,0) TO (dxPx,dyPx). New slides FROM
+      //     (-dxPx,-dyPx) TO (0,0). (i.e. new starts 1 sticker outside
+      //     the face boundary on the opposite side of the active edge —
+      //     no, same side: new enters through the same edge old leaves
+      //     through. Outside means offset OUTWARD by 1 sticker, then
+      //     slides INWARD.)
       // ---------------------------------------------------------------
 
-      function computeKinematics(move) {
+      function computeKinematics(move, preFacelet, postFacelet, geo) {
         const perm = FACELET_MOVES[move];
         const turned = turnedFace(move);
         const turnedOff = FACE_OFFSETS[turned];
-        const angleDeg = moveAngleDeg(move);
 
         const faceRotIndices = [];
         for (let i = turnedOff; i < turnedOff + 9; i++) faceRotIndices.push(i);
-
-        // Center of the turned face's 3×3 in net-sticker units.
         const fg = FACE_GRID[turned];
         const centerNetX = fg.col * 3 + 1.5;
         const centerNetY = fg.row * 3 + 1.5;
 
-        // Edge-cycle: each (src=perm[i], dest=i) where src != dest AND not on
-        // the turned face.
-        const edgeCycle = [];
+        const edgeSlides = [];
         for (let i = 0; i < 54; i++) {
           if (perm[i] === i) continue;
-          // Skip face-rotation stickers (i in [turnedOff, turnedOff+9)).
           if (i >= turnedOff && i < turnedOff + 9) continue;
-          const srcIdx = perm[i];
-          const destIdx = i;
-          const srcFace = indexToFaceLocal(srcIdx).face;
-          const destFace = indexToFaceLocal(destIdx).face;
-          const isWrap = srcFace === "B" || destFace === "B";
-          edgeCycle.push({ srcIdx, destIdx, isWrap });
+          const adjacentFace = indexToFaceLocal(i).face;
+          const key = turned + "|" + adjacentFace;
+          const ae = ACTIVE_EDGE[key];
+          if (!ae) {
+            throw new Error("missing ACTIVE_EDGE entry: " + key);
+          }
+          edgeSlides.push({
+            p: i,
+            adjacentFace,
+            oldLetter: preFacelet[i],
+            newLetter: postFacelet[i],
+            dxPx: ae.dx * geo.stickerPx,
+            dyPx: ae.dy * geo.stickerPx,
+          });
         }
 
         return {
@@ -344,152 +395,185 @@
             indices: faceRotIndices,
             centerNetX,
             centerNetY,
-            angleDeg,
+            angleDeg: moveAngleDeg(move),
           },
-          edgeCycle,
+          edgeSlides,
         };
       }
 
       // ---------------------------------------------------------------
-      // Build SVG. We render every sticker as a <rect>; the 9 stickers
-      // belonging to the turned face are wrapped in a <g> we can rotate.
-      // For edge-cycle wraps we render BOTH a source-position rect (fade
-      // out) and a destination-position rect (fade in) — both colored
-      // with the destination color (the sticker's color at the end).
+      // Build SVG. Layers (bottom → top in document order, which is
+      // also paint order):
+      //   1. Static base: 33 unaffected stickers, drawn at canonical
+      //      positions, always visible.
+      //   2. Edge-cycle "old" stickers: 12 rects at canonical positions,
+      //      colored with preFacelet[p], clipped by their face's
+      //      clipPath. Slide outward (1 sticker-width) over t=0..1.
+      //      Hidden during pre-pause (still at offset 0, opacity 1) —
+      //      they ARE the pre-move face stickers on the affected edges.
+      //   3. Edge-cycle "new" stickers: 12 rects, colored with
+      //      postFacelet[p], started 1 sticker-width OUTSIDE the face
+      //      (i.e. at offset −outwardDir × stickerPx), clipped by the
+      //      same face clipPath. Slide INWARD over t=0..1 to reach the
+      //      canonical position. Opacity 0 during pre-pause (so they
+      //      don't leak past the clip into adjacent gap pixels — since
+      //      strokes have width, a fully-clipped rect can still bleed
+      //      a half-pixel; using opacity 0 is cleaner).
+      //   4. Face-rotation <g>: 9 stickers, NOT clipped (corners pop
+      //      out during rotation, intentional). Visible during
+      //      animation, rotates 0 → angleDeg over t=0..1.
+      //   5. Settled overlay: full canonical post-move facelet at
+      //      opacity 0; fades to 1 only after the animation completes,
+      //      replacing layers 2/3/4.
+      //
+      // clipPath: one per affected face (the face's 3×3 net-coords
+      // bounding rect, no margin — strokes already inset by gap/2).
+      // clipPath IDs are namespaced by panelKey to avoid collisions
+      // (we render the same panels twice across light/dark themes).
       // ---------------------------------------------------------------
 
+      let _panelIdCounter = 0;
       function buildPanelSVG(panel, geo) {
         const { preFacelet, move } = panel;
         const postFacelet = applyMove(preFacelet, move);
-        const kine = computeKinematics(move);
+        const kine = computeKinematics(move, preFacelet, postFacelet, geo);
         const turned = turnedFace(move);
         const turnedSet = new Set(kine.faceRotation.indices);
-        const edgeBySrc = new Map();
-        for (const e of kine.edgeCycle) edgeBySrc.set(e.srcIdx, e);
+        // Set of indices that are part of the edge-slide layer (so we
+        // don't double-render them in the static base layer).
+        const edgeSet = new Set(kine.edgeSlides.map((e) => e.p));
+        const panelId = "p" + ++_panelIdCounter;
 
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute("width", String(geo.widthPx));
         svg.setAttribute("height", String(geo.heightPx));
-        svg.setAttribute(
-          "viewBox",
-          `0 0 ${geo.widthPx} ${geo.heightPx}`,
-        );
+        svg.setAttribute("viewBox", `0 0 ${geo.widthPx} ${geo.heightPx}`);
 
-        // Group A: static stickers (unaffected by this move + edge-cycle
-        // SOURCE positions, which we'll render in a separate moving layer).
-        // We render unaffected stickers from the post facelet — they're
-        // identical pre/post, so it doesn't matter which we use.
+        // <defs> + clipPath per face that has at least one edge slide.
+        // We compute the set of affected faces from the slides.
+        const defs = document.createElementNS(svgNS, "defs");
+        const affectedFaces = new Set(kine.edgeSlides.map((e) => e.adjacentFace));
+        for (const face of affectedFaces) {
+          const fg = FACE_GRID[face];
+          const x0 = fg.col * 3 * geo.stickerPx;
+          const y0 = fg.row * 3 * geo.stickerPx;
+          const w = 3 * geo.stickerPx;
+          const h = 3 * geo.stickerPx;
+          const cp = document.createElementNS(svgNS, "clipPath");
+          cp.setAttribute("id", `clip-${panelId}-${face}`);
+          const r = document.createElementNS(svgNS, "rect");
+          r.setAttribute("x", String(x0));
+          r.setAttribute("y", String(y0));
+          r.setAttribute("width", String(w));
+          r.setAttribute("height", String(h));
+          cp.appendChild(r);
+          defs.appendChild(cp);
+        }
+        svg.appendChild(defs);
+
+        // Layer 1: static base — unaffected stickers from the (pre = post)
+        // letters. Pre and post agree on these indices, so either source
+        // works; using preFacelet is simpler.
         const staticG = document.createElementNS(svgNS, "g");
         staticG.setAttribute("data-layer", "static");
-
         for (let i = 0; i < 54; i++) {
-          if (turnedSet.has(i)) continue; // rendered in the rotating group
-          if (edgeBySrc.has(i)) continue; // rendered as moving src/dest
-          // This is also a "destination" if it's the dest of some edge
-          // sticker — but every dest is also some other index's src
-          // (3-cycle of 4-cycles), so the dest entries are covered by the
-          // src-keyed map iteration below. Sanity: every edge-cycle index
-          // appears in both src and dest sets across the 12 entries.
-          const { x, y } = netToPx(
-            indexToNetXY(i).x,
-            indexToNetXY(i).y,
-            geo,
-          );
+          if (turnedSet.has(i)) continue;
+          if (edgeSet.has(i)) continue;
+          const xy = indexToNetXY(i);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
           const letter = preFacelet[i];
           const rect = makeStickerRect(svgNS, x, y, letter, geo, i, "static");
           staticG.appendChild(rect);
         }
         svg.appendChild(staticG);
 
-        // Group B: the rotating face (9 stickers). Built around the face
-        // center so we can apply transform="rotate(angle, cx, cy)".
+        // Layer 2: edge-old stickers. Drawn at canonical p position,
+        // pre-move color, clipped by their face. transform="translate(0,0)"
+        // initially → "translate(dxPx*t, dyPx*t)" while animating.
+        const oldG = document.createElementNS(svgNS, "g");
+        oldG.setAttribute("data-layer", "edge-old");
+        const oldRects = [];
+        for (const e of kine.edgeSlides) {
+          const xy = indexToNetXY(e.p);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const r = makeStickerRect(svgNS, x, y, e.oldLetter, geo, e.p, "edge-old");
+          r.setAttribute("clip-path", `url(#clip-${panelId}-${e.adjacentFace})`);
+          oldG.appendChild(r);
+          oldRects.push({ rect: r, dxPx: e.dxPx, dyPx: e.dyPx });
+        }
+        svg.appendChild(oldG);
+
+        // Layer 3: edge-new stickers. Drawn at canonical p position,
+        // post-move color, clipped by their face. transform initial =
+        // translate(+dxPx, +dyPx) — one sticker-width OUTWARD past
+        // the active edge (same direction old will slide). Animating →
+        // translate(dxPx*(1-t), dyPx*(1-t)) → settles at (0,0). New
+        // and old slide in the SAME direction; new just starts one
+        // sticker ahead of the action and arrives at canonical when
+        // old has fully exited. Visually: stickers leave through the
+        // active edge as new ones enter through the same edge from
+        // outside.
+        const newG = document.createElementNS(svgNS, "g");
+        newG.setAttribute("data-layer", "edge-new");
+        const newRects = [];
+        for (const e of kine.edgeSlides) {
+          const xy = indexToNetXY(e.p);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const r = makeStickerRect(svgNS, x, y, e.newLetter, geo, e.p, "edge-new");
+          r.setAttribute("clip-path", `url(#clip-${panelId}-${e.adjacentFace})`);
+          // Initial: parked outside the active edge — invisible (clipped).
+          r.setAttribute("transform", `translate(${e.dxPx}, ${e.dyPx})`);
+          newG.appendChild(r);
+          newRects.push({ rect: r, dxPx: e.dxPx, dyPx: e.dyPx });
+        }
+        svg.appendChild(newG);
+
+        // Layer 4: face-rotation group. 9 stickers, rotate around face
+        // center. NOT clipped (corner stickers legitimately pop outside
+        // the 3×3 face area mid-rotation; that's the visual cue this is
+        // a face turn, not a slide).
         const rotG = document.createElementNS(svgNS, "g");
         rotG.setAttribute("data-layer", "rotation");
-        const cPx = netToPx(kine.faceRotation.centerNetX, kine.faceRotation.centerNetY, geo);
+        const rotCenterPx = netToPx(
+          kine.faceRotation.centerNetX,
+          kine.faceRotation.centerNetY,
+          geo,
+        );
         for (const i of kine.faceRotation.indices) {
-          const { x: nx, y: ny } = indexToNetXY(i);
-          const { x, y } = netToPx(nx, ny, geo);
-          const letter = preFacelet[i];
-          const rect = makeStickerRect(svgNS, x, y, letter, geo, i, "rot");
-          rotG.appendChild(rect);
+          const xy = indexToNetXY(i);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const r = makeStickerRect(svgNS, x, y, preFacelet[i], geo, i, "rot");
+          rotG.appendChild(r);
         }
+        rotG.setAttribute(
+          "transform",
+          `rotate(0, ${rotCenterPx.x}, ${rotCenterPx.y})`,
+        );
         svg.appendChild(rotG);
 
-        // Group C: edge-cycle moving stickers. For each (src, dest):
-        //   - non-wrap: ONE rect rendered at src (translates to dest).
-        //   - wrap:     TWO rects — src-position fading 1→0,
-        //               dest-position fading 0→1.
-        // Color is the destination color (post-move). Both rects on a
-        // wrap pair share that color so the fade reads as "the same
-        // sticker teleporting via cross-fade."
-        const edgeG = document.createElementNS(svgNS, "g");
-        edgeG.setAttribute("data-layer", "edge");
-
-        const edgeSprites = [];
-        for (const e of kine.edgeCycle) {
-          // Color is the value of preFacelet[srcIdx] (== postFacelet[destIdx]).
-          const letter = preFacelet[e.srcIdx];
-          const srcXY = indexToNetXY(e.srcIdx);
-          const destXY = indexToNetXY(e.destIdx);
-          const srcPx = netToPx(srcXY.x, srcXY.y, geo);
-          const destPx = netToPx(destXY.x, destXY.y, geo);
-
-          if (e.isWrap) {
-            const rectOut = makeStickerRect(
-              svgNS, srcPx.x, srcPx.y, letter, geo, e.srcIdx, "edge-out");
-            const rectIn = makeStickerRect(
-              svgNS, destPx.x, destPx.y, letter, geo, e.destIdx, "edge-in");
-            rectIn.setAttribute("opacity", "0");
-            edgeG.appendChild(rectOut);
-            edgeG.appendChild(rectIn);
-            edgeSprites.push({
-              kind: "wrap",
-              rectOut,
-              rectIn,
-            });
-          } else {
-            const rect = makeStickerRect(
-              svgNS, srcPx.x, srcPx.y, letter, geo, e.srcIdx, "edge");
-            edgeG.appendChild(rect);
-            edgeSprites.push({
-              kind: "translate",
-              rect,
-              dx: destPx.x - srcPx.x,
-              dy: destPx.y - srcPx.y,
-            });
-          }
-        }
-        svg.appendChild(edgeG);
-
-        // Settled-state overlay: rects positioned at every dest, colored
-        // with the post-move letter. Hidden (opacity 0) during animation;
-        // when t → 1 we hide the rotating + edge groups and show this so
-        // the cube settles cleanly to the canonical post-move state.
-        // (In practice cross-fade reaches dest opacity 1 and rotation
-        // reaches the right angle, so they look identical — but anchoring
-        // the settle to the canonical static rendering avoids any
-        // accumulated float drift.)
+        // Layer 5: settled overlay — full canonical post-move facelet.
+        // Hidden until t=1; then we hide layers 2/3/4 and reveal this
+        // so the cube settles to the same pixels FlatCubeRenderer would
+        // produce for postFacelet.
         const settledG = document.createElementNS(svgNS, "g");
         settledG.setAttribute("data-layer", "settled");
         settledG.setAttribute("opacity", "0");
         settledG.style.pointerEvents = "none";
         for (let i = 0; i < 54; i++) {
-          const { x: nx, y: ny } = indexToNetXY(i);
-          const { x, y } = netToPx(nx, ny, geo);
-          const letter = postFacelet[i];
-          const rect = makeStickerRect(svgNS, x, y, letter, geo, i, "settled");
-          settledG.appendChild(rect);
+          const xy = indexToNetXY(i);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const r = makeStickerRect(
+            svgNS, x, y, postFacelet[i], geo, i, "settled");
+          settledG.appendChild(r);
         }
         svg.appendChild(settledG);
 
         return {
           svg,
-          rotG,
-          edgeG,
-          edgeSprites,
-          settledG,
-          rotCenterPx: cPx,
+          oldG, newG, rotG, settledG,
+          oldRects, newRects,
+          rotCenterPx,
           angleDeg: kine.faceRotation.angleDeg,
         };
       }
@@ -511,77 +595,117 @@
       }
 
       // ---------------------------------------------------------------
-      // Per-panel animation runtime.
+      // Per-panel runtime: pre-pause → animate → settle.
+      //   - hold for HOLD_MS at pre-move state (full pre-move visible:
+      //     base + old stickers at offset 0 + rot at angle 0; new
+      //     stickers parked outside, opacity 0).
+      //   - animate ANIM_MS with eased t.
+      //   - settle: replace animated layers with the static post-move
+      //     overlay.
+      // No auto-play; only triggered by button.
       // ---------------------------------------------------------------
 
-      const DURATION_MS = 600;
+      const HOLD_MS = 400;
+      const ANIM_MS = 600;
 
       function easeOutCubic(t) {
         return 1 - Math.pow(1 - t, 3);
       }
 
-      function startAnimation(panelState) {
-        // Reset to t=0 visual state.
-        const { built } = panelState;
-        built.settledG.setAttribute("opacity", "0");
-        built.rotG.setAttribute("opacity", "1");
-        built.edgeG.setAttribute("opacity", "1");
+      function setPreMoveState(built) {
+        // Pre-move = old stickers at canonical pos, new stickers parked
+        // outside (invisible to the eye since they're past the clip,
+        // but we also opacity 0 to dodge any subpixel stroke leak),
+        // rotation at angle 0, settled overlay hidden.
+        for (const o of built.oldRects) {
+          o.rect.setAttribute("transform", "translate(0, 0)");
+          o.rect.setAttribute("opacity", "1");
+        }
+        for (const n of built.newRects) {
+          n.rect.setAttribute(
+            "transform", `translate(${n.dxPx}, ${n.dyPx})`);
+          n.rect.setAttribute("opacity", "0");
+        }
         built.rotG.setAttribute(
           "transform",
           `rotate(0, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
         );
-        for (const sprite of built.edgeSprites) {
-          if (sprite.kind === "translate") {
-            sprite.rect.setAttribute("transform", "translate(0, 0)");
-          } else {
-            sprite.rectOut.setAttribute("opacity", "1");
-            sprite.rectIn.setAttribute("opacity", "0");
-          }
+        built.rotG.setAttribute("opacity", "1");
+        built.oldG.setAttribute("opacity", "1");
+        built.newG.setAttribute("opacity", "1");
+        built.settledG.setAttribute("opacity", "0");
+      }
+
+      function setSettledState(built) {
+        built.oldG.setAttribute("opacity", "0");
+        built.newG.setAttribute("opacity", "0");
+        built.rotG.setAttribute("opacity", "0");
+        built.settledG.setAttribute("opacity", "1");
+      }
+
+      function applyAnimationFrame(built, t) {
+        // Old stickers: slide outward by t × stickerWidth.
+        for (const o of built.oldRects) {
+          const tx = o.dxPx * t;
+          const ty = o.dyPx * t;
+          o.rect.setAttribute("transform", `translate(${tx}, ${ty})`);
         }
-        panelState.startTime = performance.now();
-        if (panelState.rafId == null) {
+        // New stickers: start at (+dx, +dy) (outside the active edge),
+        // end at (0, 0). transform = translate(dx*(1-t), dy*(1-t)).
+        for (const n of built.newRects) {
+          const tx = n.dxPx * (1 - t);
+          const ty = n.dyPx * (1 - t);
+          n.rect.setAttribute("transform", `translate(${tx}, ${ty})`);
+          n.rect.setAttribute("opacity", "1");
+        }
+        // Rotation.
+        const angle = built.angleDeg * t;
+        built.rotG.setAttribute(
+          "transform",
+          `rotate(${angle}, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
+        );
+      }
+
+      function startCycle(panelState) {
+        // Always reset to pre-move and run the full hold→animate→settle
+        // cycle on every click. If a previous cycle is in flight, cancel
+        // its RAF and timer so we don't get overlapping schedules.
+        if (panelState.rafId != null) {
+          cancelAnimationFrame(panelState.rafId);
+          panelState.rafId = null;
+        }
+        if (panelState.holdTimer != null) {
+          clearTimeout(panelState.holdTimer);
+          panelState.holdTimer = null;
+        }
+
+        const { built } = panelState;
+        setPreMoveState(built);
+
+        panelState.holdTimer = setTimeout(() => {
+          panelState.holdTimer = null;
+          const startTime = performance.now();
           const tick = (now) => {
-            const elapsed = now - panelState.startTime;
-            const tRaw = Math.min(1, elapsed / DURATION_MS);
+            const elapsed = now - startTime;
+            const tRaw = Math.min(1, elapsed / ANIM_MS);
             const t = easeOutCubic(tRaw);
             applyAnimationFrame(built, t);
             if (tRaw >= 1) {
-              // Settle: swap to canonical post-move static rendering.
-              built.rotG.setAttribute("opacity", "0");
-              built.edgeG.setAttribute("opacity", "0");
-              built.settledG.setAttribute("opacity", "1");
+              setSettledState(built);
               panelState.rafId = null;
               return;
             }
             panelState.rafId = requestAnimationFrame(tick);
           };
           panelState.rafId = requestAnimationFrame(tick);
-        }
-      }
-
-      function applyAnimationFrame(built, t) {
-        const angle = built.angleDeg * t;
-        built.rotG.setAttribute(
-          "transform",
-          `rotate(${angle}, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
-        );
-        for (const sprite of built.edgeSprites) {
-          if (sprite.kind === "translate") {
-            const tx = sprite.dx * t;
-            const ty = sprite.dy * t;
-            sprite.rect.setAttribute("transform", `translate(${tx}, ${ty})`);
-          } else {
-            sprite.rectOut.setAttribute("opacity", String(1 - t));
-            sprite.rectIn.setAttribute("opacity", String(t));
-          }
-        }
+        }, HOLD_MS);
       }
 
       // ---------------------------------------------------------------
-      // Panel definitions. Mid-scramble facelet uses a deterministic
-      // 10-move alg: U R F' L' B U' R' F D' L (no special significance —
-      // chosen to involve every face at least once so the resulting
-      // facelet is colorful and unfamiliar).
+      // Panels.
+      // Mid-scramble facelet: deterministic 10-move alg
+      // U R F' L' B U' R' F D' L (involves every face; arbitrary
+      // otherwise — chosen for visual variety on the last two panels).
       // ---------------------------------------------------------------
 
       const SCRAMBLE_ALG = ["U", "R", "F'", "L'", "B", "U'", "R'", "F", "D'", "L"];
@@ -606,10 +730,6 @@
           move: "U",
         },
       ];
-
-      // ---------------------------------------------------------------
-      // Mount: build both theme rows.
-      // ---------------------------------------------------------------
 
       const SIZE_PX = 220;
       const allPanelStates = [];
@@ -636,34 +756,39 @@
           const built = buildPanelSVG(panelDef, geo);
           host.appendChild(built.svg);
 
+          // Initial render = pre-move static state. No auto-play.
+          setPreMoveState(built);
+
           const replay = document.createElement("button");
           replay.className = "replay-btn";
           replay.textContent = "replay " + panelDef.alg;
           panel.appendChild(replay);
 
-          const state = { built, startTime: 0, rafId: null };
-          replay.addEventListener("click", () => startAnimation(state));
+          const state = {
+            built,
+            rafId: null,
+            holdTimer: null,
+          };
+          replay.addEventListener("click", () => startCycle(state));
           themeContainer.appendChild(panel);
           allPanelStates.push(state);
         }
       }
 
       function escapeHTML(s) {
-        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return s
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
       }
 
-      document
-        .querySelectorAll(".grid")
-        .forEach((g) => mountTheme(g));
+      document.querySelectorAll(".grid").forEach((g) => mountTheme(g));
 
       document.getElementById("play-all").addEventListener("click", () => {
-        for (const s of allPanelStates) startAnimation(s);
+        for (const s of allPanelStates) startCycle(s);
       });
 
-      // Auto-play once on load so the page is alive when first opened.
-      window.addEventListener("load", () => {
-        for (const s of allPanelStates) startAnimation(s);
-      });
+      // No auto-play. Page loads to pre-move static state.
     </script>
   </body>
 </html>
