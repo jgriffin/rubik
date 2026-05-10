@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TwistyPlayer wrapper preview</title>
+  <!--
+    Static preview for TwistyPlayerWrapper.tsx (M9.2 P0)
+    -------------------------------------------
+    How to view: open web/preview/twisty-player.html
+
+    Loads cubing.js straight from the CDN — no build step, no app
+    dependency. Confirms the static-mode flicker (research pitfall #2):
+    if mount shows the pre-alg state for one frame before settling on
+    the post-alg state, we'll need an opacity-on-mount dance in the
+    React wrapper.
+
+    Differs from production wrapper (TwistyPlayerWrapper.tsx) in that
+    we drop in `<twisty-player>` declaratively instead of imperative
+    `new TwistyPlayer(config)`. Same attributes, same modes — the
+    static recipe is `experimental-setup-alg=<scramble>` +
+    `experimental-setup-anchor="end"` + `alg=<sol[:N]>` +
+    `tempo-scale="0"` + `control-panel="none"` +
+    `pointer-events: none`.
+
+    Layout: light + dark theme panes; sizes 90 / 130 / 220 px; states
+    solved + length-7 + length-20 scramble.
+  -->
+  <script type="module"
+          src="https://cdn.cubing.net/v0/js/cubing/twisty"></script>
+  <style>
+    :root {
+      --bg-light: #f3efe6;
+      --paper-light: #fbf8f1;
+      --ink-light: #131210;
+      --rule-light: #d9d2c2;
+      --bg-dark: #1a1815;
+      --paper-dark: #252220;
+      --ink-dark: #f3efe6;
+      --rule-dark: #3a3530;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-serif, "Fraunces", Georgia, serif;
+      font-feature-settings: "ss01" 1;
+    }
+
+    .pane {
+      padding: 2rem 2.5rem 3rem;
+    }
+    .pane.light {
+      background: var(--bg-light);
+      color: var(--ink-light);
+      --paper: var(--paper-light);
+      --rule: var(--rule-light);
+    }
+    .pane.dark {
+      background: var(--bg-dark);
+      color: var(--ink-dark);
+      --paper: var(--paper-dark);
+      --rule: var(--rule-dark);
+    }
+
+    .pane-header {
+      font-style: italic;
+      font-weight: 400;
+      font-size: 1.4rem;
+      letter-spacing: 0.01em;
+      margin: 0 0 0.5rem 0;
+    }
+
+    .pane-sub {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.78rem;
+      opacity: 0.6;
+      margin: 0 0 1.75rem 0;
+      letter-spacing: 0.04em;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, max-content);
+      column-gap: 2rem;
+      row-gap: 2rem;
+      align-items: end;
+    }
+
+    .cell {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 1rem 1rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    /* Static-mode cards: disable drag-rotate, matching the production
+       wrapper's CSS-only mute of pointer events. */
+    .cell.static twisty-player {
+      pointer-events: none;
+    }
+
+    .label {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      opacity: 0.7;
+      text-align: center;
+    }
+
+    .section {
+      margin-top: 2rem;
+    }
+    .section-header {
+      font-style: italic;
+      font-size: 1rem;
+      margin: 0 0 0.75rem 0;
+      opacity: 0.85;
+    }
+
+    .animated-stage {
+      display: flex;
+      justify-content: flex-start;
+    }
+  </style>
+</head>
+<body>
+
+<div class="pane light">
+  <h1 class="pane-header">twisty-player wrapper — cubing.js stock palette</h1>
+  <p class="pane-sub">light theme · static + animated · 3 states × 3 sizes</p>
+
+  <div class="section">
+    <h2 class="section-header">static mode — tempo-scale=0, control-panel=none, pointer-events: none</h2>
+    <div class="grid" id="grid-static-light"></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-header">animated mode — default control panel, scrubber + play</h2>
+    <div class="animated-stage" id="anim-light"></div>
+  </div>
+</div>
+
+<div class="pane dark">
+  <h1 class="pane-header">twisty-player wrapper — cubing.js stock palette</h1>
+  <p class="pane-sub">dark theme · static + animated · 3 states × 3 sizes</p>
+
+  <div class="section">
+    <h2 class="section-header">static mode — tempo-scale=0, control-panel=none, pointer-events: none</h2>
+    <div class="grid" id="grid-static-dark"></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-header">animated mode — default control panel, scrubber + play</h2>
+    <div class="animated-stage" id="anim-dark"></div>
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------------------------
+  // States: solved, length-7, length-20. Scrambles are stable inline strings
+  // (not generated) so the preview is deterministic across reloads.
+  // ---------------------------------------------------------------------------
+  const SCRAMBLE_LEN0 = ""; // solved
+  const SCRAMBLE_LEN7 = "R U R' U' F R B'";
+  const SCRAMBLE_LEN20 =
+    "R U R' U' F R B' L D F' B U' D' L' F R' U L D B";
+
+  const STATES = [
+    { label: "solved", scramble: SCRAMBLE_LEN0 },
+    { label: "len 7", scramble: SCRAMBLE_LEN7 },
+    { label: "len 20", scramble: SCRAMBLE_LEN20 },
+  ];
+  const SIZES = [90, 130, 220];
+
+  function makeStaticCell(state, sizePx) {
+    const cell = document.createElement("div");
+    cell.className = "cell static";
+
+    const tp = document.createElement("twisty-player");
+    tp.setAttribute("puzzle", "3x3x3");
+    tp.setAttribute("experimental-setup-alg", state.scramble);
+    tp.setAttribute("experimental-setup-anchor", "end");
+    tp.setAttribute("alg", "");
+    tp.setAttribute("control-panel", "none");
+    tp.setAttribute("background", "none");
+    tp.setAttribute("back-view", "none");
+    tp.setAttribute("tempo-scale", "0");
+    tp.setAttribute("hint-facelets", "none");
+    tp.style.width = sizePx + "px";
+    tp.style.height = sizePx + "px";
+
+    cell.appendChild(tp);
+
+    const lbl = document.createElement("div");
+    lbl.className = "label";
+    lbl.textContent = state.label + " · " + sizePx + "px";
+    cell.appendChild(lbl);
+
+    return cell;
+  }
+
+  function renderStaticGrid(targetId) {
+    const target = document.getElementById(targetId);
+    for (const sz of SIZES) {
+      for (const st of STATES) {
+        target.appendChild(makeStaticCell(st, sz));
+      }
+    }
+  }
+
+  function makeAnimatedStage(targetId) {
+    const target = document.getElementById(targetId);
+    const cell = document.createElement("div");
+    cell.className = "cell";
+
+    const tp = document.createElement("twisty-player");
+    tp.setAttribute("puzzle", "3x3x3");
+    tp.setAttribute("experimental-setup-alg", SCRAMBLE_LEN20);
+    tp.setAttribute("experimental-setup-anchor", "end");
+    // A plausible-looking solve sequence for the eyeball test. Not actually
+    // a solution to SCRAMBLE_LEN20 — we just need movement on the play
+    // button to confirm animation works.
+    tp.setAttribute("alg", "B' D' L' U R F B U D F B U D F R");
+    tp.setAttribute("background", "none");
+    tp.setAttribute("back-view", "none");
+    tp.setAttribute("hint-facelets", "none");
+    tp.style.width = "360px";
+    tp.style.height = "360px";
+
+    cell.appendChild(tp);
+
+    const lbl = document.createElement("div");
+    lbl.className = "label";
+    lbl.textContent = "animated · 360px · click play";
+    cell.appendChild(lbl);
+
+    target.appendChild(cell);
+  }
+
+  renderStaticGrid("grid-static-light");
+  renderStaticGrid("grid-static-dark");
+  makeAnimatedStage("anim-light");
+  makeAnimatedStage("anim-dark");
+</script>
+</body>
+</html>

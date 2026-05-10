@@ -1,6 +1,7 @@
-// Single source of truth for the chrome palette + face offsets shared by
-// FlatCubeRenderer and IsoCubeRenderer. Keep both renderers wired through
-// here so the palette is a one-change tweak.
+// Single source of truth for the chrome palette + face offsets consumed
+// by FlatCubeRenderer (the sole consumer; 3D contexts use cubing.js's
+// stock palette, which has no public override API). Keep the renderer
+// wired through here so the palette is a one-change tweak.
 
 // Chrome palette — designer-tuned, slightly muted vs speedcube classic.
 export const COLOR_FOR_LETTER: Record<string, string> = {
@@ -22,5 +23,5 @@ export const FACE_OFFSETS: Record<string, number> = {
   B: 45,
 };
 
-// Ink stroke for sticker outlines. Used by both renderers.
+// Ink stroke for sticker outlines.
 export const INK_STROKE = "#131210";
