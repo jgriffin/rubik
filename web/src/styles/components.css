@@ -379,6 +379,24 @@
   height: auto;
 }
 
+/* Dual (split) render mode — flat + iso side-by-side. Iso's projected
+ * height is taller than flat's net, so center vertically. Hardcoded gap
+ * (no spacing token defined in tokens.css). */
+.render-pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.render-pair > svg {
+  display: block;
+}
+/* Tighten the gap at cols=6 — at 60px each, 12px reads as too much
+ * negative space relative to the cubes themselves. */
+.sol-grid.cols-6 .render-pair {
+  gap: 8px;
+}
+
 /* Per-column overrides ---------------------------------------------- */
 .sol-grid.cols-2 .sol-cell .move-glyph {
   font-size: 32px;

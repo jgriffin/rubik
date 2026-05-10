@@ -19,9 +19,8 @@ test.describe("solution grid — toggles + card selection", () => {
     );
   });
 
-  test("v2 toggles still disabled (1-column, split)", async ({ page }) => {
+  test("v2 toggles still disabled (1-column)", async ({ page }) => {
     await expect(page.getByTestId("columns-1")).toBeDisabled();
-    await expect(page.getByTestId("render-mode-dual")).toBeDisabled();
   });
 
   test("3D toggle swaps renderer between flat (rect[data-pos]) and iso (polygon[data-face])", async ({
@@ -50,6 +49,33 @@ test.describe("solution grid — toggles + card selection", () => {
     await expect(page.getByTestId("render-mode-net")).toHaveClass(/on/);
     await expect(card.locator("rect[data-pos]")).toHaveCount(54);
     await expect(card.locator("polygon[data-face]")).toHaveCount(0);
+  });
+
+  test("split toggle renders both flat and iso side-by-side", async ({
+    page,
+  }) => {
+    const card = page.getByTestId("sol-card-0");
+    await expect(card).toBeVisible();
+
+    // Click split.
+    await page.getByTestId("render-mode-dual").click();
+    await expect(page.getByTestId("render-mode-dual")).toHaveClass(/on/);
+
+    // Both pair-testid renderers are present.
+    await expect(card.getByTestId("flat-cube-pair")).toBeVisible();
+    await expect(card.getByTestId("iso-cube-pair")).toBeVisible();
+
+    // The card carries both flat rects and iso polygons.
+    await expect(card.locator("rect[data-pos]")).toHaveCount(54);
+    await expect(card.locator("polygon[data-face]")).toHaveCount(27);
+
+    // Toggle back to net — pair testids gone, only flat rects remain.
+    await page.getByTestId("render-mode-net").click();
+    await expect(page.getByTestId("render-mode-net")).toHaveClass(/on/);
+    await expect(card.getByTestId("flat-cube-pair")).toHaveCount(0);
+    await expect(card.getByTestId("iso-cube-pair")).toHaveCount(0);
+    await expect(card.locator("polygon[data-face]")).toHaveCount(0);
+    await expect(card.locator("rect[data-pos]")).toHaveCount(54);
   });
 
   test("clicking the start card sets it active", async ({ page }) => {

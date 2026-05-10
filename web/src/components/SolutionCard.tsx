@@ -54,8 +54,20 @@ export default function SolutionCard({
         <div className="net">
           {renderMode === "iso" ? (
             <IsoCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
+          ) : renderMode === "dual" ? (
+            <div className="render-pair">
+              <FlatCubeRenderer
+                facelet={facelet}
+                sizePx={sizePx}
+                testId="flat-cube-pair"
+              />
+              <IsoCubeRenderer
+                facelet={facelet}
+                sizePx={sizePx}
+                testId="iso-cube-pair"
+              />
+            </div>
           ) : (
-            // net mode + dual fallthrough (dual handled in Phase 3)
             <FlatCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
           )}
         </div>
