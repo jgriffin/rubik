@@ -1,11 +1,14 @@
 import FlatCubeRenderer from "./FlatCubeRenderer";
 import IsoCubeRenderer from "./IsoCubeRenderer";
+import TwistyPlayerWrapper from "./TwistyPlayerWrapper";
 import type { RenderMode } from "./SolutionGrid";
 
 type Props = {
   stepNum: number;
   moveLabel: string | null;
   facelet: string;
+  scrambleAlg: string;
+  solution: string[] | null;
   sizePx: number;
   renderMode: RenderMode;
   isStart: boolean;
@@ -17,6 +20,8 @@ export default function SolutionCard({
   stepNum,
   moveLabel,
   facelet,
+  scrambleAlg,
+  solution,
   sizePx,
   renderMode,
   isStart,
@@ -53,7 +58,13 @@ export default function SolutionCard({
       <div className="render">
         <div className="net">
           {renderMode === "iso" ? (
-            <IsoCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
+            <TwistyPlayerWrapper
+              mode="static"
+              scrambleAlg={scrambleAlg}
+              solutionAlg={(solution ?? []).slice(0, stepNum).join(" ")}
+              sizePx={sizePx}
+              testId="twisty-cube"
+            />
           ) : renderMode === "dual" ? (
             <div className="render-pair">
               <FlatCubeRenderer

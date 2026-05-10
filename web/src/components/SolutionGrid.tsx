@@ -8,6 +8,7 @@ export type RenderMode = "net" | "iso" | "dual";
 
 type Props = {
   scrambleState: string;
+  scrambleMoves: MoveStr[];
   solution: string[] | null;
   isSolving: boolean;
   cols: Cols;
@@ -36,6 +37,7 @@ const DUAL_SIZE_BY_COLS: Record<Cols, number> = {
 
 export default function SolutionGrid({
   scrambleState,
+  scrambleMoves,
   solution,
   isSolving,
   cols,
@@ -43,6 +45,12 @@ export default function SolutionGrid({
   activeIdx,
   onActiveChange,
 }: Props) {
+  // Joined scramble alg, used by twisty-player as the static-mode setup-alg.
+  // Each card receives the full `solution` array and slices for its step,
+  // so the prefix passed to twisty-player matches the per-card facelet
+  // already computed below.
+  const scrambleAlg = scrambleMoves.join(" ");
+
   // Memoize per-step facelet snapshots so changing activeIdx doesn't
   // re-walk the whole solution.
   const states = useMemo(() => {
@@ -71,6 +79,8 @@ export default function SolutionGrid({
         stepNum={0}
         moveLabel={null}
         facelet={states[0]}
+        scrambleAlg={scrambleAlg}
+        solution={solution}
         sizePx={sizePx}
         renderMode={renderMode}
         isStart
@@ -83,6 +93,8 @@ export default function SolutionGrid({
           stepNum={i + 1}
           moveLabel={m}
           facelet={states[i + 1]}
+          scrambleAlg={scrambleAlg}
+          solution={solution}
           sizePx={sizePx}
           renderMode={renderMode}
           isStart={false}

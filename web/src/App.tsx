@@ -169,6 +169,7 @@ export default function App() {
       />
       <SolutionGrid
         scrambleState={scrambleState}
+        scrambleMoves={scrambleMoves}
         solution={solution}
         isSolving={isSolving}
         cols={cols}
