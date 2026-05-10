@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import FlatCubeRenderer from "./components/FlatCubeRenderer";
-import ScrambleControls from "./components/ScrambleControls";
 import SolveButton from "./components/SolveButton";
 import MoveList from "./components/MoveList";
 import StepControls from "./components/StepControls";
-import StateField from "./components/StateField";
 import MovesField from "./components/MovesField";
 import MoveStripView from "./components/MoveStripView";
 import Wordmark from "./components/Wordmark";
 import CubeSizeSwitch from "./components/CubeSizeSwitch";
 import SolvedFooter from "./components/SolvedFooter";
+import SectionHeader from "./components/SectionHeader";
+import StateGrid from "./components/StateGrid";
+import LengthPack from "./components/LengthPack";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
@@ -36,9 +37,8 @@ export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
-  // The post-scramble entry; doesn't change as the user steps through
-  // the solution. Replaced on every Scramble click.
   const [scrambleState, setScrambleState] = useState<string>(SOLVED_3X3);
+  const [scrambleLength, setScrambleLength] = useState<number>(14);
   const [solution, setSolution] = useState<string[] | null>(null);
   const [solved, setSolved] = useState<boolean | null>(null);
   const [solveStats, setSolveStats] = useState<SolveStats | null>(null);
@@ -46,7 +46,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [stripSize, setStripSize] = useState<StripSize>("medium");
-  // 2×2 toggle is local UI state in v1; backend wiring lives in a later phase.
   const [cubeSize, setCubeSize] = useState<2 | 3>(3);
 
   useEffect(() => {
@@ -55,14 +54,18 @@ export default function App() {
       .catch((e) => setHealthError(String(e)));
   }, []);
 
-  async function handleScramble(length: number) {
-    setError(null);
+  function resetSolveState() {
     setSolution(null);
     setSolved(null);
     setSolveStats(null);
     setStepIdx(0);
+  }
+
+  async function handleScramble() {
+    setError(null);
+    resetSolveState();
     try {
-      const r = await apiScramble({ length });
+      const r = await apiScramble({ length: scrambleLength });
       setScrambleState(r.state);
     } catch (e) {
       setError(String(e));
@@ -85,12 +88,15 @@ export default function App() {
     }
   }
 
+  function handleClear() {
+    setError(null);
+    resetSolveState();
+    setScrambleState(SOLVED_3X3);
+  }
+
   function handleSetState(newState: string) {
     setError(null);
-    setSolution(null);
-    setSolved(null);
-    setSolveStats(null);
-    setStepIdx(0);
+    resetSolveState();
     setScrambleState(newState);
   }
 
@@ -102,7 +108,6 @@ export default function App() {
     setSolveStats(null);
   }
 
-  // Server emits valid Singmaster strings — cast is safe in M9.1.
   const displayedState = useMemo(() => {
     if (!solution || solution.length === 0) return scrambleState;
     return applyMoves(scrambleState, solution.slice(0, stepIdx) as MoveStr[]);
@@ -120,25 +125,48 @@ export default function App() {
         </div>
       </header>
 
-      {/* TOP: state + moves text fields. */}
+      {/* Section i — starting state */}
+      <SectionHeader
+        roman="i."
+        name="starting state"
+        right={
+          <>
+            <button
+              type="button"
+              className="link-btn"
+              data-testid="clear-button"
+              onClick={handleClear}
+              disabled={!ready || isSolving}
+              title="reset to solved cube"
+            >
+              clear
+            </button>
+            <span className="scramble-divider" />
+            <LengthPack
+              length={scrambleLength}
+              onLengthChange={setScrambleLength}
+              onScramble={handleScramble}
+              disabled={!ready || isSolving}
+            />
+          </>
+        }
+      />
+      <StateGrid state={scrambleState} onStateChange={handleSetState} />
+
+      {/* Transitional: solve trigger + moves textarea + strip + animation player.
+          Section ii (Phase 3) replaces MovesField; section iii (Phase 4) absorbs Solve
+          into its header and replaces MoveStripView/StepControls/MoveList. */}
+      <div style={{ display: "flex", gap: "0.5rem", margin: "1.5rem 0 1rem" }}>
+        <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
+      </div>
       <div style={{ display: "flex", gap: "1rem", margin: "1rem 0", flexWrap: "wrap" }}>
-        <StateField
-          key={scrambleState}
-          scrambleState={scrambleState}
-          onSetState={handleSetState}
-        />
         <MovesField
           key={solution === null ? "null" : solution.join(" ")}
           solution={solution}
           onSetMoves={handleSetMoves}
         />
       </div>
-      {/* Action zone: scramble + solve. */}
-      <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
-        <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
-        <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
-      </div>
-      {/* Strip cube-size selector — between actions and the strip. */}
+
       <div
         data-testid="strip-size-controls"
         style={{
@@ -181,7 +209,6 @@ export default function App() {
           </button>
         ))}
       </div>
-      {/* Primary visualization: per-move strip. */}
       <MoveStripView
         scrambleState={scrambleState}
         solution={solution}
@@ -189,7 +216,6 @@ export default function App() {
         onJumpTo={setStepIdx}
         cubeSize={STRIP_SIZES[stripSize]}
       />
-      {/* Secondary animation player — demoted visual weight. */}
       <section>
         <h2
           style={{

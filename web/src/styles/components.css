@@ -67,6 +67,197 @@
   opacity: 0.4;
 }
 
+/* Section header (i. ii. iii.) -------------------------------------- */
+.lbl {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 10px;
+}
+.lbl .roman {
+  font-family: "Fraunces", Georgia, serif;
+  font-style: italic;
+  color: var(--accent);
+  font-size: 16px;
+}
+.lbl .name {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.lbl .right {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Link-style text button (clear, etc.) ------------------------------- */
+.link-btn {
+  background: transparent;
+  border: 0;
+  padding: 0 6px;
+  cursor: pointer;
+  color: var(--dim);
+  font: inherit;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.link-btn:hover {
+  color: var(--accent);
+}
+.link-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.scramble-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--rule);
+  flex: 0 0 auto;
+  display: inline-block;
+}
+
+/* Length pack chip (scramble + slider + value) ---------------------- */
+.length-pack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: 28px;
+  padding: 0 10px 0 0;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+.length-pack-btn {
+  height: 100%;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-right: 1px solid var(--rule);
+}
+.length-pack-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+.length-pack-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.length-pack .val {
+  font-family: "Fraunces", Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink);
+  min-width: 18px;
+  text-align: right;
+}
+
+/* Native range styled to match the reference's custom slider --------- */
+.length-pack-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 90px;
+  height: 18px;
+  background: transparent;
+  margin: 0 10px;
+  cursor: pointer;
+}
+.length-pack-slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.length-pack-slider::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--rule);
+  border: 0;
+}
+.length-pack-slider::-moz-range-track {
+  height: 1px;
+  background: var(--rule);
+  border: 0;
+}
+.length-pack-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -5px;
+  background: var(--paper);
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.length-pack-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  background: var(--paper);
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Section i — state grid -------------------------------------------- */
+.state-line {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 16px;
+  padding: 8px 0 4px;
+}
+.state-chunk {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.state-chunk input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 16px;
+  line-height: 1.1;
+  letter-spacing: 0.25em;
+  color: var(--ink);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rule);
+  caret-color: var(--accent);
+  text-align: center;
+}
+.state-chunk input:focus {
+  outline: 0;
+  border-bottom-color: var(--accent);
+}
+.state-chunk .face-tag {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.state-chunk .face-tag em {
+  font-family: "Fraunces", Georgia, serif;
+  font-style: italic;
+  color: var(--accent);
+  font-size: 13px;
+}
+
 /* Solved footer ------------------------------------------------------ */
 .summary {
   display: flex;
