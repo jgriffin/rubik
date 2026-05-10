@@ -1,10 +1,13 @@
 import FlatCubeRenderer from "./FlatCubeRenderer";
+import IsoCubeRenderer from "./IsoCubeRenderer";
+import type { RenderMode } from "./SolutionGrid";
 
 type Props = {
   stepNum: number;
   moveLabel: string | null;
   facelet: string;
   sizePx: number;
+  renderMode: RenderMode;
   isStart: boolean;
   isActive: boolean;
   onClick: () => void;
@@ -15,6 +18,7 @@ export default function SolutionCard({
   moveLabel,
   facelet,
   sizePx,
+  renderMode,
   isStart,
   isActive,
   onClick,
@@ -48,7 +52,12 @@ export default function SolutionCard({
       </div>
       <div className="render">
         <div className="net">
-          <FlatCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
+          {renderMode === "iso" ? (
+            <IsoCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
+          ) : (
+            // net mode + dual fallthrough (dual handled in Phase 3)
+            <FlatCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
+          )}
         </div>
       </div>
     </button>

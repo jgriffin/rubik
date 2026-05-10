@@ -30,6 +30,7 @@ export default function SolutionGrid({
   solution,
   isSolving,
   cols,
+  renderMode,
   activeIdx,
   onActiveChange,
 }: Props) {
@@ -61,6 +62,7 @@ export default function SolutionGrid({
         moveLabel={null}
         facelet={states[0]}
         sizePx={sizePx}
+        renderMode={renderMode}
         isStart
         isActive={activeIdx === 0}
         onClick={() => onActiveChange(0)}
@@ -72,6 +74,7 @@ export default function SolutionGrid({
           moveLabel={m}
           facelet={states[i + 1]}
           sizePx={sizePx}
+          renderMode={renderMode}
           isStart={false}
           isActive={activeIdx === i + 1}
           onClick={() => onActiveChange(i + 1)}

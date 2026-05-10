@@ -19,10 +19,37 @@ test.describe("solution grid — toggles + card selection", () => {
     );
   });
 
-  test("v2 toggles are disabled (1-column, 3D, split)", async ({ page }) => {
+  test("v2 toggles still disabled (1-column, split)", async ({ page }) => {
     await expect(page.getByTestId("columns-1")).toBeDisabled();
-    await expect(page.getByTestId("render-mode-iso")).toBeDisabled();
     await expect(page.getByTestId("render-mode-dual")).toBeDisabled();
+  });
+
+  test("3D toggle swaps renderer between flat (rect[data-pos]) and iso (polygon[data-face])", async ({
+    page,
+  }) => {
+    // Start card always renders — no scramble/solve needed (stub returns
+    // moves=[] anyway, so sol-card-1 is unreliable; sol-card-0 uses the
+    // same renderer path and is always present).
+    const card = page.getByTestId("sol-card-0");
+    await expect(card).toBeVisible();
+
+    // Default: net mode → 54 flat rects, no iso polygons.
+    await expect(card.locator("rect[data-pos]")).toHaveCount(54);
+    await expect(card.locator("polygon[data-face]")).toHaveCount(0);
+
+    // Click 3D.
+    await page.getByTestId("render-mode-iso").click();
+    await expect(page.getByTestId("render-mode-iso")).toHaveClass(/on/);
+
+    // Iso mode: 27 polygons (3 visible faces × 9 stickers), no flat rects.
+    await expect(card.locator("rect[data-pos]")).toHaveCount(0);
+    await expect(card.locator("polygon[data-face]")).toHaveCount(27);
+
+    // Click 2D — flat returns.
+    await page.getByTestId("render-mode-net").click();
+    await expect(page.getByTestId("render-mode-net")).toHaveClass(/on/);
+    await expect(card.locator("rect[data-pos]")).toHaveCount(54);
+    await expect(card.locator("polygon[data-face]")).toHaveCount(0);
   });
 
   test("clicking the start card sets it active", async ({ page }) => {
