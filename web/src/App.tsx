@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import FlatCubeRenderer from "./components/FlatCubeRenderer";
-import ScrambleButton from "./components/ScrambleButton";
+import ScrambleControls from "./components/ScrambleControls";
 import SolveButton from "./components/SolveButton";
 import MoveList from "./components/MoveList";
 import StepControls from "./components/StepControls";
+import StateField from "./components/StateField";
+import MovesField from "./components/MovesField";
+import MoveStripView from "./components/MoveStripView";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health } from "./api/client";
@@ -15,6 +18,9 @@ const SOLVED_3X3 =
   "D".repeat(9) +
   "L".repeat(9) +
   "B".repeat(9);
+
+const STRIP_SIZES = { small: 80, medium: 120, large: 160 } as const;
+type StripSize = keyof typeof STRIP_SIZES;
 
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -28,6 +34,7 @@ export default function App() {
   const [isSolving, setIsSolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  const [stripSize, setStripSize] = useState<StripSize>("medium");
 
   useEffect(() => {
     apiHealth()
@@ -63,6 +70,21 @@ export default function App() {
     }
   }
 
+  function handleSetState(newState: string) {
+    setError(null);
+    setSolution(null);
+    setSolved(null);
+    setStepIdx(0);
+    setScrambleState(newState);
+  }
+
+  function handleSetMoves(moves: MoveStr[]) {
+    setError(null);
+    setStepIdx(0);
+    setSolution(moves);
+    setSolved(null);
+  }
+
   // Server emits valid Singmaster strings — cast is safe in M9.1.
   const displayedState = useMemo(() => {
     if (!solution || solution.length === 0) return scrambleState;
@@ -73,23 +95,102 @@ export default function App() {
 
   return (
     <main
-      style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 720 }}
+      style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 1100 }}
     >
       <h1>rubik solver</h1>
-      <FlatCubeRenderer facelet={displayedState} sizePx={240} />
+      {/* TOP: state + moves text fields. */}
+      <div style={{ display: "flex", gap: "1rem", margin: "1rem 0", flexWrap: "wrap" }}>
+        <StateField
+          key={scrambleState}
+          scrambleState={scrambleState}
+          onSetState={handleSetState}
+        />
+        <MovesField
+          key={solution === null ? "null" : solution.join(" ")}
+          solution={solution}
+          onSetMoves={handleSetMoves}
+        />
+      </div>
+      {/* Action zone: scramble + solve. */}
       <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
-        <ScrambleButton onScramble={handleScramble} disabled={!ready || isSolving} />
+        <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
         <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
       </div>
-      <MoveList moves={solution} solved={solved} />
-      {solution !== null && solution.length > 0 && (
-        <StepControls
-          stepIdx={stepIdx}
-          totalSteps={solution.length}
-          onStepChange={setStepIdx}
-          disabled={isSolving}
-        />
-      )}
+      {/* Strip cube-size selector — between actions and the strip. */}
+      <div
+        data-testid="strip-size-controls"
+        style={{
+          display: "flex",
+          gap: "0.5rem",
+          alignItems: "center",
+          margin: "1rem 0 0.5rem",
+          fontSize: "0.8rem",
+        }}
+      >
+        <span
+          style={{
+            opacity: 0.6,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          cube size
+        </span>
+        {(["small", "medium", "large"] as const).map((sz) => (
+          <button
+            key={sz}
+            data-testid={`strip-size-${sz}`}
+            onClick={() => setStripSize(sz)}
+            style={{
+              padding: "0.25rem 0.6rem",
+              borderRadius: 4,
+              border:
+                stripSize === sz
+                  ? "1.5px solid #4299ff"
+                  : "1.5px solid #ccc",
+              background:
+                stripSize === sz ? "rgba(66, 153, 255, 0.1)" : "transparent",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              textTransform: "capitalize",
+            }}
+          >
+            {sz}
+          </button>
+        ))}
+      </div>
+      {/* Primary visualization: per-move strip. */}
+      <MoveStripView
+        scrambleState={scrambleState}
+        solution={solution}
+        stepIdx={stepIdx}
+        onJumpTo={setStepIdx}
+        cubeSize={STRIP_SIZES[stripSize]}
+      />
+      {/* Secondary animation player — demoted visual weight. */}
+      <section>
+        <h2
+          style={{
+            fontSize: "0.9rem",
+            opacity: 0.7,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            marginTop: "2rem",
+          }}
+        >
+          animation player
+        </h2>
+        <FlatCubeRenderer facelet={displayedState} sizePx={160} />
+        <MoveList moves={solution} solved={solved} />
+        {solution !== null && solution.length > 0 && (
+          <StepControls
+            stepIdx={stepIdx}
+            totalSteps={solution.length}
+            onStepChange={setStepIdx}
+            disabled={isSolving}
+          />
+        )}
+      </section>
       {error && (
         <pre data-testid="api-error" style={{ color: "crimson" }}>
           error: {error}
