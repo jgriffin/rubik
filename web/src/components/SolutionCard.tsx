@@ -1,5 +1,4 @@
 import FlatCubeRenderer from "./FlatCubeRenderer";
-import IsoCubeRenderer from "./IsoCubeRenderer";
 import TwistyPlayerWrapper from "./TwistyPlayerWrapper";
 import type { RenderMode } from "./SolutionGrid";
 
@@ -72,10 +71,12 @@ export default function SolutionCard({
                 sizePx={sizePx}
                 testId="flat-cube-pair"
               />
-              <IsoCubeRenderer
-                facelet={facelet}
+              <TwistyPlayerWrapper
+                mode="static"
+                scrambleAlg={scrambleAlg}
+                solutionAlg={(solution ?? []).slice(0, stepNum).join(" ")}
                 sizePx={sizePx}
-                testId="iso-cube-pair"
+                testId="twisty-cube-pair"
               />
             </div>
           ) : (
