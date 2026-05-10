@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import FlatCubeRenderer from "./components/FlatCubeRenderer";
 import SolveButton from "./components/SolveButton";
-import MoveList from "./components/MoveList";
 import StepControls from "./components/StepControls";
-import MovesField from "./components/MovesField";
 import MoveStripView from "./components/MoveStripView";
 import Wordmark from "./components/Wordmark";
 import CubeSizeSwitch from "./components/CubeSizeSwitch";
@@ -11,6 +9,7 @@ import SolvedFooter from "./components/SolvedFooter";
 import SectionHeader from "./components/SectionHeader";
 import StateGrid from "./components/StateGrid";
 import LengthPack from "./components/LengthPack";
+import MovesGrid from "./components/MovesGrid";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
@@ -38,6 +37,7 @@ export default function App() {
   const [healthError, setHealthError] = useState<string | null>(null);
 
   const [scrambleState, setScrambleState] = useState<string>(SOLVED_3X3);
+  const [scrambleMoves, setScrambleMoves] = useState<MoveStr[]>([]);
   const [scrambleLength, setScrambleLength] = useState<number>(14);
   const [solution, setSolution] = useState<string[] | null>(null);
   const [solved, setSolved] = useState<boolean | null>(null);
@@ -67,6 +67,7 @@ export default function App() {
     try {
       const r = await apiScramble({ length: scrambleLength });
       setScrambleState(r.state);
+      setScrambleMoves(r.moves as MoveStr[]);
     } catch (e) {
       setError(String(e));
     }
@@ -92,20 +93,14 @@ export default function App() {
     setError(null);
     resetSolveState();
     setScrambleState(SOLVED_3X3);
+    setScrambleMoves([]);
   }
 
   function handleSetState(newState: string) {
     setError(null);
     resetSolveState();
     setScrambleState(newState);
-  }
-
-  function handleSetMoves(moves: MoveStr[]) {
-    setError(null);
-    setStepIdx(0);
-    setSolution(moves);
-    setSolved(null);
-    setSolveStats(null);
+    setScrambleMoves([]);
   }
 
   const displayedState = useMemo(() => {
@@ -153,18 +148,23 @@ export default function App() {
       />
       <StateGrid state={scrambleState} onStateChange={handleSetState} />
 
-      {/* Transitional: solve trigger + moves textarea + strip + animation player.
-          Section ii (Phase 3) replaces MovesField; section iii (Phase 4) absorbs Solve
-          into its header and replaces MoveStripView/StepControls/MoveList. */}
+      {/* Section ii — moves to apply (the current scramble) */}
+      <SectionHeader
+        roman="ii."
+        name="moves to apply"
+        right={
+          <span>
+            {scrambleMoves.length} {scrambleMoves.length === 1 ? "move" : "moves"}
+          </span>
+        }
+      />
+      <MovesGrid moves={scrambleMoves} />
+
+      {/* Transitional: solve trigger + strip + animation player.
+          Section iii (Phase 4) absorbs Solve into its header and replaces
+          MoveStripView/StepControls/FlatCubeRenderer-as-player. */}
       <div style={{ display: "flex", gap: "0.5rem", margin: "1.5rem 0 1rem" }}>
         <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
-      </div>
-      <div style={{ display: "flex", gap: "1rem", margin: "1rem 0", flexWrap: "wrap" }}>
-        <MovesField
-          key={solution === null ? "null" : solution.join(" ")}
-          solution={solution}
-          onSetMoves={handleSetMoves}
-        />
       </div>
 
       <div
@@ -229,7 +229,6 @@ export default function App() {
           animation player
         </h2>
         <FlatCubeRenderer facelet={displayedState} sizePx={160} />
-        <MoveList moves={solution} solved={solved} />
         {solution !== null && solution.length > 0 && (
           <StepControls
             stepIdx={stepIdx}

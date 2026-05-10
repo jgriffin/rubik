@@ -258,6 +258,52 @@
   font-size: 13px;
 }
 
+/* Section ii — moves grid ------------------------------------------- */
+.moves-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.moves-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  position: relative;
+}
+.moves-row .row-tag {
+  position: absolute;
+  top: 50%;
+  right: -22px;
+  transform: translateY(-50%);
+  font-family: "Fraunces", Georgia, serif;
+  font-style: italic;
+  font-size: 12px;
+  color: var(--dim);
+}
+.move-cell {
+  aspect-ratio: 1;
+  background: transparent;
+  border: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+  user-select: none;
+}
+.move-cell em {
+  font-style: italic;
+  color: var(--accent);
+  margin-left: 1px;
+}
+.move-cell.empty {
+  color: var(--rule);
+  border-style: dashed;
+  opacity: 0.55;
+}
+
 /* Solved footer ------------------------------------------------------ */
 .summary {
   display: flex;
