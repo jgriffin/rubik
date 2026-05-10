@@ -1,18 +1,16 @@
 import { test, expect } from "@playwright/test";
 
-test("health endpoint renders on page load", async ({ page }) => {
+test("health resolves: wordmark visible + scramble enabled", async ({ page }) => {
   await page.goto("/");
+
+  // Wordmark renders the heading.
   await expect(page.getByRole("heading", { name: "rubik solver" })).toBeVisible();
-  const json = page.getByTestId("health-json");
-  await expect(json).toBeVisible();
-  const text = await json.textContent();
-  expect(text).toBeTruthy();
-  const body = JSON.parse(text!);
-  expect(body).toMatchObject({
-    model_loaded: true,
-    warmup_done: true,
-    cube_size: 3,
+
+  // Scramble enables only when /api/health resolves with warmup_done=true.
+  // This is the load-bearing assertion that the backend connection works —
+  // the new design intentionally drops the dev-mode health JSON dump from
+  // the prior layout.
+  await expect(page.getByTestId("scramble-button")).toBeEnabled({
+    timeout: 10_000,
   });
-  // Stub mode reports "<stub-net>"; real mode reports a path ending in net_final.pt.
-  expect(typeof body.model_path).toBe("string");
 });
