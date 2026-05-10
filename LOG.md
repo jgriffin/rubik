@@ -4,6 +4,16 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-09 — 3D iso renderer + split view 🟡 in-progress
+**Goal:** Wire the v2 stubs left behind by `design-port-sequence`: enable the **iso** (3D) and **dual** (split) modes in `RenderModeSwitch`. Port the handoff bundle's `svgIso` to a chrome-palette `IsoCubeRenderer` that matches `FlatCubeRenderer`'s identity (same color map, ink stroke, strokeMul). Net-only behavior unchanged; this is purely additive at the section iii render layer.
+**Milestone:** drive-by completion of the design-port v2 stubs on M9.1 ([roadmap entry](ROADMAP.md#milestones), [M9 plan](plans/m9-ui.md)). Plan landed at `plans/3d-iso-and-split.md` (`13827ba`).
+**Approach:** Branch `3d-iso-and-split` off `main` HEAD `1531692` (the design-port merge commit). `svgIso` math comes from `/tmp/rubik-handoff/design_handoff_rubik_solver/source/cube.js:81-154` — ~73 lines of pure SVG (30° iso projection, U+F+R faces with shading, gap insets, viewBox auto-fit). Three phases: (1) `IsoCubeRenderer.tsx` + `web/preview/iso-cube.html` static preview + vitest contract — component is import-ready but not yet wired; (2) thread `renderMode` through `SolutionGrid` → `SolutionCard`, enable the 3D button, e2e flips assertions from disabled to active; (3) split mode renders both renderers side-by-side with halved per-card sizes (`DUAL_SIZE_BY_COLS`). Each phase = one atomic commit, app runnable throughout. App.tsx already has `renderMode` state and threads it to SolutionGrid — only SolutionCard plumbing + the new component are missing.
+**Next:** Phase 1 — port svgIso to `IsoCubeRenderer.tsx`, write the static HTML preview, add the vitest contract test. Visual eyeball via `open web/preview/iso-cube.html`.
+**In progress:**
+- Block opened. `design-port-sequence` (8 commits) merged into main with `--no-ff` (merge commit `1531692`), source branch deleted. Branched `3d-iso-and-split` from there. Plan committed at `13827ba`.
+
+---
+
 ## 2026-05-09 — Design port: Sequence layout ✅ done — Editorial rewrite of the M9.1 web demo: Fraunces + JetBrains Mono on warm cream paper with rust accent, three roman-numeraled sections (i. starting state / ii. moves to apply / iii. solution), card-grid solution view with column + render toggles
 **Goal:** Port the Claude Designer "Sequence" handoff into the React/Vite web app — full visual chrome (920px column on warm cream paper, Fraunces + JetBrains Mono, rust accent, three roman-numeraled sections `i. starting state` / `ii. moves to apply` / `iii. solution`, italic *Solved.* footer with model meta) on top of the existing 2D net renderer. v1 ships net-only; 3D iso, split view, 1-column row variant, and 2×2-toggle behavior are stubbed.
 **Milestone:** drive-by visual rewrite on M9.1 ([roadmap entry](ROADMAP.md#milestones), [M9 plan](plans/m9-ui.md)). Effectively replaces the strip-view UX from `solver-demo-polish` with the editorial "Sequence" layout while keeping that branch's parser/validator/cube-rendering plumbing.
