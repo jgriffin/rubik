@@ -1,0 +1,101 @@
+/* Ported from web/preview/sequence-reference.html.
+ * Class names match the reference for direct side-by-side comparison.
+ */
+
+/* Layout shell ------------------------------------------------------- */
+.col {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 56px 28px 96px;
+  position: relative;
+}
+
+/* Header ------------------------------------------------------------- */
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+.head .wordmark {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  font-variation-settings: "opsz" 144;
+  white-space: nowrap;
+}
+.head .wordmark em {
+  font-style: italic;
+  color: var(--accent);
+}
+.head .right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Inline segmented control (cube size, render mode, column count) ---- */
+.col-seg-inline {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+}
+.col-seg-inline button {
+  min-width: 26px;
+  height: 24px;
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  font: inherit;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 0 4px;
+}
+.col-seg-inline button:last-child {
+  border-right: 0;
+}
+.col-seg-inline button.on {
+  background: var(--accent);
+  color: var(--paper);
+}
+.col-seg-inline button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Solved footer ------------------------------------------------------ */
+.summary {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 16px 0;
+  border-top: 1px solid var(--ink);
+}
+.summary .big {
+  font-family: "Fraunces", Georgia, serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 28px;
+  line-height: 1;
+}
+.summary .big em {
+  color: var(--accent);
+}
+.summary .summary-prose {
+  font-family: "Fraunces", Georgia, serif;
+  font-style: italic;
+  color: var(--dim);
+  font-size: 14px;
+}
+.summary .meta {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-left: auto;
+}

@@ -7,9 +7,12 @@ import StepControls from "./components/StepControls";
 import StateField from "./components/StateField";
 import MovesField from "./components/MovesField";
 import MoveStripView from "./components/MoveStripView";
+import Wordmark from "./components/Wordmark";
+import CubeSizeSwitch from "./components/CubeSizeSwitch";
+import SolvedFooter from "./components/SolvedFooter";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
-import { apiHealth, apiScramble, apiSolve, type Health } from "./api/client";
+import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
 
 const SOLVED_3X3 =
   "U".repeat(9) +
@@ -22,6 +25,13 @@ const SOLVED_3X3 =
 const STRIP_SIZES = { small: 80, medium: 120, large: 160 } as const;
 type StripSize = keyof typeof STRIP_SIZES;
 
+function formatMeta(modelPath: string | null, timeMs: number | null): string | null {
+  if (!modelPath || timeMs == null) return null;
+  const base = modelPath.split("/").pop() || modelPath;
+  const noExt = base.replace(/\.(pt|safetensors|bin)$/i, "");
+  return `${noExt} · ${timeMs} ms`;
+}
+
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -31,10 +41,13 @@ export default function App() {
   const [scrambleState, setScrambleState] = useState<string>(SOLVED_3X3);
   const [solution, setSolution] = useState<string[] | null>(null);
   const [solved, setSolved] = useState<boolean | null>(null);
+  const [solveStats, setSolveStats] = useState<SolveStats | null>(null);
   const [isSolving, setIsSolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [stripSize, setStripSize] = useState<StripSize>("medium");
+  // 2×2 toggle is local UI state in v1; backend wiring lives in a later phase.
+  const [cubeSize, setCubeSize] = useState<2 | 3>(3);
 
   useEffect(() => {
     apiHealth()
@@ -46,6 +59,7 @@ export default function App() {
     setError(null);
     setSolution(null);
     setSolved(null);
+    setSolveStats(null);
     setStepIdx(0);
     try {
       const r = await apiScramble({ length });
@@ -63,6 +77,7 @@ export default function App() {
       const r = await apiSolve({ state: scrambleState });
       setSolution(r.moves);
       setSolved(r.solved);
+      setSolveStats(r.stats);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -74,6 +89,7 @@ export default function App() {
     setError(null);
     setSolution(null);
     setSolved(null);
+    setSolveStats(null);
     setStepIdx(0);
     setScrambleState(newState);
   }
@@ -83,6 +99,7 @@ export default function App() {
     setStepIdx(0);
     setSolution(moves);
     setSolved(null);
+    setSolveStats(null);
   }
 
   // Server emits valid Singmaster strings — cast is safe in M9.1.
@@ -92,12 +109,17 @@ export default function App() {
   }, [scrambleState, solution, stepIdx]);
 
   const ready = health !== null && health.warmup_done;
+  const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
 
   return (
-    <main
-      style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 1100 }}
-    >
-      <h1>rubik solver</h1>
+    <main className="col">
+      <header className="head">
+        <Wordmark />
+        <div className="right">
+          <CubeSizeSwitch value={cubeSize} onChange={setCubeSize} />
+        </div>
+      </header>
+
       {/* TOP: state + moves text fields. */}
       <div style={{ display: "flex", gap: "1rem", margin: "1rem 0", flexWrap: "wrap" }}>
         <StateField
@@ -196,10 +218,18 @@ export default function App() {
           error: {error}
         </pre>
       )}
-      <hr style={{ marginTop: "2rem" }} />
+
+      <SolvedFooter
+        solved={solved}
+        moveCount={solution?.length ?? 0}
+        metaText={metaText}
+      />
+
       {healthError && <pre data-testid="health-error">error: {healthError}</pre>}
       {health ? (
-        <pre data-testid="health-json">{JSON.stringify(health, null, 2)}</pre>
+        <pre data-testid="health-json" style={{ fontSize: 10, color: "var(--dim)" }}>
+          {JSON.stringify(health, null, 2)}
+        </pre>
       ) : (
         <p>loading...</p>
       )}
