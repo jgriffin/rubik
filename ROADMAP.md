@@ -70,6 +70,18 @@ Surfaced: 2026-05-08
 The "beam" part of the eval tooling is implicit now — solve-time beam search is the only eval shape we use. Rename the user-facing surface: `scripts/beam_eval_run.py` → `scripts/eval_run.py`, `scripts/beam_eval_model.py` → `scripts/eval_model.py`, `scripts/beam_eval_sweep.py` → `scripts/eval_sweep.py`, `scripts/render_beam_eval_report.py` → `scripts/render_eval_report.py`, `<run-dir>/results/beam_eval_<config>.jsonl` → `<run-dir>/results/eval_<config>.jsonl`, ditto `eval_trajectory_<config>.html`. Migration path: keep the old filenames as a back-compat read-fallback in the renderer for one cycle, then drop. Touches LOG.md historical references too — leave those as-is (pre-rename context).
 Surfaced: 2026-05-08
 
+### M9 backlog: palette picker UI + chromePalette preset
+The palette-unification block on 2026-05-10 retired the chrome palette from the active surface (matching cubing.js stock so 2D + 3D unify) but preserved it as `chromePalette` in `web/src/components/palettes.ts` alongside the active `wcaPalette`. The picker work: a small dropdown / segmented switch in the section iii or header chrome that swaps the active palette by name, plus a thin React context so `FlatCubeRenderer` reads the current palette instead of importing `COLOR_FOR_LETTER` directly. Twisty-player can't follow until cubing.js lands `TwistyPlayerConfig.faceColors` upstream — once the picker exists, "wca" is the only setting that keeps 2D + 3D matched; "chrome" (or any other preset) re-introduces the divergence we explicitly chose to remove. Decide picker UX with that asymmetry in mind.
+Surfaced: 2026-05-10
+
+### M9 backlog: section iv twisty-player bottom-row restyle
+The animated player in section iv ("watch the solve") inherits cubing.js's default `control-panel="bottom-row"` chrome — a dark strip with play/pause/scrubber/move-counter. Functional but doesn't fit the editorial light-paper aesthetic. Replace with our own controls (play/pause button + scrubber + move-counter span) styled to match the rest of the app, driven by the twisty-player's imperative API (`player.timestamp`, `player.experimentalSetTimelineActions`, etc.). Spec the control surface in 1C planning since cross-surface scrubber sync (section iv driving section ii/iii active highlight) shares the same plumbing.
+Surfaced: 2026-05-10
+
+### M9 backlog: upstream cubing.js stickerColors PR (long shot)
+[Issue #424](https://github.com/cubing/cubing.js/issues/424) — cubing.js's `PuzzleGeometry.get3d({stickerColors})` accepts per-sticker colors but isn't surfaced to `TwistyPlayerConfig`. A focused PR exposing `TwistyPlayerConfig.faceColors` would close the palette gap and let the chrome palette work in 3D too. Maintainer estimate is ≥1 year to land "properly" with accessibility design. Worth attempting if we ever care strongly about palette parity in 3D; out of M9 scope today.
+Surfaced: 2026-05-10
+
 ## Paused — 2x2 M5-followup (post-3x3)
 
 Parked 2026-05-06 when we pivoted the active surface to 3x3 (see Sequencing note above). 2x2 still has its V\* oracle, the M6 capability gap is real but documented, and any of these items remains a coherent block to open if/when we return. Not abandoned — just out of the active path.
