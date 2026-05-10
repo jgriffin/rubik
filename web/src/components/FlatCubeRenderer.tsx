@@ -7,7 +7,7 @@ import {
   COLOR_FOR_LETTER,
   FACE_OFFSETS,
   INK_STROKE,
-} from "../styles/cubePalette";
+} from "./cubePalette";
 
 type Props = {
   facelet: string;

@@ -386,9 +386,9 @@
   height: auto;
 }
 
-/* Dual (split) render mode — flat + iso side-by-side. Iso's projected
- * height is taller than flat's net, so center vertically. Hardcoded gap
- * (no spacing token defined in tokens.css). */
+/* Dual (split) render mode — flat + twisty side-by-side. The two
+ * renderers don't share a height contract, so center vertically.
+ * Hardcoded gap (no spacing token defined in tokens.css). */
 .render-pair {
   display: flex;
   align-items: center;

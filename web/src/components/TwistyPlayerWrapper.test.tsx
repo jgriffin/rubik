@@ -12,7 +12,7 @@ import { buildTwistyPlayerConfig } from "./twistyPlayerConfig";
 //      `useEffect` body never runs during SSR, which is fine.
 //
 //   2. The wrapper's outer DOM (testid + static-mode CSS). Covered via
-//      `renderToStaticMarkup`, mirroring IsoCubeRenderer.test.ts.
+//      `renderToStaticMarkup`.
 
 function render(props: {
   scrambleAlg?: string;
