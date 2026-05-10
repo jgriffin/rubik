@@ -10,6 +10,7 @@ import MovesGrid from "./components/MovesGrid";
 import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionGrid";
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
+import SectionFour from "./components/SectionFour";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
 
@@ -103,6 +104,9 @@ export default function App() {
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
 
+  const sectionFourScrambleAlg = scrambleMoves.join(" ");
+  const sectionFourSolutionAlg = (solution ?? []).join(" ");
+
   return (
     <main className="col">
       <header className="head">
@@ -176,6 +180,14 @@ export default function App() {
         renderMode={renderMode}
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
+      />
+
+      {/* Section iv — watch the solve (animated player). Renders only
+          once a solution exists; SectionFour itself returns null on
+          empty solutionAlg. */}
+      <SectionFour
+        scrambleAlg={sectionFourScrambleAlg}
+        solutionAlg={sectionFourSolutionAlg}
       />
 
       {error && (

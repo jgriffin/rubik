@@ -96,6 +96,13 @@
   gap: 8px;
 }
 
+/* Section iv — watch the solve (animated twisty-player) -------------- */
+.section-four-stage {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 24px;
+}
+
 /* Link-style text button (clear, etc.) ------------------------------- */
 .link-btn {
   background: transparent;
