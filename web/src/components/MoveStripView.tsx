@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import FlatCubeRenderer from "./FlatCubeRenderer";
+import FlatCubeRenderer, { type Overlay } from "./FlatCubeRenderer";
 import { applyMoves } from "../state/applyMove";
 import type { MoveStr } from "../state/faceletMoves";
 
@@ -9,15 +9,61 @@ type Props = {
   solution: string[] | null;
   stepIdx: number;
   onJumpTo: (idx: number) => void;
+  // Pixel height of one cube. Set by App's size selector
+  // (Small=80, Medium=120, Large=160).
+  cubeSize: number;
 };
 
-const CUBE_SIZE_PX = 80;
+const COLS = 5;
+const ACCENT = "#4299ff";
+
+// V2 layout overlays drawn INSIDE the cube SVG:
+//   - step#: bottom-left corner, ½-cubie padding from bottom + left.
+//   - move-label: bottom-LEFT of text aligned with
+//       (x = 10·stickerPx, y = 2·stickerPx) — bottom of row 1, left edge
+//       of 2nd-from-rightmost cubie column (i.e. the empty zone above R).
+//   - cell 0 ("Start") gets no move-label, only the step# "0".
+function v2Overlays(
+  stepNum: number,
+  moveLabel: string | null,
+  sizePx: number
+): Overlay[] {
+  const stickerPx = sizePx / 9;
+  const stepFont = stickerPx * 0.85;
+  const moveFont = stickerPx * 1.2;
+  const overlays: Overlay[] = [
+    {
+      x: 0.5 * stickerPx,
+      y: 9 * stickerPx - 0.5 * stickerPx - stepFont / 2,
+      text: String(stepNum),
+      fontSize: stepFont,
+      weight: 500,
+      opacity: 0.55,
+      anchor: "start",
+      // baseline defaults to "central"
+    },
+  ];
+  if (moveLabel !== null) {
+    overlays.push({
+      x: 10 * stickerPx,
+      y: 2 * stickerPx,
+      text: moveLabel,
+      fontSize: moveFont,
+      weight: 600,
+      opacity: 1,
+      anchor: "start",
+      baseline: "text-after-edge",
+    });
+  }
+  return overlays;
+}
 
 export default function MoveStripView({
   scrambleState,
   solution,
   stepIdx,
   onJumpTo,
+  cubeSize,
 }: Props) {
   // Memoize per-cell facelet states so the whole grid only recomputes
   // when scrambleState or solution change — not on every stepIdx tick.
@@ -38,13 +84,13 @@ export default function MoveStripView({
       data-testid="strip-view"
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(6, max-content)",
+        gridTemplateColumns: `repeat(${COLS}, max-content)`,
         gap: "0.75rem",
         margin: "1rem 0",
       }}
     >
       {states.map((facelet, i) => {
-        const moveLabel = i === 0 ? "Start" : (solution?.[i - 1] ?? "?");
+        const moveLabel = i === 0 ? null : (solution?.[i - 1] ?? null);
         const isActive = i === stepIdx;
         return (
           <button
@@ -53,43 +99,22 @@ export default function MoveStripView({
             data-active={isActive ? "true" : "false"}
             onClick={() => onJumpTo(i)}
             style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "0.3rem",
               padding: "0.4rem",
-              border: isActive ? "2px solid #4299ff" : "2px solid transparent",
+              border: `2px solid ${isActive ? ACCENT : "transparent"}`,
               borderRadius: "6px",
               background: "transparent",
               cursor: "pointer",
               fontFamily: "inherit",
               color: "inherit",
+              lineHeight: 0,
             }}
           >
-            <span
-              style={{
-                fontSize: "0.85rem",
-                fontWeight: isActive ? 600 : 500,
-                fontVariantNumeric: "tabular-nums",
-                minHeight: "1.2em",
-              }}
-            >
-              {moveLabel}
-            </span>
             <FlatCubeRenderer
               facelet={facelet}
-              sizePx={CUBE_SIZE_PX}
+              sizePx={cubeSize}
               testId={null}
+              overlays={v2Overlays(i, moveLabel, cubeSize)}
             />
-            <span
-              style={{
-                fontSize: "0.7rem",
-                opacity: 0.55,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {i}
-            </span>
           </button>
         );
       })}

@@ -19,6 +19,9 @@ const SOLVED_3X3 =
   "L".repeat(9) +
   "B".repeat(9);
 
+const STRIP_SIZES = { small: 80, medium: 120, large: 160 } as const;
+type StripSize = keyof typeof STRIP_SIZES;
+
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -31,6 +34,7 @@ export default function App() {
   const [isSolving, setIsSolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  const [stripSize, setStripSize] = useState<StripSize>("medium");
 
   useEffect(() => {
     apiHealth()
@@ -112,12 +116,56 @@ export default function App() {
         <ScrambleControls onScramble={handleScramble} disabled={!ready || isSolving} />
         <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
       </div>
+      {/* Strip cube-size selector — between actions and the strip. */}
+      <div
+        data-testid="strip-size-controls"
+        style={{
+          display: "flex",
+          gap: "0.5rem",
+          alignItems: "center",
+          margin: "1rem 0 0.5rem",
+          fontSize: "0.8rem",
+        }}
+      >
+        <span
+          style={{
+            opacity: 0.6,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          cube size
+        </span>
+        {(["small", "medium", "large"] as const).map((sz) => (
+          <button
+            key={sz}
+            data-testid={`strip-size-${sz}`}
+            onClick={() => setStripSize(sz)}
+            style={{
+              padding: "0.25rem 0.6rem",
+              borderRadius: 4,
+              border:
+                stripSize === sz
+                  ? "1.5px solid #4299ff"
+                  : "1.5px solid #ccc",
+              background:
+                stripSize === sz ? "rgba(66, 153, 255, 0.1)" : "transparent",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              textTransform: "capitalize",
+            }}
+          >
+            {sz}
+          </button>
+        ))}
+      </div>
       {/* Primary visualization: per-move strip. */}
       <MoveStripView
         scrambleState={scrambleState}
         solution={solution}
         stepIdx={stepIdx}
         onJumpTo={setStepIdx}
+        cubeSize={STRIP_SIZES[stripSize]}
       />
       {/* Secondary animation player — demoted visual weight. */}
       <section>

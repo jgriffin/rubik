@@ -1,3 +1,27 @@
+// Subset of SVG `dominant-baseline` values we actually use. Keeps the
+// React JSX prop type happy (it expects this enum, not `string`).
+export type OverlayBaseline =
+  | "auto"
+  | "central"
+  | "middle"
+  | "hanging"
+  | "alphabetic"
+  | "ideographic"
+  | "mathematical"
+  | "text-after-edge"
+  | "text-before-edge";
+
+export type Overlay = {
+  x: number; // SVG-units (already in pixels per current code)
+  y: number;
+  text: string;
+  fontSize: number;
+  weight?: number; // default 500
+  opacity?: number; // default 1
+  anchor?: "start" | "middle" | "end"; // default "middle"
+  baseline?: OverlayBaseline; // default "central"
+};
+
 type Props = {
   facelet: string;
   sizePx?: number;
@@ -5,6 +29,9 @@ type Props = {
   // (used by MoveStripView so per-cell renderers don't collide with
   // the contract-bearing big secondary cube).
   testId?: string | null;
+  // Optional <text> overlays drawn on top of the sticker grid. Used by
+  // MoveStripView to render move-label + step# inside the cube SVG.
+  overlays?: ReadonlyArray<Overlay>;
 };
 
 const COLOR_FOR_LETTER: Record<string, string> = {
@@ -41,6 +68,7 @@ export default function FlatCubeRenderer({
   facelet,
   sizePx = 240,
   testId,
+  overlays,
 }: Props) {
   if (facelet.length !== 54) {
     throw new Error(
@@ -106,6 +134,23 @@ export default function FlatCubeRenderer({
           data-pos={s.pos}
           data-color={s.letter}
         />
+      ))}
+      {overlays?.map((o, i) => (
+        <text
+          key={i}
+          x={o.x}
+          y={o.y}
+          fontSize={o.fontSize}
+          fontWeight={o.weight ?? 500}
+          opacity={o.opacity ?? 1}
+          textAnchor={o.anchor ?? "middle"}
+          dominantBaseline={o.baseline ?? "central"}
+          fill="currentColor"
+          fontFamily="system-ui, sans-serif"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {o.text}
+        </text>
       ))}
     </svg>
   );
