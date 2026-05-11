@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Block 1B — 2D move animation preview (P0 rev5)</title>
+    <title>Block 1B — 2D move animation preview (P0 rev5.2)</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -33,6 +33,18 @@
         margin: 0 0 28px;
         display: flex;
         gap: 12px;
+        align-items: center;
+      }
+      .mask-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        user-select: none;
+        cursor: pointer;
+      }
+      .mask-toggle input {
+        cursor: pointer;
       }
       button {
         font-family: inherit;
@@ -116,23 +128,32 @@
     </style>
   </head>
   <body>
-    <h1>Block 1B — 2D move animation preview (P0 rev5)</h1>
+    <h1>Block 1B — 2D move animation preview (P0 rev5.2)</h1>
     <p class="intro">
       <strong>Ribbon-with-extension model.</strong> Each move animates as
       three concurrent parts on one timeline:
       (1) the turned face's 9 stickers rotate ±90° around the face center;
       (2) the affected edge stickers form a rigid "ribbon" that slides in
-      a single direction (e.g. R slides UP); off-canonical-net source
-      stickers are drawn as visible "extensions" so you can SEE where they
-      come from; (3) for F/F'/B/B' the edge cycle is a closed ring around
-      F-center — those use a rotation primitive (12 stickers rotate 90°)
-      with no extension. An inverse-opacity overlay dims the region
-      outside the canonical cross silhouette so the extensions read as
-      ghosts; the canonical cross stays at full strength.
+      a single direction (e.g. R's primary ribbon on col 5 slides UP);
+      off-canonical-net source stickers are drawn as visible "extensions"
+      so you can SEE where they come from; (3) for F/F'/B/B' the edge
+      cycle is a closed ring around F-center — those use a rotation
+      primitive (12 stickers rotate 90°) with no extension. For R/R'/L/L'
+      a secondary ribbon at B's near-F column slides in the OPPOSITE
+      direction — the content wrapping over the top/bottom of the cube
+      from U/D arrives at B from above/below B's face. An inverse-opacity
+      overlay dims the region outside the cross silhouette so extensions
+      read as ghosts; rotating face and ring layers render ABOVE the
+      overlay so they never get dimmed mid-rotation. Use the
+      <em>Cross mask</em> checkbox to toggle the dimming.
     </p>
     <div class="play-all-row">
       <button class="primary" id="play-all">Play all</button>
       <button class="primary" id="reset-all">Reset all</button>
+      <label class="mask-toggle">
+        <input type="checkbox" id="mask-toggle" checked />
+        Cross mask
+      </label>
     </div>
 
     <div class="theme-row light">
@@ -261,6 +282,7 @@
 
       const DUR_FORWARD = 600;
       const DUR_REVERSE = 200;
+      const DUR_PAUSE = 250;
 
       function easeOut(t) {
         const u = 1 - t;
@@ -431,9 +453,16 @@
       // U/F/D column (natural slide = sv), and 3 are on B (whose
       // natural displacement is NOT sv — they actually move to the
       // U/F/D column post-move). The B stickers form a separate
-      // visual "secondary ribbon" at B's column that mirrors the
-      // primary's slide direction, so the eye sees B's column also
-      // shifting in the same direction.
+      // visual "secondary ribbon" at B's column.
+      //
+      // CRITICAL: secondary ribbon slides in the OPPOSITE direction
+      // from the primary. In the physical 3D rotation, B's column
+      // receives content that wraps OVER the top (or bottom) of the
+      // cube from U or D. Projected onto B in the cross net, that
+      // wrap arrives at B from ABOVE B's face for R (white from U
+      // comes down) and from BELOW for R' (yellow from D comes up).
+      // So the secondary's extension lives at (post - secondary_sv)
+      // where secondary_sv = -primary_sv.
       // ---------------------------------------------------------------
       function indexFace(i) {
         for (const f of Object.keys(FACE_OFFSETS)) {
@@ -471,37 +500,42 @@
             const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
             pushPair(items, i, departXY, arriveXY);
           }
-          return { primary: items };
+          return {
+            primary: { items, sv },
+          };
         }
 
         // v-ribbon: split by face. Primary = U/F/D stickers; secondary = B.
-        const primary = [];
-        const secondary = [];
-        // For the secondary ribbon at B's column, we render B's pre-move
-        // colors at their canonical positions (departing), and we render
-        // the "would-be arrivals" at one face-height BELOW (for upward
-        // slides) or ABOVE (for downward slides) — i.e. at (B_xy - sv).
-        // These arrival colors are taken from perm[B-position], i.e. the
-        // pre-move color of B's source (which lives on U or D's right-
-        // or left- column). After the slide of sv, the departing layer
-        // goes off the top/bottom of B (into the extension), and the
-        // arrival layer ends up at B's canonical column.
+        // Secondary slides OPPOSITE the primary direction (see comment
+        // above buildRibbonGroups).
+        const primaryItems = [];
+        const secondaryItems = [];
+        const secondarySv = { dx: -sv.dx, dy: -sv.dy };
         for (const i of edgeIndices) {
           const face = indexFace(i);
           const post = indexToNetXY(i);
           const departXY = post; // i's pre-move position is post since canonical
           if (face === "B") {
-            // Secondary ribbon.
-            // Arrive at B-col offset by -sv (pre-slide), color = perm[i].
-            const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
-            pushPair(secondary, i, departXY, arriveXY);
+            // Secondary ribbon. Arrival sticker is placed at
+            // (post - secondarySv) so that after translating by
+            // secondarySv it lands at B's canonical column.
+            // perm[i] (= B's source on U or D) gives the color the
+            // arrival should show.
+            const arriveXY = {
+              x: post.x - secondarySv.dx,
+              y: post.y - secondarySv.dy,
+            };
+            pushPair(secondaryItems, i, departXY, arriveXY);
           } else {
             // Primary ribbon. Natural slide.
             const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
-            pushPair(primary, i, departXY, arriveXY);
+            pushPair(primaryItems, i, departXY, arriveXY);
           }
         }
-        return { primary, secondary };
+        return {
+          primary: { items: primaryItems, sv },
+          secondary: { items: secondaryItems, sv: secondarySv },
+        };
       }
 
       function buildRingStickers(move, facelet) {
@@ -640,52 +674,66 @@
         }
         svg.appendChild(staticLayer);
 
-        // Layer 2: animated edge group(s) — slide(s) or ring rotation.
+        // Z-order (bottom → top):
+        //   1. Static stickers (already added above as staticLayer)
+        //   2. Ribbon-slide groups (extensions live outside the cross,
+        //      so the overlay above them dims those extensions until
+        //      they slide into the cross)
+        //   3. Inverse-opacity overlay (dims everything below it that
+        //      sits outside the cross silhouette)
+        //   4. Face-rotation group (rendered ABOVE the overlay so
+        //      mid-rotation stickers passing through corner regions
+        //      are NEVER dimmed)
+        //   5. Ring-rotation group for F/B (same reasoning — above
+        //      the overlay)
+        //
+        // For F/B moves the overlay is effectively invisible since
+        // everything moving renders above it.
         const ringCenterPx = faceCenterPx("F"); // for F/B rings (pixel space)
-        const edgeGroups = []; // each: { node, kind: 'slide' | 'ring' }
+        const edgeGroups = []; // each: { node, kind, sv? }
+
+        // Layer 2: ribbon-slide groups (UNDER overlay). For ring moves,
+        // the ring rotation group is built here but appended LATER
+        // (above the overlay).
+        let ringGroup = null;
 
         if (kind === "h-ribbon" || kind === "v-ribbon") {
           const groups = buildRibbonGroups(move, facelet);
           // primary
           const primaryG = document.createElementNS(svgNS, "g");
           primaryG.setAttribute("data-layer", "edge-primary");
-          for (const it of groups.primary) {
+          for (const it of groups.primary.items) {
             drawSticker(primaryG, it.x, it.y, it.color);
           }
           svg.appendChild(primaryG);
-          edgeGroups.push({ node: primaryG, kind: "slide" });
+          edgeGroups.push({ node: primaryG, kind: "slide", sv: groups.primary.sv });
           // secondary (only for v-ribbon)
-          if (groups.secondary && groups.secondary.length) {
+          if (groups.secondary && groups.secondary.items.length) {
             const secondaryG = document.createElementNS(svgNS, "g");
             secondaryG.setAttribute("data-layer", "edge-secondary");
-            for (const it of groups.secondary) {
+            for (const it of groups.secondary.items) {
               drawSticker(secondaryG, it.x, it.y, it.color);
             }
             svg.appendChild(secondaryG);
-            edgeGroups.push({ node: secondaryG, kind: "slide" });
+            edgeGroups.push({
+              node: secondaryG,
+              kind: "slide",
+              sv: groups.secondary.sv,
+            });
           }
         } else {
-          // ring rotation: place 12 stickers at pre-move positions in one group
-          const ringG = document.createElementNS(svgNS, "g");
-          ringG.setAttribute("data-layer", "edge-ring");
+          // Ring rotation: 12 stickers at pre-move positions in one
+          // group. We build it now but attach it AFTER the overlay
+          // (see layer 5 below) so it renders above the overlay.
+          ringGroup = document.createElementNS(svgNS, "g");
+          ringGroup.setAttribute("data-layer", "edge-ring");
           const items = buildRingStickers(move, facelet);
           for (const it of items) {
-            drawSticker(ringG, it.x, it.y, it.color);
+            drawSticker(ringGroup, it.x, it.y, it.color);
           }
-          svg.appendChild(ringG);
-          edgeGroups.push({ node: ringG, kind: "ring" });
         }
 
-        // Layer 3: animated face rotation group.
-        const faceLayer = document.createElementNS(svgNS, "g");
-        faceLayer.setAttribute("data-layer", "face");
-        for (const i of faceIndices) {
-          const pos = indexToNetXY(i);
-          drawSticker(faceLayer, pos.x, pos.y, colorAt(facelet, i));
-        }
-        svg.appendChild(faceLayer);
-
-        // Layer 4: inverse-opacity overlay dimming outside-cross region.
+        // Layer 3: inverse-opacity overlay dimming outside-cross region.
         const overlay = document.createElementNS(svgNS, "rect");
         overlay.setAttribute("x", VB_X);
         overlay.setAttribute("y", VB_Y);
@@ -694,7 +742,23 @@
         overlay.setAttribute("fill", overlayFill);
         overlay.setAttribute("mask", `url(#${maskId})`);
         overlay.setAttribute("pointer-events", "none");
+        overlay.setAttribute("data-layer", "mask-overlay");
         svg.appendChild(overlay);
+
+        // Layer 4: animated face rotation group (ABOVE overlay).
+        const faceLayer = document.createElementNS(svgNS, "g");
+        faceLayer.setAttribute("data-layer", "face");
+        for (const i of faceIndices) {
+          const pos = indexToNetXY(i);
+          drawSticker(faceLayer, pos.x, pos.y, colorAt(facelet, i));
+        }
+        svg.appendChild(faceLayer);
+
+        // Layer 5: ring rotation group for F/B (ABOVE overlay).
+        if (ringGroup) {
+          svg.appendChild(ringGroup);
+          edgeGroups.push({ node: ringGroup, kind: "ring" });
+        }
 
         // Animation parameters
         const faceAngle = faceRotationAngle(move);
@@ -710,7 +774,9 @@
             "transform",
             `rotate(${angle} ${faceCxPx.x} ${faceCxPx.y})`,
           );
-          // Edge group(s)
+          // Edge group(s). Each slide group carries its own sv so
+          // primary and secondary ribbons (which slide opposite each
+          // other for v-ribbon moves) animate correctly.
           for (const g of edgeGroups) {
             if (g.kind === "ring") {
               const a = ringAngle * e;
@@ -719,8 +785,9 @@
                 `rotate(${a} ${ringCenterPx.x} ${ringCenterPx.y})`,
               );
             } else {
-              const tx = sv.dx * STICKER_PX * e;
-              const ty = sv.dy * STICKER_PX * e;
+              const gsv = g.sv;
+              const tx = gsv.dx * STICKER_PX * e;
+              const ty = gsv.dy * STICKER_PX * e;
               g.node.setAttribute(
                 "transform",
                 `translate(${tx} ${ty})`,
@@ -738,11 +805,35 @@
         //   direction: 'idle' | 'forward' | 'reverse' | 'reverse-then-forward'
         //
         // 'reverse-then-forward' is the auto-reset-on-replay case: clicking
-        // Play when the panel is already at progress=1 first plays the
-        // reverse leg (200 ms), then chains into a forward leg (600 ms).
+        // Play when the panel is already at progress=1 plays a three-leg
+        // sequence with discernible beats between them:
+        //   1. reverse  (200 ms, progress 1 → 0)
+        //   2. pause    (250 ms, progress held at 0 so the user sees
+        //                the pre-move state momentarily)
+        //   3. forward  (600 ms, progress 0 → 1)
+        // legPhase tracks which leg of the chained sequence we're on.
         const state = { progress: 0, direction: "idle", startTime: 0, raf: 0 };
         function tick(now) {
           if (state.direction === "idle") return;
+          // Pause leg: hold at progress=0 for DUR_PAUSE, then chain
+          // forward.
+          if (
+            state.direction === "reverse-then-forward" &&
+            state.legPhase === "pause"
+          ) {
+            const t = Math.min(1, (now - state.startTime) / DUR_PAUSE);
+            // progress stays at 0 — renderAt was already called at the
+            // end of the reverse leg, no need to re-render every frame.
+            if (t < 1) {
+              state.raf = requestAnimationFrame(tick);
+            } else {
+              state.legPhase = "forward";
+              state.startProgress = 0;
+              state.startTime = performance.now();
+              state.raf = requestAnimationFrame(tick);
+            }
+            return;
+          }
           const isForwardLeg =
             state.direction === "forward" ||
             (state.direction === "reverse-then-forward" &&
@@ -760,9 +851,8 @@
             state.direction === "reverse-then-forward" &&
             state.legPhase === "reverse"
           ) {
-            // Reverse leg done; chain forward leg.
-            state.legPhase = "forward";
-            state.startProgress = state.progress; // ~0
+            // Reverse leg done; enter pause leg.
+            state.legPhase = "pause";
             state.startTime = performance.now();
             state.raf = requestAnimationFrame(tick);
           } else {
@@ -773,8 +863,8 @@
         function play() {
           if (state.raf) cancelAnimationFrame(state.raf);
           // Auto-reset on replay: if already at end-of-forward, run a
-          // 200 ms reverse leg first, then chain into the 600 ms forward
-          // leg as a single visible sequence.
+          // 200 ms reverse leg + 250 ms pause + 600 ms forward leg as
+          // a single visible sequence.
           if (state.progress > 0.99) {
             state.direction = "reverse-then-forward";
             state.legPhase = "reverse";
@@ -846,6 +936,19 @@
       document.getElementById("reset-all").addEventListener("click", () => {
         controllers.forEach((c) => c.reset());
       });
+
+      // Cross-mask toggle: hides every panel's dimming overlay when off.
+      const maskToggle = document.getElementById("mask-toggle");
+      function applyMaskVisibility() {
+        const visible = maskToggle.checked;
+        document
+          .querySelectorAll('[data-layer="mask-overlay"]')
+          .forEach((node) => {
+            node.style.display = visible ? "" : "none";
+          });
+      }
+      maskToggle.addEventListener("change", applyMaskVisibility);
+      applyMaskVisibility();
     </script>
   </body>
 </html>
