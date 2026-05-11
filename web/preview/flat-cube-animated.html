@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Block 1B — 2D move animation preview (P0 eyeball gate)</title>
+    <title>Block 1B — 2D move animation preview (P0 rev5.3)</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -31,6 +31,20 @@
       }
       .play-all-row {
         margin: 0 0 28px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .extension-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        user-select: none;
+        cursor: pointer;
+      }
+      .extension-toggle input {
+        cursor: pointer;
       }
       button {
         font-family: inherit;
@@ -54,6 +68,7 @@
         padding: 24px;
         margin-bottom: 24px;
         border-radius: 12px;
+        overflow: visible;
       }
       .theme-row.light {
         background: #f6f5f1;
@@ -73,13 +88,15 @@
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-        gap: 20px;
+        gap: 28px 20px;
+        overflow: visible;
       }
       .panel {
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 8px;
+        overflow: visible;
       }
       .panel-label {
         font-size: 13px;
@@ -93,8 +110,16 @@
         opacity: 0.85;
         margin-left: 4px;
       }
+      .cube-host {
+        overflow: visible;
+      }
       .cube-host svg {
         display: block;
+        overflow: visible;
+      }
+      .panel-buttons {
+        display: flex;
+        gap: 6px;
       }
       .replay-btn {
         font-size: 11px;
@@ -103,23 +128,35 @@
     </style>
   </head>
   <body>
-    <h1>Block 1B — 2D move animation preview (P0 eyeball gate)</h1>
+    <h1>Block 1B — 2D move animation preview (P0 rev5.3)</h1>
     <p class="intro">
-      Each panel shows the pre-move state on load. Click a "replay" button (or
-      "Play all") to run the cycle: 400 ms hold on the pre-move state, 600 ms
-      animation, settle on the post-move state. <strong>Conveyor model:</strong>
-      on each affected adjacent face, the 3 active-edge stickers + an
-      offscreen 3-strip of incoming new colors translate together along the
-      active edge's axis. Old slides off one end of the edge; new slides on
-      from the other end. The edge-cycle layer is clipped by the full
-      cross-net silhouette (union of all 6 face rects), so anything parked
-      in an off-net corner is invisible until it crosses into a face. The
-      turned face's 9 stickers rotate as a group around the face center;
-      corners pop outside the face during rotation (intentionally not
-      clipped).
+      <strong>Ribbon-with-extension model.</strong> Each move animates as
+      three concurrent parts on one timeline:
+      (1) the turned face's 9 stickers rotate ±90° around the face center;
+      (2) the affected edge stickers form a rigid "ribbon" that slides in
+      a single direction (e.g. R's primary ribbon on col 5 slides UP);
+      off-canonical-net source stickers are drawn as "extensions" so the
+      ribbon has visible content sliding in from beyond the cross edge;
+      (3) for F/F'/B/B' the edge cycle is a closed ring around F-center —
+      those use a rotation primitive (12 stickers rotate 90°) with no
+      extension. For R/R'/L/L' a secondary ribbon at B's near-F column
+      slides in the OPPOSITE direction — the content wrapping over the
+      top/bottom of the cube from U/D arrives at B from above/below B's
+      face. By default the ribbon-slide groups are clipped to the cross
+      silhouette so the panel looks like the eventual production view;
+      toggle <em>Show extensions</em> to render extensions outside the
+      cross with a dimming overlay (debug view). Face-rotation and F/B
+      ring-rotation groups render unclipped, ABOVE the overlay, so
+      mid-rotation swing through cross corners stays visible in both
+      modes.
     </p>
     <div class="play-all-row">
       <button class="primary" id="play-all">Play all</button>
+      <button class="primary" id="reset-all">Reset all</button>
+      <label class="extension-toggle">
+        <input type="checkbox" id="extension-toggle" />
+        Show extensions
+      </label>
     </div>
 
     <div class="theme-row light">
@@ -134,14 +171,11 @@
 
     <script>
       // ---------------------------------------------------------------
-      // Inlined constants (mirrored from production; this preview is
-      // standalone — no imports, opens via `open` with no Vite resolve).
+      // Inlined constants (standalone preview — no imports, no build):
       //   - wcaPalette                  → web/src/components/palettes.ts
-      //   - INK_STROKE                  → web/src/components/cubePalette.ts
       //   - FACE_OFFSETS                → web/src/components/cubePalette.ts
       //   - FACE_GRID                   → web/src/components/FlatCubeRenderer.tsx
       //   - FACELET_MOVES (12 × 54)     → web/src/state/faceletMoves.ts
-      // If any of those change in production, mirror them here.
       // ---------------------------------------------------------------
 
       const COLOR_FOR_LETTER = {
@@ -152,7 +186,8 @@
         B: "#2266ff",
         D: "#f4f400",
       };
-      const INK_STROKE = "#131210";
+      const INK_STROKE_LIGHT = "#131210";
+      const INK_STROKE_DARK = "#0a0a0a";
 
       const FACE_OFFSETS = { U: 0, R: 9, F: 18, D: 27, L: 36, B: 45 };
       const FACE_GRID = {
@@ -235,22 +270,39 @@
         "L".repeat(9) +
         "B".repeat(9);
 
-      // ---------------------------------------------------------------
-      // Cube state helpers.
-      // ---------------------------------------------------------------
+      const MOVES = [
+        "U", "U'", "D", "D'",
+        "R", "R'", "L", "L'",
+        "F", "F'", "B", "B'",
+      ];
 
-      function applyMove(facelet, move) {
-        const perm = FACELET_MOVES[move];
-        let out = "";
-        for (let i = 0; i < 54; i++) out += facelet[perm[i]];
-        return out;
-      }
-      function applyMoves(facelet, moves) {
-        let s = facelet;
-        for (const m of moves) s = applyMove(s, m);
-        return s;
+      const STICKER_PX = 20;
+      // viewBox covers cols -3..14 (width 17) and rows -3..11 (height 14)
+      const VB_X = -3 * STICKER_PX;
+      const VB_Y = -3 * STICKER_PX;
+      const VB_W = 17 * STICKER_PX;
+      const VB_H = 14 * STICKER_PX;
+
+      // Animation timing knobs (milliseconds). Adjust these to retune
+      // the per-panel state machine without hunting through tick code.
+      //   DUR_FORWARD_MS — forward play (settled → end).
+      //   DUR_REVERSE_MS — auto-reset reverse leg before replay; kept
+      //                    short so the pause leg stands out from it.
+      //   DUR_PAUSE_MS   — hold-at-zero between reverse and forward on
+      //                    auto-reset, gives the eye a beat to register
+      //                    the pre-move state.
+      const DUR_FORWARD_MS = 600;
+      const DUR_REVERSE_MS = 150;
+      const DUR_PAUSE_MS = 250;
+
+      function easeOut(t) {
+        const u = 1 - t;
+        return 1 - u * u;
       }
 
+      // ---------------------------------------------------------------
+      // Sticker index → svg (col, row) integer position.
+      // ---------------------------------------------------------------
       function indexToFaceLocal(i) {
         for (const face of Object.keys(FACE_OFFSETS)) {
           const off = FACE_OFFSETS[face];
@@ -266,476 +318,712 @@
         const { col, row } = FACE_GRID[face];
         return { x: col * 3 + c, y: row * 3 + r };
       }
-
+      function colorAt(facelet, i) {
+        return COLOR_FOR_LETTER[facelet.charAt(i)];
+      }
       function turnedFace(move) {
         return move.charAt(0);
       }
-      // SVG positive = CW visually. All unprimed QTM rotate the turned
-      // face +90° CW (verified by tracing perm[firstFaceIdx] for each
-      // unprimed move). Primes are -90°.
-      function moveAngleDeg(move) {
-        return move.endsWith("'") ? -90 : 90;
+      function isPrime(move) {
+        return move.endsWith("'");
       }
 
       // ---------------------------------------------------------------
-      // Empirical flow-direction derivation per (move, adjacentFace).
-      // For each move:
-      //   1. Find the 12 affected non-turned-face indices.
-      //   2. Group them by the face they live on (the 4 adjacent faces).
-      //   3. For each group of 3, derive:
-      //        - active edge axis: row (constant local r → horizontal
-      //          axis = x) or column (constant local c → vertical
-      //          axis = y).
-      //        - flow direction: sign of
-          //          (mean(dest_axis_coords) - mean(src_axis_coords)),
-      //          where src is perm[p] rendered on its own face in net
-      //          coords (i.e. where the source sticker sits BEFORE the
-      //          move). New stickers will be parked at this projected
-      //          source location and slide along the flow direction
-      //          to reach the active edge.
+      // Face-rotation angle derived from FACELET_MOVES.
+      // For the turned face, pick a corner sticker on the face (local
+      // (0,0)) and find where its source lives (perm[corner] within the
+      // same face). Compute the rotation angle around face center that
+      // takes the source corner to (0,0).
       //
-      // Entire 48-entry table is computed once at script start.
+      // For ring rotations (F/B edge cycle) we use the same approach
+      // around the cross center.
       // ---------------------------------------------------------------
-
-      function computeMoveFlowTable() {
-        const table = {};
-        for (const move of Object.keys(FACELET_MOVES)) {
-          const perm = FACELET_MOVES[move];
-          const turned = turnedFace(move);
-          const turnedOff = FACE_OFFSETS[turned];
-
-          const byFace = {};
-          for (let i = 0; i < 54; i++) {
-            if (perm[i] === i) continue;
-            if (i >= turnedOff && i < turnedOff + 9) continue;
-            const f = indexToFaceLocal(i).face;
-            (byFace[f] = byFace[f] || []).push(i);
-          }
-
-          const moveEntries = {};
-          for (const adj of Object.keys(byFace)) {
-            const dests = byFace[adj];
-            const localRs = new Set(dests.map((p) => indexToFaceLocal(p).r));
-            const localCs = new Set(dests.map((p) => indexToFaceLocal(p).c));
-            let axis;
-            let activeEdge;
-            if (localRs.size === 1 && localCs.size === 3) {
-              axis = "x";
-              const r = [...localRs][0];
-              activeEdge = r === 0 ? "top-row" : r === 2 ? "bottom-row" : "mid-row";
-            } else if (localCs.size === 1 && localRs.size === 3) {
-              axis = "y";
-              const c = [...localCs][0];
-              activeEdge = c === 0 ? "left-col" : c === 2 ? "right-col" : "mid-col";
-            } else {
-              throw new Error(
-                `non-edge affected stickers on ${adj} for ${move}`,
-              );
-            }
-
-            const destAxisVals = dests.map((p) => {
-              const xy = indexToNetXY(p);
-              return axis === "x" ? xy.x : xy.y;
-            });
-            const srcAxisVals = dests.map((p) => {
-              const xy = indexToNetXY(perm[p]);
-              return axis === "x" ? xy.x : xy.y;
-            });
-            const destMean =
-              destAxisVals.reduce((a, b) => a + b, 0) / destAxisVals.length;
-            const srcMean =
-              srcAxisVals.reduce((a, b) => a + b, 0) / srcAxisVals.length;
-            const delta = destMean - srcMean;
-            const dir = delta === 0 ? 0 : delta > 0 ? 1 : -1;
-            const flow = axis === "x"
-              ? { dx: dir, dy: 0 }
-              : { dx: 0, dy: dir };
-
-            moveEntries[adj] = { activeEdge, axis, flow };
-          }
-          table[move] = moveEntries;
-        }
-        return table;
+      function rotationAngleDeg(srcXY, dstXY, centerXY) {
+        const a1 = Math.atan2(srcXY.y - centerXY.y, srcXY.x - centerXY.x);
+        const a2 = Math.atan2(dstXY.y - centerXY.y, dstXY.x - centerXY.x);
+        // angle to rotate srcXY around centerXY to land at dstXY:
+        let d = (a2 - a1) * (180 / Math.PI);
+        // normalize to (-180, 180]
+        while (d > 180) d -= 360;
+        while (d <= -180) d += 360;
+        return d;
       }
 
-      const MOVE_FLOW = computeMoveFlowTable();
-
-      // ---------------------------------------------------------------
-      // Geometry (matches FlatCubeRenderer.tsx math).
-      // ---------------------------------------------------------------
-
-      function makeGeometry(sizePx) {
-        const stickerPx = sizePx / 9;
+      // Integer-grid "reference" center: top-left of the center sticker.
+      // Used for angle math, where src/dst from indexToNetXY are also
+      // sticker top-left positions. The angle is invariant under the
+      // uniform (+0.5, +0.5) shift, so using top-left coords gives the
+      // same result as using true geometric centers, while avoiding
+      // floating-point noise in atan2.
+      function faceCenterXY(face) {
+        const { col, row } = FACE_GRID[face];
+        return { x: col * 3 + 1, y: row * 3 + 1 };
+      }
+      // True geometric center of the 3×3 face in PIXELS. Used as the
+      // SVG rotate() pivot, where we must rotate around the actual
+      // center point of the face block — not the top-left corner of
+      // the center sticker (which is half a sticker off in each axis).
+      function faceCenterPx(face) {
+        const { col, row } = FACE_GRID[face];
         return {
-          sizePx,
-          stickerPx,
-          widthPx: stickerPx * 12,
-          heightPx: stickerPx * 9,
-          gap: stickerPx * 0.06,
-          stroke: INK_STROKE,
-          strokeWidth: Math.max(0.5, stickerPx * 0.025),
-          rx: 1,
+          x: (col * 3 + 1.5) * STICKER_PX,
+          y: (row * 3 + 1.5) * STICKER_PX,
         };
       }
-      function netToPx(netX, netY, geo) {
-        return { x: netX * geo.stickerPx, y: netY * geo.stickerPx };
+
+      // ---------------------------------------------------------------
+      // For each move, derive the participating sticker indices.
+      //   - faceIndices: 9 stickers of the turned face
+      //   - edgeIndices: 12 stickers cycling between adjacent faces
+      //   - staticIndices: the remaining 33 (p[i] === i)
+      // ---------------------------------------------------------------
+      function participatingForMove(move) {
+        const perm = FACELET_MOVES[move];
+        const face = turnedFace(move);
+        const off = FACE_OFFSETS[face];
+        const faceIndices = [];
+        for (let i = off; i < off + 9; i++) faceIndices.push(i);
+        const edgeIndices = [];
+        const staticIndices = [];
+        for (let i = 0; i < 54; i++) {
+          if (i >= off && i < off + 9) continue;
+          if (perm[i] === i) staticIndices.push(i);
+          else edgeIndices.push(i);
+        }
+        return { faceIndices, edgeIndices, staticIndices };
       }
 
       // ---------------------------------------------------------------
-      // SVG construction.
-      //
-      // Layers (paint order, bottom → top):
-      //   1. Static base: 33 unaffected stickers, canonical positions.
-      //   2. Edge-cycle conveyor — per affected adjacent face F:
-      //        OLD strip: 3 rects at F's active-edge canonical positions,
-      //          pre-move colors. translate(0,0) at t=0; translate(3·f)
-      //          at t=1, where f = (fx, fy) is the per-face flow vector
-      //          in stickerPx units.
-      //        NEW strip: 3 rects at F's active-edge canonical positions,
-      //          post-move colors. translate(-3·f) at t=0 (parked OPP-
-      //          OSITE the flow direction, just outside the active
-      //          edge). translate(0,0) at t=1.
-      //      Both groups (OLD and NEW) share a single cross-net clip:
-      //      the union of all 6 face rects. Anything outside the cross
-      //      silhouette is invisible — so NEW parked in off-net corners
-      //      (e.g. above B at col=3 row=0) stays hidden until it slides
-      //      into a face's region. The 6-sticker virtual conveyor moves
-      //      as a rigid unit (constant 3·f offset between strips), so
-      //      there's no gap at the seam.
-      //   3. Face-rotation <g>: 9 stickers, NOT clipped (corners pop
-      //      out mid-rotation; this is intentional).
-      //   4. Settled overlay: full canonical post-move facelet, hidden
-      //      until t=1 then revealed. Anchors the settle pixel-precisely.
-      //
-      // clipPath IDs are namespaced per panel (counter-suffixed) since
-      // the same panels render twice in one DOM (light + dark themes).
+      // Move classification.
+      //   - horizontal ribbon: U, U', D, D'
+      //   - vertical ribbon: R, R', L, L'
+      //   - ring rotation:    F, F', B, B'
       // ---------------------------------------------------------------
+      function moveKind(move) {
+        const f = turnedFace(move);
+        if (f === "U" || f === "D") return "h-ribbon";
+        if (f === "R" || f === "L") return "v-ribbon";
+        return "ring";
+      }
 
-      let _panelIdCounter = 0;
-      function buildPanelSVG(panel, geo) {
-        const { preFacelet, move } = panel;
-        const postFacelet = applyMove(preFacelet, move);
-        const turned = turnedFace(move);
-        const turnedOff = FACE_OFFSETS[turned];
-        const flowEntries = MOVE_FLOW[move];
-
-        const faceRotIndices = [];
-        for (let i = turnedOff; i < turnedOff + 9; i++) faceRotIndices.push(i);
-        const fg = FACE_GRID[turned];
-        const rotCenterPx = netToPx(fg.col * 3 + 1.5, fg.row * 3 + 1.5, geo);
-        const angleDeg = moveAngleDeg(move);
-
+      // Slide direction (dx,dy) in sticker units, derived from FACELET_MOVES.
+      // For each edge sticker i_post, displacement = post_xy - pre_xy
+      // (where pre_xy is the position of perm[i_post]). The slide vector
+      // is the MODE of these 12 displacements — most stickers slide by
+      // the same amount (3 cells); a few "wrap-around" stickers show a
+      // larger displacement, which is the closure of the ribbon. By
+      // taking the most common short-distance displacement, we let the
+      // data dictate the direction without hardcoding U/D/R/L tables.
+      //
+      // For ring moves (F/B), the displacements are not collinear and
+      // there's no single mode — handled separately.
+      function slideVector(move) {
         const perm = FACELET_MOVES[move];
-        const edgeIndicesByFace = {};
-        for (let i = 0; i < 54; i++) {
-          if (perm[i] === i) continue;
-          if (i >= turnedOff && i < turnedOff + 9) continue;
-          const f = indexToFaceLocal(i).face;
-          (edgeIndicesByFace[f] = edgeIndicesByFace[f] || []).push(i);
+        const { edgeIndices } = participatingForMove(move);
+        const counts = new Map();
+        for (const iPost of edgeIndices) {
+          const post = indexToNetXY(iPost);
+          const pre = indexToNetXY(perm[iPost]);
+          const dx = post.x - pre.x;
+          const dy = post.y - pre.y;
+          const key = `${dx},${dy}`;
+          counts.set(key, (counts.get(key) || 0) + 1);
         }
-        const turnedSet = new Set(faceRotIndices);
-        const edgeSet = new Set(
-          [].concat(...Object.values(edgeIndicesByFace)),
-        );
+        // Pick the displacement of magnitude 3 with highest count.
+        let best = null, bestCount = -1;
+        for (const [key, c] of counts.entries()) {
+          const [dx, dy] = key.split(",").map(Number);
+          const mag2 = dx * dx + dy * dy;
+          // Prefer length-3 vectors (single-face slide step); fall back
+          // to most common otherwise.
+          const score = c + (mag2 === 9 ? 100 : 0);
+          if (score > bestCount) {
+            bestCount = score;
+            best = { dx, dy };
+          }
+        }
+        return best || { dx: 0, dy: 0 };
+      }
 
-        const panelId = "p" + ++_panelIdCounter;
+      // ---------------------------------------------------------------
+      // Build the ribbon descriptor(s) for a move.
+      //
+      // For each affected edge sticker i_post (one of the 12), we know:
+      //   - post-position = indexToNetXY(i_post)
+      //   - pre-source    = perm[i_post]  (its color comes from there)
+      // The "arriving" copy is placed at pre-slide-pos = post - sv so
+      // that after translating by sv, it lands at post.
+      // The "departing" copy is placed at i_pre's true pre-move position,
+      // showing its pre-move color; the slide carries it off into the
+      // extension on the departing side.
+      //
+      // For h-ribbon (U/D), all 12 edge stickers have natural slide
+      // = sv, so we use ONE ribbon group with 24 sticker copies.
+      //
+      // For v-ribbon (R/L), 9 of the 12 edge stickers are on the
+      // U/F/D column (natural slide = sv), and 3 are on B (whose
+      // natural displacement is NOT sv — they actually move to the
+      // U/F/D column post-move). The B stickers form a separate
+      // visual "secondary ribbon" at B's column.
+      //
+      // CRITICAL: secondary ribbon slides in the OPPOSITE direction
+      // from the primary. In the physical 3D rotation, B's column
+      // receives content that wraps OVER the top (or bottom) of the
+      // cube from U or D. Projected onto B in the cross net, that
+      // wrap arrives at B from ABOVE B's face for R (white from U
+      // comes down) and from BELOW for R' (yellow from D comes up).
+      // So the secondary's extension lives at (post - secondary_sv)
+      // where secondary_sv = -primary_sv.
+      // ---------------------------------------------------------------
+      function indexFace(i) {
+        for (const f of Object.keys(FACE_OFFSETS)) {
+          const off = FACE_OFFSETS[f];
+          if (i >= off && i < off + 9) return f;
+        }
+        throw new Error("bad facelet index " + i);
+      }
+
+      function buildRibbonGroups(move, facelet) {
+        const perm = FACELET_MOVES[move];
+        const { edgeIndices } = participatingForMove(move);
+        const sv = slideVector(move);
+        const kind = moveKind(move);
+
+        // Helper: append depart+arrive pair to items.
+        function pushPair(items, iPost, departXY, arriveXY) {
+          items.push({
+            x: departXY.x,
+            y: departXY.y,
+            color: colorAt(facelet, iPost),
+          });
+          items.push({
+            x: arriveXY.x,
+            y: arriveXY.y,
+            color: colorAt(facelet, perm[iPost]),
+          });
+        }
+
+        if (kind === "h-ribbon") {
+          const items = [];
+          for (const i of edgeIndices) {
+            const post = indexToNetXY(i);
+            const departXY = post; // pre-move position = post-position by index
+            const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
+            pushPair(items, i, departXY, arriveXY);
+          }
+          return {
+            primary: { items, sv },
+          };
+        }
+
+        // v-ribbon: split by face. Primary = U/F/D stickers; secondary = B.
+        // Secondary slides OPPOSITE the primary direction (see comment
+        // above buildRibbonGroups).
+        const primaryItems = [];
+        const secondaryItems = [];
+        const secondarySv = { dx: -sv.dx, dy: -sv.dy };
+        for (const i of edgeIndices) {
+          const face = indexFace(i);
+          const post = indexToNetXY(i);
+          const departXY = post; // i's pre-move position is post since canonical
+          if (face === "B") {
+            // Secondary ribbon. Arrival sticker is placed at
+            // (post - secondarySv) so that after translating by
+            // secondarySv it lands at B's canonical column.
+            // perm[i] (= B's source on U or D) gives the color the
+            // arrival should show.
+            const arriveXY = {
+              x: post.x - secondarySv.dx,
+              y: post.y - secondarySv.dy,
+            };
+            pushPair(secondaryItems, i, departXY, arriveXY);
+          } else {
+            // Primary ribbon. Natural slide.
+            const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
+            pushPair(primaryItems, i, departXY, arriveXY);
+          }
+        }
+        return {
+          primary: { items: primaryItems, sv },
+          secondary: { items: secondaryItems, sv: secondarySv },
+        };
+      }
+
+      function buildRingStickers(move, facelet) {
+        // Ring rotation: 12 stickers at their pre-move positions,
+        // rotated about ring center.
+        const { edgeIndices } = participatingForMove(move);
+        const items = edgeIndices.map((i) => {
+          const pos = indexToNetXY(i);
+          return {
+            x: pos.x,
+            y: pos.y,
+            color: colorAt(facelet, i),
+            i,
+          };
+        });
+        return items;
+      }
+
+      // ---------------------------------------------------------------
+      // Determine ring rotation angle direction from data.
+      //
+      // For F/F'/B/B' the ring center is at F's center = (4, 4) in
+      // sticker grid (col 1*3+1, row 1*3+1).
+      //
+      // To pick the rotation direction, take one ring sticker i, look
+      // up perm[i] = source j, and ask: rotate src(j) around center by
+      // what angle to land on dst(i)? Should be +90 or -90.
+      // ---------------------------------------------------------------
+      function ringRotationAngle(move) {
+        const perm = FACELET_MOVES[move];
+        const { edgeIndices } = participatingForMove(move);
+        const center = faceCenterXY("F"); // both F and B rings share F-center
+        // Pick the first edge sticker; compute rotation angle from src→dst.
+        const iDst = edgeIndices[0];
+        const iSrc = perm[iDst];
+        const dst = indexToNetXY(iDst);
+        const src = indexToNetXY(iSrc);
+        return rotationAngleDeg(src, dst, center);
+      }
+
+      // For face rotation, pick a non-center sticker on the turned face
+      // and compute its rotation angle from source to destination.
+      function faceRotationAngle(move) {
+        const perm = FACELET_MOVES[move];
+        const face = turnedFace(move);
+        const off = FACE_OFFSETS[face];
+        const center = faceCenterXY(face);
+        // First corner: i = off (local (0,0)). Source = perm[off].
+        const iDst = off;
+        const iSrc = perm[iDst];
+        const dst = indexToNetXY(iDst);
+        const src = indexToNetXY(iSrc);
+        return rotationAngleDeg(src, dst, center);
+      }
+
+      // ---------------------------------------------------------------
+      // Build the panel: one SVG with static stickers, animated face
+      // rotation group, animated edge group(s), inverse-opacity overlay.
+      // ---------------------------------------------------------------
+      function buildPanel(move, theme, panelIdx) {
+        const facelet = SOLVED;
+        const { faceIndices, staticIndices } = participatingForMove(move);
+        const kind = moveKind(move);
+        const sv = slideVector(move);
+
+        const inkStroke = theme === "light" ? INK_STROKE_LIGHT : INK_STROKE_DARK;
+        const overlayFill =
+          theme === "light" ? "rgba(246,245,241,0.7)" : "rgba(24,24,26,0.75)";
+
+        const panelId = `p-${theme}-${panelIdx}`;
+        // Inverse-opacity mask used by the debug-mode dimming overlay
+        // (everything outside the cross silhouette gets dimmed).
+        const extensionMaskId = `extension-mask-${panelId}`;
+        // Positive clip-path matching the cross silhouette — applied
+        // to ribbon-slide groups when "Show extensions" is OFF so any
+        // off-cross sticker (extension or post-slide overflow) is
+        // clipped to invisibility, leaving only the cross visible.
+        const crossClipId = `extension-clip-${panelId}`;
+
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("width", String(geo.widthPx));
-        svg.setAttribute("height", String(geo.heightPx));
-        svg.setAttribute("viewBox", `0 0 ${geo.widthPx} ${geo.heightPx}`);
+        svg.setAttribute(
+          "viewBox",
+          `${VB_X} ${VB_Y} ${VB_W} ${VB_H}`,
+        );
+        svg.setAttribute("width", VB_W);
+        svg.setAttribute("height", VB_H);
+        svg.style.overflow = "visible";
 
-        // <defs> + a single cross-net mask (union of all 6 face rects)
-        // applied to BOTH edge-cycle groups (old + new) below. The mask
-        // hides anything rendered outside the cross silhouette so parked
-        // NEW strips don't float in the off-net corners (e.g. above B
-        // at col=3 row=0) before sliding into a face. Per-face clips
-        // are no longer needed — each strip's trajectory only ever
-        // crosses ONE face's region or off-net, never another face.
+        // defs with inverse-opacity mask + positive cross clip-path.
         const defs = document.createElementNS(svgNS, "defs");
-        const crossNetClipId = `cross-net-${panelId}`;
-        const crossClip = document.createElementNS(svgNS, "clipPath");
-        crossClip.setAttribute("id", crossNetClipId);
-        for (const face of Object.keys(FACE_GRID)) {
-          const fg2 = FACE_GRID[face];
-          const r = document.createElementNS(svgNS, "rect");
-          r.setAttribute("x", String(fg2.col * 3 * geo.stickerPx));
-          r.setAttribute("y", String(fg2.row * 3 * geo.stickerPx));
-          r.setAttribute("width", String(3 * geo.stickerPx));
-          r.setAttribute("height", String(3 * geo.stickerPx));
-          crossClip.appendChild(r);
-        }
-        defs.appendChild(crossClip);
+
+        // Inverse-opacity mask: white outside cross, black inside cross.
+        // Used by the debug-mode dimming overlay.
+        const mask = document.createElementNS(svgNS, "mask");
+        mask.setAttribute("id", extensionMaskId);
+        mask.setAttribute("maskUnits", "userSpaceOnUse");
+        // Whole viewBox white
+        const mFull = document.createElementNS(svgNS, "rect");
+        mFull.setAttribute("x", VB_X);
+        mFull.setAttribute("y", VB_Y);
+        mFull.setAttribute("width", VB_W);
+        mFull.setAttribute("height", VB_H);
+        mFull.setAttribute("fill", "white");
+        mask.appendChild(mFull);
+        // U/F/D vertical column (cols 3-5, rows 0-8) black
+        const mVert = document.createElementNS(svgNS, "rect");
+        mVert.setAttribute("x", 3 * STICKER_PX);
+        mVert.setAttribute("y", 0);
+        mVert.setAttribute("width", 3 * STICKER_PX);
+        mVert.setAttribute("height", 9 * STICKER_PX);
+        mVert.setAttribute("fill", "black");
+        mask.appendChild(mVert);
+        // L/F/R/B horizontal row (cols 0-11, rows 3-5) black
+        const mHorz = document.createElementNS(svgNS, "rect");
+        mHorz.setAttribute("x", 0);
+        mHorz.setAttribute("y", 3 * STICKER_PX);
+        mHorz.setAttribute("width", 12 * STICKER_PX);
+        mHorz.setAttribute("height", 3 * STICKER_PX);
+        mHorz.setAttribute("fill", "black");
+        mask.appendChild(mHorz);
+        defs.appendChild(mask);
+
+        // Positive cross clip-path: two rects (UFD vertical strip +
+        // LFRB horizontal strip). clip-path is the UNION of all child
+        // shapes, so the cross is exactly the cross-net silhouette.
+        const clip = document.createElementNS(svgNS, "clipPath");
+        clip.setAttribute("id", crossClipId);
+        clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+        const cVert = document.createElementNS(svgNS, "rect");
+        cVert.setAttribute("x", 3 * STICKER_PX - 2);
+        cVert.setAttribute("y", -2);
+        cVert.setAttribute("width", 3 * STICKER_PX + 4);
+        cVert.setAttribute("height", 9 * STICKER_PX + 4);
+        clip.appendChild(cVert);
+        const cHorz = document.createElementNS(svgNS, "rect");
+        cHorz.setAttribute("x", -2);
+        cHorz.setAttribute("y", 3 * STICKER_PX - 2);
+        cHorz.setAttribute("width", 12 * STICKER_PX + 4);
+        cHorz.setAttribute("height", 3 * STICKER_PX + 4);
+        clip.appendChild(cHorz);
+        defs.appendChild(clip);
+
         svg.appendChild(defs);
 
-        // Layer 1: static base.
-        const staticG = document.createElementNS(svgNS, "g");
-        staticG.setAttribute("data-layer", "static");
-        for (let i = 0; i < 54; i++) {
-          if (turnedSet.has(i)) continue;
-          if (edgeSet.has(i)) continue;
-          const xy = indexToNetXY(i);
-          const { x, y } = netToPx(xy.x, xy.y, geo);
-          const rect = makeStickerRect(
-            svgNS, x, y, preFacelet[i], geo, i, "static");
-          staticG.appendChild(rect);
+        // Sticker drawing helper
+        function drawSticker(parent, x, y, color) {
+          const r = document.createElementNS(svgNS, "rect");
+          r.setAttribute("x", x * STICKER_PX);
+          r.setAttribute("y", y * STICKER_PX);
+          r.setAttribute("width", STICKER_PX);
+          r.setAttribute("height", STICKER_PX);
+          r.setAttribute("fill", color);
+          r.setAttribute("stroke", inkStroke);
+          r.setAttribute("stroke-width", 1);
+          r.setAttribute("shape-rendering", "crispEdges");
+          parent.appendChild(r);
+          return r;
         }
-        svg.appendChild(staticG);
 
-        // Layer 2: conveyor strips. The two <g> groups (oldG, newG)
-        // each carry the cross-net clip — anything outside the cross
-        // silhouette is invisible. No per-rect clip; no per-face clip.
-        const strips = [];
-        const oldG = document.createElementNS(svgNS, "g");
-        oldG.setAttribute("data-layer", "edge-old");
-        oldG.setAttribute("clip-path", `url(#${crossNetClipId})`);
-        const newG = document.createElementNS(svgNS, "g");
-        newG.setAttribute("data-layer", "edge-new");
-        newG.setAttribute("clip-path", `url(#${crossNetClipId})`);
+        // Layer 1: static stickers (the 33 stickers not touched by move).
+        const staticLayer = document.createElementNS(svgNS, "g");
+        staticLayer.setAttribute("data-layer", "static");
+        for (const i of staticIndices) {
+          const pos = indexToNetXY(i);
+          drawSticker(staticLayer, pos.x, pos.y, colorAt(facelet, i));
+        }
+        svg.appendChild(staticLayer);
 
-        for (const adj of Object.keys(edgeIndicesByFace)) {
-          const fe = flowEntries[adj];
-          const fxPx = fe.flow.dx * geo.stickerPx;
-          const fyPx = fe.flow.dy * geo.stickerPx;
-          const dests = edgeIndicesByFace[adj];
+        // Z-order (bottom → top):
+        //   1. Static stickers (already added above as staticLayer)
+        //   2. Ribbon-slide container (wraps primary + secondary slide
+        //      groups). Carries clip-path="url(#extension-clip-…)"
+        //      when "Show extensions" is OFF (production view) so the
+        //      ribbon is clipped to the cross silhouette and any
+        //      off-cross extension or overflow is invisible. With the
+        //      toggle ON (debug view), the clip-path attribute is
+        //      removed and the dimming overlay (layer 3) renders
+        //      extensions as dimmed ghosts.
+        //   3. Inverse-opacity dimming overlay (visible only in debug
+        //      view — toggled via display:none in production view).
+        //   4. Face-rotation group (rendered ABOVE the overlay and
+        //      OUTSIDE the ribbon clip so mid-rotation stickers
+        //      passing through corner regions are NEVER clipped or
+        //      dimmed)
+        //   5. Ring-rotation group for F/B (same reasoning — above
+        //      the overlay and outside the clip)
+        //
+        // For F/B moves the overlay is effectively invisible since
+        // everything moving renders above it; the ring group is also
+        // unclipped so its rotation is always fully visible.
+        const ringCenterPx = faceCenterPx("F"); // for F/B rings (pixel space)
+        const edgeGroups = []; // each: { node, kind, sv? }
 
-          const oldRects = [];
-          const newRects = [];
-          for (const p of dests) {
-            const xy = indexToNetXY(p);
-            const { x, y } = netToPx(xy.x, xy.y, geo);
-            const rOld = makeStickerRect(
-              svgNS, x, y, preFacelet[p], geo, p, "edge-old");
-            oldG.appendChild(rOld);
-            oldRects.push(rOld);
-            const rNew = makeStickerRect(
-              svgNS, x, y, postFacelet[p], geo, p, "edge-new");
-            rNew.setAttribute(
-              "transform", `translate(${-3 * fxPx}, ${-3 * fyPx})`);
-            newG.appendChild(rNew);
-            newRects.push(rNew);
+        // Layer 2: ribbon-slide container + child slide groups.
+        // The container holds the clip-path; the children are the
+        // primary and (for v-ribbon) secondary ribbons, each animated
+        // independently via their own transform.
+        const ribbonContainer = document.createElementNS(svgNS, "g");
+        ribbonContainer.setAttribute("data-layer", "ribbon-container");
+        // Default OFF state: clip to cross silhouette.
+        ribbonContainer.setAttribute("clip-path", `url(#${crossClipId})`);
+        svg.appendChild(ribbonContainer);
+
+        let ringGroup = null;
+
+        if (kind === "h-ribbon" || kind === "v-ribbon") {
+          const groups = buildRibbonGroups(move, facelet);
+          // primary
+          const primaryG = document.createElementNS(svgNS, "g");
+          primaryG.setAttribute("data-layer", "edge-primary");
+          for (const it of groups.primary.items) {
+            drawSticker(primaryG, it.x, it.y, it.color);
           }
-          strips.push({ adj, oldRects, newRects, fxPx, fyPx });
-        }
-        svg.appendChild(oldG);
-        svg.appendChild(newG);
-
-        // Layer 3: face-rotation group (unclipped).
-        const rotG = document.createElementNS(svgNS, "g");
-        rotG.setAttribute("data-layer", "rotation");
-        for (const i of faceRotIndices) {
-          const xy = indexToNetXY(i);
-          const { x, y } = netToPx(xy.x, xy.y, geo);
-          const r = makeStickerRect(
-            svgNS, x, y, preFacelet[i], geo, i, "rot");
-          rotG.appendChild(r);
-        }
-        rotG.setAttribute(
-          "transform", `rotate(0, ${rotCenterPx.x}, ${rotCenterPx.y})`);
-        svg.appendChild(rotG);
-
-        // Layer 4: settled overlay.
-        const settledG = document.createElementNS(svgNS, "g");
-        settledG.setAttribute("data-layer", "settled");
-        settledG.setAttribute("opacity", "0");
-        settledG.style.pointerEvents = "none";
-        for (let i = 0; i < 54; i++) {
-          const xy = indexToNetXY(i);
-          const { x, y } = netToPx(xy.x, xy.y, geo);
-          const r = makeStickerRect(
-            svgNS, x, y, postFacelet[i], geo, i, "settled");
-          settledG.appendChild(r);
-        }
-        svg.appendChild(settledG);
-
-        return {
-          svg,
-          oldG, newG, rotG, settledG,
-          strips,
-          rotCenterPx,
-          angleDeg,
-        };
-      }
-
-      function makeStickerRect(svgNS, x, y, letter, geo, posIdx, role) {
-        const r = document.createElementNS(svgNS, "rect");
-        r.setAttribute("x", String(x + geo.gap / 2));
-        r.setAttribute("y", String(y + geo.gap / 2));
-        r.setAttribute("width", String(geo.stickerPx - geo.gap));
-        r.setAttribute("height", String(geo.stickerPx - geo.gap));
-        r.setAttribute("rx", String(geo.rx));
-        r.setAttribute("fill", COLOR_FOR_LETTER[letter] ?? "#444");
-        r.setAttribute("stroke", geo.stroke);
-        r.setAttribute("stroke-width", String(geo.strokeWidth));
-        r.setAttribute("data-pos", String(posIdx));
-        r.setAttribute("data-color", letter);
-        r.setAttribute("data-role", role);
-        return r;
-      }
-
-      // ---------------------------------------------------------------
-      // Animation runtime: 400 ms hold pre-move → 600 ms eased animation
-      // → settle. No auto-play; only triggered by button.
-      //
-      // Conveyor formula — both strips shift by t·3·f from their initial
-      // positions:
-      //   - Old at t: translate(t·3·f).      Initial 0; final 3·f.
-      //   - New at t: translate((t-1)·3·f).  Initial -3·f; final 0.
-      // Difference is constant 3·f for all t ⇒ no gap at the seam.
-      // ---------------------------------------------------------------
-
-      const HOLD_MS = 400;
-      const ANIM_MS = 600;
-      function easeOutCubic(t) {
-        return 1 - Math.pow(1 - t, 3);
-      }
-
-      function setPreMoveState(built) {
-        for (const strip of built.strips) {
-          for (const r of strip.oldRects) {
-            r.setAttribute("transform", "translate(0, 0)");
-            r.setAttribute("opacity", "1");
-          }
-          for (const r of strip.newRects) {
-            r.setAttribute(
-              "transform",
-              `translate(${-3 * strip.fxPx}, ${-3 * strip.fyPx})`,
-            );
-            r.setAttribute("opacity", "1");
-          }
-        }
-        built.rotG.setAttribute(
-          "transform",
-          `rotate(0, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
-        );
-        built.rotG.setAttribute("opacity", "1");
-        built.oldG.setAttribute("opacity", "1");
-        built.newG.setAttribute("opacity", "1");
-        built.settledG.setAttribute("opacity", "0");
-      }
-
-      function setSettledState(built) {
-        built.oldG.setAttribute("opacity", "0");
-        built.newG.setAttribute("opacity", "0");
-        built.rotG.setAttribute("opacity", "0");
-        built.settledG.setAttribute("opacity", "1");
-      }
-
-      function applyAnimationFrame(built, t) {
-        for (const strip of built.strips) {
-          const tx = t * 3 * strip.fxPx;
-          const ty = t * 3 * strip.fyPx;
-          for (const r of strip.oldRects) {
-            r.setAttribute("transform", `translate(${tx}, ${ty})`);
-          }
-          const ntx = (t - 1) * 3 * strip.fxPx;
-          const nty = (t - 1) * 3 * strip.fyPx;
-          for (const r of strip.newRects) {
-            r.setAttribute("transform", `translate(${ntx}, ${nty})`);
-          }
-        }
-        const angle = built.angleDeg * t;
-        built.rotG.setAttribute(
-          "transform",
-          `rotate(${angle}, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
-        );
-      }
-
-      function startCycle(panelState) {
-        if (panelState.rafId != null) {
-          cancelAnimationFrame(panelState.rafId);
-          panelState.rafId = null;
-        }
-        if (panelState.holdTimer != null) {
-          clearTimeout(panelState.holdTimer);
-          panelState.holdTimer = null;
-        }
-        const { built } = panelState;
-        setPreMoveState(built);
-        panelState.holdTimer = setTimeout(() => {
-          panelState.holdTimer = null;
-          const startTime = performance.now();
-          const tick = (now) => {
-            const elapsed = now - startTime;
-            const tRaw = Math.min(1, elapsed / ANIM_MS);
-            const t = easeOutCubic(tRaw);
-            applyAnimationFrame(built, t);
-            if (tRaw >= 1) {
-              setSettledState(built);
-              panelState.rafId = null;
-              return;
+          ribbonContainer.appendChild(primaryG);
+          edgeGroups.push({ node: primaryG, kind: "slide", sv: groups.primary.sv });
+          // secondary (only for v-ribbon)
+          if (groups.secondary && groups.secondary.items.length) {
+            const secondaryG = document.createElementNS(svgNS, "g");
+            secondaryG.setAttribute("data-layer", "edge-secondary");
+            for (const it of groups.secondary.items) {
+              drawSticker(secondaryG, it.x, it.y, it.color);
             }
-            panelState.rafId = requestAnimationFrame(tick);
-          };
-          panelState.rafId = requestAnimationFrame(tick);
-        }, HOLD_MS);
+            ribbonContainer.appendChild(secondaryG);
+            edgeGroups.push({
+              node: secondaryG,
+              kind: "slide",
+              sv: groups.secondary.sv,
+            });
+          }
+        } else {
+          // Ring rotation: 12 stickers at pre-move positions in one
+          // group. We build it now but attach it AFTER the overlay
+          // (see layer 5 below) so it renders above the overlay AND
+          // outside the ribbon clip (ring rotation never gets clipped).
+          ringGroup = document.createElementNS(svgNS, "g");
+          ringGroup.setAttribute("data-layer", "edge-ring");
+          const items = buildRingStickers(move, facelet);
+          for (const it of items) {
+            drawSticker(ringGroup, it.x, it.y, it.color);
+          }
+        }
+
+        // Layer 3: inverse-opacity overlay dimming outside-cross region.
+        // Hidden by default (production view); shown only when the
+        // "Show extensions" debug toggle is on.
+        const overlay = document.createElementNS(svgNS, "rect");
+        overlay.setAttribute("x", VB_X);
+        overlay.setAttribute("y", VB_Y);
+        overlay.setAttribute("width", VB_W);
+        overlay.setAttribute("height", VB_H);
+        overlay.setAttribute("fill", overlayFill);
+        overlay.setAttribute("mask", `url(#${extensionMaskId})`);
+        overlay.setAttribute("pointer-events", "none");
+        overlay.setAttribute("data-layer", "extension-overlay");
+        overlay.style.display = "none";
+        svg.appendChild(overlay);
+
+        // Layer 4: animated face rotation group (ABOVE overlay).
+        const faceLayer = document.createElementNS(svgNS, "g");
+        faceLayer.setAttribute("data-layer", "face");
+        for (const i of faceIndices) {
+          const pos = indexToNetXY(i);
+          drawSticker(faceLayer, pos.x, pos.y, colorAt(facelet, i));
+        }
+        svg.appendChild(faceLayer);
+
+        // Layer 5: ring rotation group for F/B (ABOVE overlay).
+        if (ringGroup) {
+          svg.appendChild(ringGroup);
+          edgeGroups.push({ node: ringGroup, kind: "ring" });
+        }
+
+        // Animation parameters
+        const faceAngle = faceRotationAngle(move);
+        const faceCxPx = faceCenterPx(turnedFace(move));
+        const ringAngle = kind === "ring" ? ringRotationAngle(move) : 0;
+
+        // Render function: apply transforms at given progress (0..1).
+        function renderAt(progress) {
+          const e = easeOut(progress);
+          // Face rotation
+          const angle = faceAngle * e;
+          faceLayer.setAttribute(
+            "transform",
+            `rotate(${angle} ${faceCxPx.x} ${faceCxPx.y})`,
+          );
+          // Edge group(s). Each slide group carries its own sv so
+          // primary and secondary ribbons (which slide opposite each
+          // other for v-ribbon moves) animate correctly.
+          for (const g of edgeGroups) {
+            if (g.kind === "ring") {
+              const a = ringAngle * e;
+              g.node.setAttribute(
+                "transform",
+                `rotate(${a} ${ringCenterPx.x} ${ringCenterPx.y})`,
+              );
+            } else {
+              const gsv = g.sv;
+              const tx = gsv.dx * STICKER_PX * e;
+              const ty = gsv.dy * STICKER_PX * e;
+              g.node.setAttribute(
+                "transform",
+                `translate(${tx} ${ty})`,
+              );
+            }
+          }
+        }
+
+        // Initialize at progress=0
+        renderAt(0);
+
+        // Per-panel controller
+        //
+        // State machine:
+        //   direction: 'idle' | 'forward' | 'reverse' | 'reverse-then-forward'
+        //
+        // 'reverse-then-forward' is the auto-reset-on-replay case: clicking
+        // Play when the panel is already at progress=1 plays a three-leg
+        // sequence with discernible beats between them:
+        //   1. reverse  (DUR_REVERSE_MS, progress 1 → 0)
+        //   2. pause    (DUR_PAUSE_MS,  progress held at 0 so the user
+        //                sees the pre-move state momentarily)
+        //   3. forward  (DUR_FORWARD_MS, progress 0 → 1)
+        // legPhase tracks which leg of the chained sequence we're on.
+        const state = { progress: 0, direction: "idle", startTime: 0, raf: 0 };
+        function tick(now) {
+          if (state.direction === "idle") return;
+          // Pause leg: hold at progress=0 for DUR_PAUSE_MS, then chain
+          // forward.
+          if (
+            state.direction === "reverse-then-forward" &&
+            state.legPhase === "pause"
+          ) {
+            const t = Math.min(1, (now - state.startTime) / DUR_PAUSE_MS);
+            // progress stays at 0 — renderAt was already called at the
+            // end of the reverse leg, no need to re-render every frame.
+            if (t < 1) {
+              state.raf = requestAnimationFrame(tick);
+            } else {
+              state.legPhase = "forward";
+              state.startProgress = 0;
+              state.startTime = performance.now();
+              state.raf = requestAnimationFrame(tick);
+            }
+            return;
+          }
+          const isForwardLeg =
+            state.direction === "forward" ||
+            (state.direction === "reverse-then-forward" &&
+              state.legPhase === "forward");
+          const dur = isForwardLeg ? DUR_FORWARD_MS : DUR_REVERSE_MS;
+          const t = Math.min(1, (now - state.startTime) / dur);
+          const p = isForwardLeg
+            ? state.startProgress + (1 - state.startProgress) * t
+            : state.startProgress - state.startProgress * t;
+          state.progress = p;
+          renderAt(p);
+          if (t < 1) {
+            state.raf = requestAnimationFrame(tick);
+          } else if (
+            state.direction === "reverse-then-forward" &&
+            state.legPhase === "reverse"
+          ) {
+            // Reverse leg done; enter pause leg.
+            state.legPhase = "pause";
+            state.startTime = performance.now();
+            state.raf = requestAnimationFrame(tick);
+          } else {
+            state.direction = "idle";
+            state.raf = 0;
+          }
+        }
+        function play() {
+          if (state.raf) cancelAnimationFrame(state.raf);
+          // Auto-reset on replay: if already at end-of-forward, run a
+          // reverse leg (DUR_REVERSE_MS) + pause (DUR_PAUSE_MS) +
+          // forward leg (DUR_FORWARD_MS) as a single visible sequence.
+          if (state.progress > 0.99) {
+            state.direction = "reverse-then-forward";
+            state.legPhase = "reverse";
+          } else {
+            state.direction = "forward";
+          }
+          state.startProgress = state.progress;
+          state.startTime = performance.now();
+          state.raf = requestAnimationFrame(tick);
+        }
+        function reset() {
+          if (state.raf) cancelAnimationFrame(state.raf);
+          state.direction = "reverse";
+          state.startProgress = state.progress;
+          state.startTime = performance.now();
+          state.raf = requestAnimationFrame(tick);
+        }
+
+        return { svg, play, reset, ribbonContainer, overlay, crossClipId };
       }
 
       // ---------------------------------------------------------------
-      // Panels: one per QTM move (12 total), all from solved.
-      // Grid lays out at minmax(320px, 1fr) per theme row — at typical
-      // viewport widths the auto-fit packs 3 or 4 columns naturally.
+      // Page assembly.
       // ---------------------------------------------------------------
+      const controllers = [];
 
-      const QTM_MOVES = [
-        "R", "R'", "L", "L'", "U", "U'",
-        "D", "D'", "F", "F'", "B", "B'",
-      ];
-      const PANELS = QTM_MOVES.map((m) => ({
-        label: "solved",
-        alg: m,
-        preFacelet: SOLVED,
-        move: m,
-      }));
-
-      const SIZE_PX = 220;
-      const allPanelStates = [];
-
-      function mountTheme(themeContainer) {
-        const geo = makeGeometry(SIZE_PX);
-        for (const panelDef of PANELS) {
+      function buildGrid(themeName) {
+        const grid = document.querySelector(`.grid[data-theme="${themeName}"]`);
+        MOVES.forEach((move, idx) => {
           const panel = document.createElement("div");
           panel.className = "panel";
+
           const label = document.createElement("div");
           label.className = "panel-label";
-          label.innerHTML =
-            panelDef.label +
-            ' <span class="alg">+ ' +
-            escapeHTML(panelDef.alg) +
-            "</span>";
+          label.innerHTML = `<span class="alg">${move}</span>`;
           panel.appendChild(label);
 
           const host = document.createElement("div");
           host.className = "cube-host";
-          panel.appendChild(host);
-          const built = buildPanelSVG(panelDef, geo);
+          const built = buildPanel(move, themeName, idx);
           host.appendChild(built.svg);
-          setPreMoveState(built);
+          panel.appendChild(host);
 
-          const replay = document.createElement("button");
-          replay.className = "replay-btn";
-          replay.textContent = "replay " + panelDef.alg;
-          panel.appendChild(replay);
+          const btns = document.createElement("div");
+          btns.className = "panel-buttons";
+          const playBtn = document.createElement("button");
+          playBtn.className = "replay-btn";
+          playBtn.textContent = "Play";
+          playBtn.addEventListener("click", () => built.play());
+          const resetBtn = document.createElement("button");
+          resetBtn.className = "replay-btn";
+          resetBtn.textContent = "Reset";
+          resetBtn.addEventListener("click", () => built.reset());
+          btns.appendChild(playBtn);
+          btns.appendChild(resetBtn);
+          panel.appendChild(btns);
 
-          const state = { built, rafId: null, holdTimer: null };
-          replay.addEventListener("click", () => startCycle(state));
-          themeContainer.appendChild(panel);
-          allPanelStates.push(state);
-        }
+          grid.appendChild(panel);
+          controllers.push(built);
+        });
       }
 
-      function escapeHTML(s) {
-        return s
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-      }
+      buildGrid("light");
+      buildGrid("dark");
 
-      document.querySelectorAll(".grid").forEach((g) => mountTheme(g));
       document.getElementById("play-all").addEventListener("click", () => {
-        for (const s of allPanelStates) startCycle(s);
+        controllers.forEach((c) => c.play());
       });
-      // No auto-play.
+      document.getElementById("reset-all").addEventListener("click", () => {
+        controllers.forEach((c) => c.reset());
+      });
+
+      // "Show extensions" toggle (defaults OFF = production view).
+      //   OFF (default): each panel's ribbon-slide container carries
+      //                  clip-path → off-cross extensions and overflow
+      //                  are invisible. Dimming overlay hidden.
+      //   ON  (debug):   clip-path stripped from the ribbon container
+      //                  so extensions render outside the cross.
+      //                  Dimming overlay shown so they read as ghosts.
+      const extensionToggle = document.getElementById("extension-toggle");
+      function applyExtensionVisibility() {
+        const showExtensions = extensionToggle.checked;
+        controllers.forEach((c) => {
+          if (showExtensions) {
+            // Debug view: extensions visible, overlay dims them.
+            c.ribbonContainer.removeAttribute("clip-path");
+            c.overlay.style.display = "";
+          } else {
+            // Production view: clip ribbons to cross, hide overlay.
+            c.ribbonContainer.setAttribute(
+              "clip-path",
+              `url(#${c.crossClipId})`,
+            );
+            c.overlay.style.display = "none";
+          }
+        });
+      }
+      extensionToggle.addEventListener("change", applyExtensionVisibility);
+      applyExtensionVisibility();
     </script>
   </body>
 </html>
