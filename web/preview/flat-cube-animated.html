@@ -111,10 +111,12 @@
       on each affected adjacent face, the 3 active-edge stickers + an
       offscreen 3-strip of incoming new colors translate together along the
       active edge's axis. Old slides off one end of the edge; new slides on
-      from the other end. Both strips are clipped by the face's 3×3 region,
-      so motion is always visually local to that face. The turned face's 9
-      stickers rotate as a group around the face center; corners pop outside
-      the face during rotation (intentionally not clipped).
+      from the other end. The edge-cycle layer is clipped by the full
+      cross-net silhouette (union of all 6 face rects), so anything parked
+      in an off-net corner is invisible until it crosses into a face. The
+      turned face's 9 stickers rotate as a group around the face center;
+      corners pop outside the face during rotation (intentionally not
+      clipped).
     </p>
     <div class="play-all-row">
       <button class="primary" id="play-all">Play all</button>
@@ -393,11 +395,13 @@
       //          post-move colors. translate(-3·f) at t=0 (parked OPP-
       //          OSITE the flow direction, just outside the active
       //          edge). translate(0,0) at t=1.
-      //      Both clipped by F's 3×3 clip rect — old slides past the
-      //      downstream end of the edge and disappears; new slides in
-      //      from the upstream end. The 6-sticker virtual conveyor
-      //      moves as a rigid unit (constant 3·f offset between strips),
-      //      so there's no gap at the seam.
+      //      Both groups (OLD and NEW) share a single cross-net clip:
+      //      the union of all 6 face rects. Anything outside the cross
+      //      silhouette is invisible — so NEW parked in off-net corners
+      //      (e.g. above B at col=3 row=0) stays hidden until it slides
+      //      into a face's region. The 6-sticker virtual conveyor moves
+      //      as a rigid unit (constant 3·f offset between strips), so
+      //      there's no gap at the seam.
       //   3. Face-rotation <g>: 9 stickers, NOT clipped (corners pop
       //      out mid-rotation; this is intentional).
       //   4. Settled overlay: full canonical post-move facelet, hidden
@@ -441,22 +445,27 @@
         svg.setAttribute("height", String(geo.heightPx));
         svg.setAttribute("viewBox", `0 0 ${geo.widthPx} ${geo.heightPx}`);
 
-        // <defs> + clipPath per affected face.
+        // <defs> + a single cross-net mask (union of all 6 face rects)
+        // applied to BOTH edge-cycle groups (old + new) below. The mask
+        // hides anything rendered outside the cross silhouette so parked
+        // NEW strips don't float in the off-net corners (e.g. above B
+        // at col=3 row=0) before sliding into a face. Per-face clips
+        // are no longer needed — each strip's trajectory only ever
+        // crosses ONE face's region or off-net, never another face.
         const defs = document.createElementNS(svgNS, "defs");
-        for (const adj of Object.keys(edgeIndicesByFace)) {
-          const fg2 = FACE_GRID[adj];
-          const x0 = fg2.col * 3 * geo.stickerPx;
-          const y0 = fg2.row * 3 * geo.stickerPx;
-          const cp = document.createElementNS(svgNS, "clipPath");
-          cp.setAttribute("id", `clip-${panelId}-${adj}`);
+        const crossNetClipId = `cross-net-${panelId}`;
+        const crossClip = document.createElementNS(svgNS, "clipPath");
+        crossClip.setAttribute("id", crossNetClipId);
+        for (const face of Object.keys(FACE_GRID)) {
+          const fg2 = FACE_GRID[face];
           const r = document.createElementNS(svgNS, "rect");
-          r.setAttribute("x", String(x0));
-          r.setAttribute("y", String(y0));
+          r.setAttribute("x", String(fg2.col * 3 * geo.stickerPx));
+          r.setAttribute("y", String(fg2.row * 3 * geo.stickerPx));
           r.setAttribute("width", String(3 * geo.stickerPx));
           r.setAttribute("height", String(3 * geo.stickerPx));
-          cp.appendChild(r);
-          defs.appendChild(cp);
+          crossClip.appendChild(r);
         }
+        defs.appendChild(crossClip);
         svg.appendChild(defs);
 
         // Layer 1: static base.
@@ -473,12 +482,16 @@
         }
         svg.appendChild(staticG);
 
-        // Layer 2: conveyor strips.
+        // Layer 2: conveyor strips. The two <g> groups (oldG, newG)
+        // each carry the cross-net clip — anything outside the cross
+        // silhouette is invisible. No per-rect clip; no per-face clip.
         const strips = [];
         const oldG = document.createElementNS(svgNS, "g");
         oldG.setAttribute("data-layer", "edge-old");
+        oldG.setAttribute("clip-path", `url(#${crossNetClipId})`);
         const newG = document.createElementNS(svgNS, "g");
         newG.setAttribute("data-layer", "edge-new");
+        newG.setAttribute("clip-path", `url(#${crossNetClipId})`);
 
         for (const adj of Object.keys(edgeIndicesByFace)) {
           const fe = flowEntries[adj];
@@ -493,12 +506,10 @@
             const { x, y } = netToPx(xy.x, xy.y, geo);
             const rOld = makeStickerRect(
               svgNS, x, y, preFacelet[p], geo, p, "edge-old");
-            rOld.setAttribute("clip-path", `url(#clip-${panelId}-${adj})`);
             oldG.appendChild(rOld);
             oldRects.push(rOld);
             const rNew = makeStickerRect(
               svgNS, x, y, postFacelet[p], geo, p, "edge-new");
-            rNew.setAttribute("clip-path", `url(#clip-${panelId}-${adj})`);
             rNew.setAttribute(
               "transform", `translate(${-3 * fxPx}, ${-3 * fyPx})`);
             newG.appendChild(rNew);
@@ -661,33 +672,21 @@
       }
 
       // ---------------------------------------------------------------
-      // Panels.
-      // Mid-scramble: deterministic 10-move alg (arbitrary, picked for
-      // visual variety on the last two panels).
+      // Panels: one per QTM move (12 total), all from solved.
+      // Grid lays out at minmax(320px, 1fr) per theme row — at typical
+      // viewport widths the auto-fit packs 3 or 4 columns naturally.
       // ---------------------------------------------------------------
 
-      const SCRAMBLE_ALG = ["U", "R", "F'", "L'", "B", "U'", "R'", "F", "D'", "L"];
-      const MID_FACELET = applyMoves(SOLVED, SCRAMBLE_ALG);
-      const SCRAMBLE_LABEL = SCRAMBLE_ALG.join(" ");
-
-      const PANELS = [
-        { label: "solved", alg: "R", preFacelet: SOLVED, move: "R" },
-        { label: "solved", alg: "R'", preFacelet: SOLVED, move: "R'" },
-        { label: "solved", alg: "B", preFacelet: SOLVED, move: "B" },
-        { label: "solved", alg: "B'", preFacelet: SOLVED, move: "B'" },
-        {
-          label: `mid-scramble (${SCRAMBLE_LABEL})`,
-          alg: "L",
-          preFacelet: MID_FACELET,
-          move: "L",
-        },
-        {
-          label: `mid-scramble (${SCRAMBLE_LABEL})`,
-          alg: "U",
-          preFacelet: MID_FACELET,
-          move: "U",
-        },
+      const QTM_MOVES = [
+        "R", "R'", "L", "L'", "U", "U'",
+        "D", "D'", "F", "F'", "B", "B'",
       ];
+      const PANELS = QTM_MOVES.map((m) => ({
+        label: "solved",
+        alg: m,
+        preFacelet: SOLVED,
+        move: m,
+      }));
 
       const SIZE_PX = 220;
       const allPanelStates = [];
