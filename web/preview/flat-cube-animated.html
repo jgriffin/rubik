@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Block 1B — 2D move animation preview (P0 eyeball gate)</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px 32px 64px;
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+      }
+      p.intro {
+        margin: 0 0 20px;
+        max-width: 900px;
+      }
+      .play-all-row {
+        margin: 0 0 28px;
+      }
+      button {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        opacity: 0.8;
+      }
+      button.primary {
+        font-size: 14px;
+        padding: 8px 16px;
+        font-weight: 600;
+      }
+      .theme-row {
+        padding: 24px;
+        margin-bottom: 24px;
+        border-radius: 12px;
+      }
+      .theme-row.light {
+        background: #f6f5f1;
+        color: #131210;
+      }
+      .theme-row.dark {
+        background: #18181a;
+        color: #ececec;
+      }
+      .theme-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        opacity: 0.7;
+        margin: 0 0 16px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 20px;
+      }
+      .panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .panel-label {
+        font-size: 13px;
+        font-weight: 500;
+        font-feature-settings: "tnum";
+        text-align: center;
+      }
+      .panel-label .alg {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12px;
+        opacity: 0.85;
+        margin-left: 4px;
+      }
+      .cube-host svg {
+        display: block;
+      }
+      .replay-btn {
+        font-size: 11px;
+        padding: 4px 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Block 1B — 2D move animation preview (P0 eyeball gate)</h1>
+    <p class="intro">
+      Each panel shows the pre-move state on load. Click a "replay" button (or
+      "Play all") to run the cycle: 400 ms hold on the pre-move state, 600 ms
+      animation, settle on the post-move state. <strong>Conveyor model:</strong>
+      on each affected adjacent face, the 3 active-edge stickers + an
+      offscreen 3-strip of incoming new colors translate together along the
+      active edge's axis. Old slides off one end of the edge; new slides on
+      from the other end. The edge-cycle layer is clipped by the full
+      cross-net silhouette (union of all 6 face rects), so anything parked
+      in an off-net corner is invisible until it crosses into a face. The
+      turned face's 9 stickers rotate as a group around the face center;
+      corners pop outside the face during rotation (intentionally not
+      clipped).
+    </p>
+    <div class="play-all-row">
+      <button class="primary" id="play-all">Play all</button>
+    </div>
+
+    <div class="theme-row light">
+      <p class="theme-label">Light theme</p>
+      <div class="grid" data-theme="light"></div>
+    </div>
+
+    <div class="theme-row dark">
+      <p class="theme-label">Dark theme</p>
+      <div class="grid" data-theme="dark"></div>
+    </div>
+
+    <script>
+      // ---------------------------------------------------------------
+      // Inlined constants (mirrored from production; this preview is
+      // standalone — no imports, opens via `open` with no Vite resolve).
+      //   - wcaPalette                  → web/src/components/palettes.ts
+      //   - INK_STROKE                  → web/src/components/cubePalette.ts
+      //   - FACE_OFFSETS                → web/src/components/cubePalette.ts
+      //   - FACE_GRID                   → web/src/components/FlatCubeRenderer.tsx
+      //   - FACELET_MOVES (12 × 54)     → web/src/state/faceletMoves.ts
+      // If any of those change in production, mirror them here.
+      // ---------------------------------------------------------------
+
+      const COLOR_FOR_LETTER = {
+        U: "#ffffff",
+        L: "#ff8000",
+        F: "#44ee00",
+        R: "#ff0000",
+        B: "#2266ff",
+        D: "#f4f400",
+      };
+      const INK_STROKE = "#131210";
+
+      const FACE_OFFSETS = { U: 0, R: 9, F: 18, D: 27, L: 36, B: 45 };
+      const FACE_GRID = {
+        U: { col: 1, row: 0 },
+        L: { col: 0, row: 1 },
+        F: { col: 1, row: 1 },
+        R: { col: 2, row: 1 },
+        B: { col: 3, row: 1 },
+        D: { col: 1, row: 2 },
+      };
+
+      const FACELET_MOVES = {
+        U: [
+          6, 3, 0, 7, 4, 1, 8, 5, 2, 45, 46, 47, 12, 13, 14, 15, 16, 17, 9, 10,
+          11, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 18,
+          19, 20, 39, 40, 41, 42, 43, 44, 36, 37, 38, 48, 49, 50, 51, 52, 53,
+        ],
+        "U'": [
+          2, 5, 8, 1, 4, 7, 0, 3, 6, 18, 19, 20, 12, 13, 14, 15, 16, 17, 36, 37,
+          38, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 45,
+          46, 47, 39, 40, 41, 42, 43, 44, 9, 10, 11, 48, 49, 50, 51, 52, 53,
+        ],
+        L: [
+          53, 1, 2, 50, 4, 5, 47, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 0,
+          19, 20, 3, 22, 23, 6, 25, 26, 18, 28, 29, 21, 31, 32, 24, 34, 35, 42,
+          39, 36, 43, 40, 37, 44, 41, 38, 45, 46, 33, 48, 49, 30, 51, 52, 27,
+        ],
+        "L'": [
+          18, 1, 2, 21, 4, 5, 24, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 27,
+          19, 20, 30, 22, 23, 33, 25, 26, 53, 28, 29, 50, 31, 32, 47, 34, 35,
+          38, 41, 44, 37, 40, 43, 36, 39, 42, 45, 46, 6, 48, 49, 3, 51, 52, 0,
+        ],
+        F: [
+          0, 1, 2, 3, 4, 5, 44, 41, 38, 6, 10, 11, 7, 13, 14, 8, 16, 17, 24, 21,
+          18, 25, 22, 19, 26, 23, 20, 15, 12, 9, 30, 31, 32, 33, 34, 35, 36, 37,
+          27, 39, 40, 28, 42, 43, 29, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+        ],
+        "F'": [
+          0, 1, 2, 3, 4, 5, 9, 12, 15, 29, 10, 11, 28, 13, 14, 27, 16, 17, 20,
+          23, 26, 19, 22, 25, 18, 21, 24, 38, 41, 44, 30, 31, 32, 33, 34, 35,
+          36, 37, 8, 39, 40, 7, 42, 43, 6, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+        ],
+        R: [
+          0, 1, 20, 3, 4, 23, 6, 7, 26, 15, 12, 9, 16, 13, 10, 17, 14, 11, 18,
+          19, 29, 21, 22, 32, 24, 25, 35, 27, 28, 51, 30, 31, 48, 33, 34, 45,
+          36, 37, 38, 39, 40, 41, 42, 43, 44, 8, 46, 47, 5, 49, 50, 2, 52, 53,
+        ],
+        "R'": [
+          0, 1, 51, 3, 4, 48, 6, 7, 45, 11, 14, 17, 10, 13, 16, 9, 12, 15, 18,
+          19, 2, 21, 22, 5, 24, 25, 8, 27, 28, 20, 30, 31, 23, 33, 34, 26, 36,
+          37, 38, 39, 40, 41, 42, 43, 44, 35, 46, 47, 32, 49, 50, 29, 52, 53,
+        ],
+        B: [
+          11, 14, 17, 3, 4, 5, 6, 7, 8, 9, 10, 35, 12, 13, 34, 15, 16, 33, 18,
+          19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 36, 39, 42, 2,
+          37, 38, 1, 40, 41, 0, 43, 44, 51, 48, 45, 52, 49, 46, 53, 50, 47,
+        ],
+        "B'": [
+          42, 39, 36, 3, 4, 5, 6, 7, 8, 9, 10, 0, 12, 13, 1, 15, 16, 2, 18, 19,
+          20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 17, 14, 11, 33,
+          37, 38, 34, 40, 41, 35, 43, 44, 47, 50, 53, 46, 49, 52, 45, 48, 51,
+        ],
+        D: [
+          0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 24, 25, 26, 18, 19,
+          20, 21, 22, 23, 42, 43, 44, 33, 30, 27, 34, 31, 28, 35, 32, 29, 36,
+          37, 38, 39, 40, 41, 51, 52, 53, 45, 46, 47, 48, 49, 50, 15, 16, 17,
+        ],
+        "D'": [
+          0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 51, 52, 53, 18, 19,
+          20, 21, 22, 23, 15, 16, 17, 29, 32, 35, 28, 31, 34, 27, 30, 33, 36,
+          37, 38, 39, 40, 41, 24, 25, 26, 45, 46, 47, 48, 49, 50, 42, 43, 44,
+        ],
+      };
+
+      const SOLVED =
+        "U".repeat(9) +
+        "R".repeat(9) +
+        "F".repeat(9) +
+        "D".repeat(9) +
+        "L".repeat(9) +
+        "B".repeat(9);
+
+      // ---------------------------------------------------------------
+      // Cube state helpers.
+      // ---------------------------------------------------------------
+
+      function applyMove(facelet, move) {
+        const perm = FACELET_MOVES[move];
+        let out = "";
+        for (let i = 0; i < 54; i++) out += facelet[perm[i]];
+        return out;
+      }
+      function applyMoves(facelet, moves) {
+        let s = facelet;
+        for (const m of moves) s = applyMove(s, m);
+        return s;
+      }
+
+      function indexToFaceLocal(i) {
+        for (const face of Object.keys(FACE_OFFSETS)) {
+          const off = FACE_OFFSETS[face];
+          if (i >= off && i < off + 9) {
+            const local = i - off;
+            return { face, r: Math.floor(local / 3), c: local % 3 };
+          }
+        }
+        throw new Error("bad facelet index " + i);
+      }
+      function indexToNetXY(i) {
+        const { face, r, c } = indexToFaceLocal(i);
+        const { col, row } = FACE_GRID[face];
+        return { x: col * 3 + c, y: row * 3 + r };
+      }
+
+      function turnedFace(move) {
+        return move.charAt(0);
+      }
+      // SVG positive = CW visually. All unprimed QTM rotate the turned
+      // face +90° CW (verified by tracing perm[firstFaceIdx] for each
+      // unprimed move). Primes are -90°.
+      function moveAngleDeg(move) {
+        return move.endsWith("'") ? -90 : 90;
+      }
+
+      // ---------------------------------------------------------------
+      // Empirical flow-direction derivation per (move, adjacentFace).
+      // For each move:
+      //   1. Find the 12 affected non-turned-face indices.
+      //   2. Group them by the face they live on (the 4 adjacent faces).
+      //   3. For each group of 3, derive:
+      //        - active edge axis: row (constant local r → horizontal
+      //          axis = x) or column (constant local c → vertical
+      //          axis = y).
+      //        - flow direction: sign of
+          //          (mean(dest_axis_coords) - mean(src_axis_coords)),
+      //          where src is perm[p] rendered on its own face in net
+      //          coords (i.e. where the source sticker sits BEFORE the
+      //          move). New stickers will be parked at this projected
+      //          source location and slide along the flow direction
+      //          to reach the active edge.
+      //
+      // Entire 48-entry table is computed once at script start.
+      // ---------------------------------------------------------------
+
+      function computeMoveFlowTable() {
+        const table = {};
+        for (const move of Object.keys(FACELET_MOVES)) {
+          const perm = FACELET_MOVES[move];
+          const turned = turnedFace(move);
+          const turnedOff = FACE_OFFSETS[turned];
+
+          const byFace = {};
+          for (let i = 0; i < 54; i++) {
+            if (perm[i] === i) continue;
+            if (i >= turnedOff && i < turnedOff + 9) continue;
+            const f = indexToFaceLocal(i).face;
+            (byFace[f] = byFace[f] || []).push(i);
+          }
+
+          const moveEntries = {};
+          for (const adj of Object.keys(byFace)) {
+            const dests = byFace[adj];
+            const localRs = new Set(dests.map((p) => indexToFaceLocal(p).r));
+            const localCs = new Set(dests.map((p) => indexToFaceLocal(p).c));
+            let axis;
+            let activeEdge;
+            if (localRs.size === 1 && localCs.size === 3) {
+              axis = "x";
+              const r = [...localRs][0];
+              activeEdge = r === 0 ? "top-row" : r === 2 ? "bottom-row" : "mid-row";
+            } else if (localCs.size === 1 && localRs.size === 3) {
+              axis = "y";
+              const c = [...localCs][0];
+              activeEdge = c === 0 ? "left-col" : c === 2 ? "right-col" : "mid-col";
+            } else {
+              throw new Error(
+                `non-edge affected stickers on ${adj} for ${move}`,
+              );
+            }
+
+            const destAxisVals = dests.map((p) => {
+              const xy = indexToNetXY(p);
+              return axis === "x" ? xy.x : xy.y;
+            });
+            const srcAxisVals = dests.map((p) => {
+              const xy = indexToNetXY(perm[p]);
+              return axis === "x" ? xy.x : xy.y;
+            });
+            const destMean =
+              destAxisVals.reduce((a, b) => a + b, 0) / destAxisVals.length;
+            const srcMean =
+              srcAxisVals.reduce((a, b) => a + b, 0) / srcAxisVals.length;
+            const delta = destMean - srcMean;
+            const dir = delta === 0 ? 0 : delta > 0 ? 1 : -1;
+            const flow = axis === "x"
+              ? { dx: dir, dy: 0 }
+              : { dx: 0, dy: dir };
+
+            moveEntries[adj] = { activeEdge, axis, flow };
+          }
+          table[move] = moveEntries;
+        }
+        return table;
+      }
+
+      const MOVE_FLOW = computeMoveFlowTable();
+
+      // ---------------------------------------------------------------
+      // Geometry (matches FlatCubeRenderer.tsx math).
+      // ---------------------------------------------------------------
+
+      function makeGeometry(sizePx) {
+        const stickerPx = sizePx / 9;
+        return {
+          sizePx,
+          stickerPx,
+          widthPx: stickerPx * 12,
+          heightPx: stickerPx * 9,
+          gap: stickerPx * 0.06,
+          stroke: INK_STROKE,
+          strokeWidth: Math.max(0.5, stickerPx * 0.025),
+          rx: 1,
+        };
+      }
+      function netToPx(netX, netY, geo) {
+        return { x: netX * geo.stickerPx, y: netY * geo.stickerPx };
+      }
+
+      // ---------------------------------------------------------------
+      // SVG construction.
+      //
+      // Layers (paint order, bottom → top):
+      //   1. Static base: 33 unaffected stickers, canonical positions.
+      //   2. Edge-cycle conveyor — per affected adjacent face F:
+      //        OLD strip: 3 rects at F's active-edge canonical positions,
+      //          pre-move colors. translate(0,0) at t=0; translate(3·f)
+      //          at t=1, where f = (fx, fy) is the per-face flow vector
+      //          in stickerPx units.
+      //        NEW strip: 3 rects at F's active-edge canonical positions,
+      //          post-move colors. translate(-3·f) at t=0 (parked OPP-
+      //          OSITE the flow direction, just outside the active
+      //          edge). translate(0,0) at t=1.
+      //      Both groups (OLD and NEW) share a single cross-net clip:
+      //      the union of all 6 face rects. Anything outside the cross
+      //      silhouette is invisible — so NEW parked in off-net corners
+      //      (e.g. above B at col=3 row=0) stays hidden until it slides
+      //      into a face's region. The 6-sticker virtual conveyor moves
+      //      as a rigid unit (constant 3·f offset between strips), so
+      //      there's no gap at the seam.
+      //   3. Face-rotation <g>: 9 stickers, NOT clipped (corners pop
+      //      out mid-rotation; this is intentional).
+      //   4. Settled overlay: full canonical post-move facelet, hidden
+      //      until t=1 then revealed. Anchors the settle pixel-precisely.
+      //
+      // clipPath IDs are namespaced per panel (counter-suffixed) since
+      // the same panels render twice in one DOM (light + dark themes).
+      // ---------------------------------------------------------------
+
+      let _panelIdCounter = 0;
+      function buildPanelSVG(panel, geo) {
+        const { preFacelet, move } = panel;
+        const postFacelet = applyMove(preFacelet, move);
+        const turned = turnedFace(move);
+        const turnedOff = FACE_OFFSETS[turned];
+        const flowEntries = MOVE_FLOW[move];
+
+        const faceRotIndices = [];
+        for (let i = turnedOff; i < turnedOff + 9; i++) faceRotIndices.push(i);
+        const fg = FACE_GRID[turned];
+        const rotCenterPx = netToPx(fg.col * 3 + 1.5, fg.row * 3 + 1.5, geo);
+        const angleDeg = moveAngleDeg(move);
+
+        const perm = FACELET_MOVES[move];
+        const edgeIndicesByFace = {};
+        for (let i = 0; i < 54; i++) {
+          if (perm[i] === i) continue;
+          if (i >= turnedOff && i < turnedOff + 9) continue;
+          const f = indexToFaceLocal(i).face;
+          (edgeIndicesByFace[f] = edgeIndicesByFace[f] || []).push(i);
+        }
+        const turnedSet = new Set(faceRotIndices);
+        const edgeSet = new Set(
+          [].concat(...Object.values(edgeIndicesByFace)),
+        );
+
+        const panelId = "p" + ++_panelIdCounter;
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("width", String(geo.widthPx));
+        svg.setAttribute("height", String(geo.heightPx));
+        svg.setAttribute("viewBox", `0 0 ${geo.widthPx} ${geo.heightPx}`);
+
+        // <defs> + a single cross-net mask (union of all 6 face rects)
+        // applied to BOTH edge-cycle groups (old + new) below. The mask
+        // hides anything rendered outside the cross silhouette so parked
+        // NEW strips don't float in the off-net corners (e.g. above B
+        // at col=3 row=0) before sliding into a face. Per-face clips
+        // are no longer needed — each strip's trajectory only ever
+        // crosses ONE face's region or off-net, never another face.
+        const defs = document.createElementNS(svgNS, "defs");
+        const crossNetClipId = `cross-net-${panelId}`;
+        const crossClip = document.createElementNS(svgNS, "clipPath");
+        crossClip.setAttribute("id", crossNetClipId);
+        for (const face of Object.keys(FACE_GRID)) {
+          const fg2 = FACE_GRID[face];
+          const r = document.createElementNS(svgNS, "rect");
+          r.setAttribute("x", String(fg2.col * 3 * geo.stickerPx));
+          r.setAttribute("y", String(fg2.row * 3 * geo.stickerPx));
+          r.setAttribute("width", String(3 * geo.stickerPx));
+          r.setAttribute("height", String(3 * geo.stickerPx));
+          crossClip.appendChild(r);
+        }
+        defs.appendChild(crossClip);
+        svg.appendChild(defs);
+
+        // Layer 1: static base.
+        const staticG = document.createElementNS(svgNS, "g");
+        staticG.setAttribute("data-layer", "static");
+        for (let i = 0; i < 54; i++) {
+          if (turnedSet.has(i)) continue;
+          if (edgeSet.has(i)) continue;
+          const xy = indexToNetXY(i);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const rect = makeStickerRect(
+            svgNS, x, y, preFacelet[i], geo, i, "static");
+          staticG.appendChild(rect);
+        }
+        svg.appendChild(staticG);
+
+        // Layer 2: conveyor strips. The two <g> groups (oldG, newG)
+        // each carry the cross-net clip — anything outside the cross
+        // silhouette is invisible. No per-rect clip; no per-face clip.
+        const strips = [];
+        const oldG = document.createElementNS(svgNS, "g");
+        oldG.setAttribute("data-layer", "edge-old");
+        oldG.setAttribute("clip-path", `url(#${crossNetClipId})`);
+        const newG = document.createElementNS(svgNS, "g");
+        newG.setAttribute("data-layer", "edge-new");
+        newG.setAttribute("clip-path", `url(#${crossNetClipId})`);
+
+        for (const adj of Object.keys(edgeIndicesByFace)) {
+          const fe = flowEntries[adj];
+          const fxPx = fe.flow.dx * geo.stickerPx;
+          const fyPx = fe.flow.dy * geo.stickerPx;
+          const dests = edgeIndicesByFace[adj];
+
+          const oldRects = [];
+          const newRects = [];
+          for (const p of dests) {
+            const xy = indexToNetXY(p);
+            const { x, y } = netToPx(xy.x, xy.y, geo);
+            const rOld = makeStickerRect(
+              svgNS, x, y, preFacelet[p], geo, p, "edge-old");
+            oldG.appendChild(rOld);
+            oldRects.push(rOld);
+            const rNew = makeStickerRect(
+              svgNS, x, y, postFacelet[p], geo, p, "edge-new");
+            rNew.setAttribute(
+              "transform", `translate(${-3 * fxPx}, ${-3 * fyPx})`);
+            newG.appendChild(rNew);
+            newRects.push(rNew);
+          }
+          strips.push({ adj, oldRects, newRects, fxPx, fyPx });
+        }
+        svg.appendChild(oldG);
+        svg.appendChild(newG);
+
+        // Layer 3: face-rotation group (unclipped).
+        const rotG = document.createElementNS(svgNS, "g");
+        rotG.setAttribute("data-layer", "rotation");
+        for (const i of faceRotIndices) {
+          const xy = indexToNetXY(i);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const r = makeStickerRect(
+            svgNS, x, y, preFacelet[i], geo, i, "rot");
+          rotG.appendChild(r);
+        }
+        rotG.setAttribute(
+          "transform", `rotate(0, ${rotCenterPx.x}, ${rotCenterPx.y})`);
+        svg.appendChild(rotG);
+
+        // Layer 4: settled overlay.
+        const settledG = document.createElementNS(svgNS, "g");
+        settledG.setAttribute("data-layer", "settled");
+        settledG.setAttribute("opacity", "0");
+        settledG.style.pointerEvents = "none";
+        for (let i = 0; i < 54; i++) {
+          const xy = indexToNetXY(i);
+          const { x, y } = netToPx(xy.x, xy.y, geo);
+          const r = makeStickerRect(
+            svgNS, x, y, postFacelet[i], geo, i, "settled");
+          settledG.appendChild(r);
+        }
+        svg.appendChild(settledG);
+
+        return {
+          svg,
+          oldG, newG, rotG, settledG,
+          strips,
+          rotCenterPx,
+          angleDeg,
+        };
+      }
+
+      function makeStickerRect(svgNS, x, y, letter, geo, posIdx, role) {
+        const r = document.createElementNS(svgNS, "rect");
+        r.setAttribute("x", String(x + geo.gap / 2));
+        r.setAttribute("y", String(y + geo.gap / 2));
+        r.setAttribute("width", String(geo.stickerPx - geo.gap));
+        r.setAttribute("height", String(geo.stickerPx - geo.gap));
+        r.setAttribute("rx", String(geo.rx));
+        r.setAttribute("fill", COLOR_FOR_LETTER[letter] ?? "#444");
+        r.setAttribute("stroke", geo.stroke);
+        r.setAttribute("stroke-width", String(geo.strokeWidth));
+        r.setAttribute("data-pos", String(posIdx));
+        r.setAttribute("data-color", letter);
+        r.setAttribute("data-role", role);
+        return r;
+      }
+
+      // ---------------------------------------------------------------
+      // Animation runtime: 400 ms hold pre-move → 600 ms eased animation
+      // → settle. No auto-play; only triggered by button.
+      //
+      // Conveyor formula — both strips shift by t·3·f from their initial
+      // positions:
+      //   - Old at t: translate(t·3·f).      Initial 0; final 3·f.
+      //   - New at t: translate((t-1)·3·f).  Initial -3·f; final 0.
+      // Difference is constant 3·f for all t ⇒ no gap at the seam.
+      // ---------------------------------------------------------------
+
+      const HOLD_MS = 400;
+      const ANIM_MS = 600;
+      function easeOutCubic(t) {
+        return 1 - Math.pow(1 - t, 3);
+      }
+
+      function setPreMoveState(built) {
+        for (const strip of built.strips) {
+          for (const r of strip.oldRects) {
+            r.setAttribute("transform", "translate(0, 0)");
+            r.setAttribute("opacity", "1");
+          }
+          for (const r of strip.newRects) {
+            r.setAttribute(
+              "transform",
+              `translate(${-3 * strip.fxPx}, ${-3 * strip.fyPx})`,
+            );
+            r.setAttribute("opacity", "1");
+          }
+        }
+        built.rotG.setAttribute(
+          "transform",
+          `rotate(0, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
+        );
+        built.rotG.setAttribute("opacity", "1");
+        built.oldG.setAttribute("opacity", "1");
+        built.newG.setAttribute("opacity", "1");
+        built.settledG.setAttribute("opacity", "0");
+      }
+
+      function setSettledState(built) {
+        built.oldG.setAttribute("opacity", "0");
+        built.newG.setAttribute("opacity", "0");
+        built.rotG.setAttribute("opacity", "0");
+        built.settledG.setAttribute("opacity", "1");
+      }
+
+      function applyAnimationFrame(built, t) {
+        for (const strip of built.strips) {
+          const tx = t * 3 * strip.fxPx;
+          const ty = t * 3 * strip.fyPx;
+          for (const r of strip.oldRects) {
+            r.setAttribute("transform", `translate(${tx}, ${ty})`);
+          }
+          const ntx = (t - 1) * 3 * strip.fxPx;
+          const nty = (t - 1) * 3 * strip.fyPx;
+          for (const r of strip.newRects) {
+            r.setAttribute("transform", `translate(${ntx}, ${nty})`);
+          }
+        }
+        const angle = built.angleDeg * t;
+        built.rotG.setAttribute(
+          "transform",
+          `rotate(${angle}, ${built.rotCenterPx.x}, ${built.rotCenterPx.y})`,
+        );
+      }
+
+      function startCycle(panelState) {
+        if (panelState.rafId != null) {
+          cancelAnimationFrame(panelState.rafId);
+          panelState.rafId = null;
+        }
+        if (panelState.holdTimer != null) {
+          clearTimeout(panelState.holdTimer);
+          panelState.holdTimer = null;
+        }
+        const { built } = panelState;
+        setPreMoveState(built);
+        panelState.holdTimer = setTimeout(() => {
+          panelState.holdTimer = null;
+          const startTime = performance.now();
+          const tick = (now) => {
+            const elapsed = now - startTime;
+            const tRaw = Math.min(1, elapsed / ANIM_MS);
+            const t = easeOutCubic(tRaw);
+            applyAnimationFrame(built, t);
+            if (tRaw >= 1) {
+              setSettledState(built);
+              panelState.rafId = null;
+              return;
+            }
+            panelState.rafId = requestAnimationFrame(tick);
+          };
+          panelState.rafId = requestAnimationFrame(tick);
+        }, HOLD_MS);
+      }
+
+      // ---------------------------------------------------------------
+      // Panels: one per QTM move (12 total), all from solved.
+      // Grid lays out at minmax(320px, 1fr) per theme row — at typical
+      // viewport widths the auto-fit packs 3 or 4 columns naturally.
+      // ---------------------------------------------------------------
+
+      const QTM_MOVES = [
+        "R", "R'", "L", "L'", "U", "U'",
+        "D", "D'", "F", "F'", "B", "B'",
+      ];
+      const PANELS = QTM_MOVES.map((m) => ({
+        label: "solved",
+        alg: m,
+        preFacelet: SOLVED,
+        move: m,
+      }));
+
+      const SIZE_PX = 220;
+      const allPanelStates = [];
+
+      function mountTheme(themeContainer) {
+        const geo = makeGeometry(SIZE_PX);
+        for (const panelDef of PANELS) {
+          const panel = document.createElement("div");
+          panel.className = "panel";
+          const label = document.createElement("div");
+          label.className = "panel-label";
+          label.innerHTML =
+            panelDef.label +
+            ' <span class="alg">+ ' +
+            escapeHTML(panelDef.alg) +
+            "</span>";
+          panel.appendChild(label);
+
+          const host = document.createElement("div");
+          host.className = "cube-host";
+          panel.appendChild(host);
+          const built = buildPanelSVG(panelDef, geo);
+          host.appendChild(built.svg);
+          setPreMoveState(built);
+
+          const replay = document.createElement("button");
+          replay.className = "replay-btn";
+          replay.textContent = "replay " + panelDef.alg;
+          panel.appendChild(replay);
+
+          const state = { built, rafId: null, holdTimer: null };
+          replay.addEventListener("click", () => startCycle(state));
+          themeContainer.appendChild(panel);
+          allPanelStates.push(state);
+        }
+      }
+
+      function escapeHTML(s) {
+        return s
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      document.querySelectorAll(".grid").forEach((g) => mountTheme(g));
+      document.getElementById("play-all").addEventListener("click", () => {
+        for (const s of allPanelStates) startCycle(s);
+      });
+      // No auto-play.
+    </script>
+  </body>
+</html>
