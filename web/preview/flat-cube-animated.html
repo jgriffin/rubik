@@ -677,16 +677,16 @@
         clip.setAttribute("id", crossClipId);
         clip.setAttribute("clipPathUnits", "userSpaceOnUse");
         const cVert = document.createElementNS(svgNS, "rect");
-        cVert.setAttribute("x", 3 * STICKER_PX);
-        cVert.setAttribute("y", 0);
-        cVert.setAttribute("width", 3 * STICKER_PX);
-        cVert.setAttribute("height", 9 * STICKER_PX);
+        cVert.setAttribute("x", 3 * STICKER_PX - 2);
+        cVert.setAttribute("y", -2);
+        cVert.setAttribute("width", 3 * STICKER_PX + 4);
+        cVert.setAttribute("height", 9 * STICKER_PX + 4);
         clip.appendChild(cVert);
         const cHorz = document.createElementNS(svgNS, "rect");
-        cHorz.setAttribute("x", 0);
-        cHorz.setAttribute("y", 3 * STICKER_PX);
-        cHorz.setAttribute("width", 12 * STICKER_PX);
-        cHorz.setAttribute("height", 3 * STICKER_PX);
+        cHorz.setAttribute("x", -2);
+        cHorz.setAttribute("y", 3 * STICKER_PX - 2);
+        cHorz.setAttribute("width", 12 * STICKER_PX + 4);
+        cHorz.setAttribute("height", 3 * STICKER_PX + 4);
         clip.appendChild(cHorz);
         defs.appendChild(clip);
 
