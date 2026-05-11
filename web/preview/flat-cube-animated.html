@@ -316,9 +316,26 @@
         return d;
       }
 
+      // Integer-grid "reference" center: top-left of the center sticker.
+      // Used for angle math, where src/dst from indexToNetXY are also
+      // sticker top-left positions. The angle is invariant under the
+      // uniform (+0.5, +0.5) shift, so using top-left coords gives the
+      // same result as using true geometric centers, while avoiding
+      // floating-point noise in atan2.
       function faceCenterXY(face) {
         const { col, row } = FACE_GRID[face];
         return { x: col * 3 + 1, y: row * 3 + 1 };
+      }
+      // True geometric center of the 3×3 face in PIXELS. Used as the
+      // SVG rotate() pivot, where we must rotate around the actual
+      // center point of the face block — not the top-left corner of
+      // the center sticker (which is half a sticker off in each axis).
+      function faceCenterPx(face) {
+        const { col, row } = FACE_GRID[face];
+        return {
+          x: (col * 3 + 1.5) * STICKER_PX,
+          y: (row * 3 + 1.5) * STICKER_PX,
+        };
       }
 
       // ---------------------------------------------------------------
@@ -624,7 +641,7 @@
         svg.appendChild(staticLayer);
 
         // Layer 2: animated edge group(s) — slide(s) or ring rotation.
-        const ringCenter = faceCenterXY("F"); // for F/B rings
+        const ringCenterPx = faceCenterPx("F"); // for F/B rings (pixel space)
         const edgeGroups = []; // each: { node, kind: 'slide' | 'ring' }
 
         if (kind === "h-ribbon" || kind === "v-ribbon") {
@@ -681,7 +698,7 @@
 
         // Animation parameters
         const faceAngle = faceRotationAngle(move);
-        const faceCx = faceCenterXY(turnedFace(move));
+        const faceCxPx = faceCenterPx(turnedFace(move));
         const ringAngle = kind === "ring" ? ringRotationAngle(move) : 0;
 
         // Render function: apply transforms at given progress (0..1).
@@ -691,7 +708,7 @@
           const angle = faceAngle * e;
           faceLayer.setAttribute(
             "transform",
-            `rotate(${angle} ${faceCx.x * STICKER_PX} ${faceCx.y * STICKER_PX})`,
+            `rotate(${angle} ${faceCxPx.x} ${faceCxPx.y})`,
           );
           // Edge group(s)
           for (const g of edgeGroups) {
@@ -699,7 +716,7 @@
               const a = ringAngle * e;
               g.node.setAttribute(
                 "transform",
-                `rotate(${a} ${ringCenter.x * STICKER_PX} ${ringCenter.y * STICKER_PX})`,
+                `rotate(${a} ${ringCenterPx.x} ${ringCenterPx.y})`,
               );
             } else {
               const tx = sv.dx * STICKER_PX * e;
@@ -716,18 +733,37 @@
         renderAt(0);
 
         // Per-panel controller
+        //
+        // State machine:
+        //   direction: 'idle' | 'forward' | 'reverse' | 'reverse-then-forward'
+        //
+        // 'reverse-then-forward' is the auto-reset-on-replay case: clicking
+        // Play when the panel is already at progress=1 first plays the
+        // reverse leg (200 ms), then chains into a forward leg (600 ms).
         const state = { progress: 0, direction: "idle", startTime: 0, raf: 0 };
         function tick(now) {
           if (state.direction === "idle") return;
-          const dur = state.direction === "forward" ? DUR_FORWARD : DUR_REVERSE;
+          const isForwardLeg =
+            state.direction === "forward" ||
+            (state.direction === "reverse-then-forward" &&
+              state.legPhase === "forward");
+          const dur = isForwardLeg ? DUR_FORWARD : DUR_REVERSE;
           const t = Math.min(1, (now - state.startTime) / dur);
-          const p =
-            state.direction === "forward"
-              ? state.startProgress + (1 - state.startProgress) * t
-              : state.startProgress - state.startProgress * t;
+          const p = isForwardLeg
+            ? state.startProgress + (1 - state.startProgress) * t
+            : state.startProgress - state.startProgress * t;
           state.progress = p;
           renderAt(p);
           if (t < 1) {
+            state.raf = requestAnimationFrame(tick);
+          } else if (
+            state.direction === "reverse-then-forward" &&
+            state.legPhase === "reverse"
+          ) {
+            // Reverse leg done; chain forward leg.
+            state.legPhase = "forward";
+            state.startProgress = state.progress; // ~0
+            state.startTime = performance.now();
             state.raf = requestAnimationFrame(tick);
           } else {
             state.direction = "idle";
@@ -736,7 +772,15 @@
         }
         function play() {
           if (state.raf) cancelAnimationFrame(state.raf);
-          state.direction = "forward";
+          // Auto-reset on replay: if already at end-of-forward, run a
+          // 200 ms reverse leg first, then chain into the 600 ms forward
+          // leg as a single visible sequence.
+          if (state.progress > 0.99) {
+            state.direction = "reverse-then-forward";
+            state.legPhase = "reverse";
+          } else {
+            state.direction = "forward";
+          }
           state.startProgress = state.progress;
           state.startTime = performance.now();
           state.raf = requestAnimationFrame(tick);
