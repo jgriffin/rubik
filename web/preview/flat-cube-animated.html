@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Block 1B — 2D move animation preview (P0 rev5.2)</title>
+    <title>Block 1B — 2D move animation preview (P0 rev5.3)</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -35,7 +35,7 @@
         gap: 12px;
         align-items: center;
       }
-      .mask-toggle {
+      .extension-toggle {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -43,7 +43,7 @@
         user-select: none;
         cursor: pointer;
       }
-      .mask-toggle input {
+      .extension-toggle input {
         cursor: pointer;
       }
       button {
@@ -128,31 +128,34 @@
     </style>
   </head>
   <body>
-    <h1>Block 1B — 2D move animation preview (P0 rev5.2)</h1>
+    <h1>Block 1B — 2D move animation preview (P0 rev5.3)</h1>
     <p class="intro">
       <strong>Ribbon-with-extension model.</strong> Each move animates as
       three concurrent parts on one timeline:
       (1) the turned face's 9 stickers rotate ±90° around the face center;
       (2) the affected edge stickers form a rigid "ribbon" that slides in
       a single direction (e.g. R's primary ribbon on col 5 slides UP);
-      off-canonical-net source stickers are drawn as visible "extensions"
-      so you can SEE where they come from; (3) for F/F'/B/B' the edge
-      cycle is a closed ring around F-center — those use a rotation
-      primitive (12 stickers rotate 90°) with no extension. For R/R'/L/L'
-      a secondary ribbon at B's near-F column slides in the OPPOSITE
-      direction — the content wrapping over the top/bottom of the cube
-      from U/D arrives at B from above/below B's face. An inverse-opacity
-      overlay dims the region outside the cross silhouette so extensions
-      read as ghosts; rotating face and ring layers render ABOVE the
-      overlay so they never get dimmed mid-rotation. Use the
-      <em>Cross mask</em> checkbox to toggle the dimming.
+      off-canonical-net source stickers are drawn as "extensions" so the
+      ribbon has visible content sliding in from beyond the cross edge;
+      (3) for F/F'/B/B' the edge cycle is a closed ring around F-center —
+      those use a rotation primitive (12 stickers rotate 90°) with no
+      extension. For R/R'/L/L' a secondary ribbon at B's near-F column
+      slides in the OPPOSITE direction — the content wrapping over the
+      top/bottom of the cube from U/D arrives at B from above/below B's
+      face. By default the ribbon-slide groups are clipped to the cross
+      silhouette so the panel looks like the eventual production view;
+      toggle <em>Show extensions</em> to render extensions outside the
+      cross with a dimming overlay (debug view). Face-rotation and F/B
+      ring-rotation groups render unclipped, ABOVE the overlay, so
+      mid-rotation swing through cross corners stays visible in both
+      modes.
     </p>
     <div class="play-all-row">
       <button class="primary" id="play-all">Play all</button>
       <button class="primary" id="reset-all">Reset all</button>
-      <label class="mask-toggle">
-        <input type="checkbox" id="mask-toggle" checked />
-        Cross mask
+      <label class="extension-toggle">
+        <input type="checkbox" id="extension-toggle" />
+        Show extensions
       </label>
     </div>
 
@@ -280,9 +283,17 @@
       const VB_W = 17 * STICKER_PX;
       const VB_H = 14 * STICKER_PX;
 
-      const DUR_FORWARD = 600;
-      const DUR_REVERSE = 200;
-      const DUR_PAUSE = 250;
+      // Animation timing knobs (milliseconds). Adjust these to retune
+      // the per-panel state machine without hunting through tick code.
+      //   DUR_FORWARD_MS — forward play (settled → end).
+      //   DUR_REVERSE_MS — auto-reset reverse leg before replay; kept
+      //                    short so the pause leg stands out from it.
+      //   DUR_PAUSE_MS   — hold-at-zero between reverse and forward on
+      //                    auto-reset, gives the eye a beat to register
+      //                    the pre-move state.
+      const DUR_FORWARD_MS = 600;
+      const DUR_REVERSE_MS = 150;
+      const DUR_PAUSE_MS = 250;
 
       function easeOut(t) {
         const u = 1 - t;
@@ -606,7 +617,14 @@
           theme === "light" ? "rgba(246,245,241,0.7)" : "rgba(24,24,26,0.75)";
 
         const panelId = `p-${theme}-${panelIdx}`;
-        const maskId = `mask-outside-cross-${panelId}`;
+        // Inverse-opacity mask used by the debug-mode dimming overlay
+        // (everything outside the cross silhouette gets dimmed).
+        const extensionMaskId = `extension-mask-${panelId}`;
+        // Positive clip-path matching the cross silhouette — applied
+        // to ribbon-slide groups when "Show extensions" is OFF so any
+        // off-cross sticker (extension or post-slide overflow) is
+        // clipped to invisibility, leaving only the cross visible.
+        const crossClipId = `extension-clip-${panelId}`;
 
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
@@ -618,10 +636,13 @@
         svg.setAttribute("height", VB_H);
         svg.style.overflow = "visible";
 
-        // defs with mask
+        // defs with inverse-opacity mask + positive cross clip-path.
         const defs = document.createElementNS(svgNS, "defs");
+
+        // Inverse-opacity mask: white outside cross, black inside cross.
+        // Used by the debug-mode dimming overlay.
         const mask = document.createElementNS(svgNS, "mask");
-        mask.setAttribute("id", maskId);
+        mask.setAttribute("id", extensionMaskId);
         mask.setAttribute("maskUnits", "userSpaceOnUse");
         // Whole viewBox white
         const mFull = document.createElementNS(svgNS, "rect");
@@ -648,6 +669,27 @@
         mHorz.setAttribute("fill", "black");
         mask.appendChild(mHorz);
         defs.appendChild(mask);
+
+        // Positive cross clip-path: two rects (UFD vertical strip +
+        // LFRB horizontal strip). clip-path is the UNION of all child
+        // shapes, so the cross is exactly the cross-net silhouette.
+        const clip = document.createElementNS(svgNS, "clipPath");
+        clip.setAttribute("id", crossClipId);
+        clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+        const cVert = document.createElementNS(svgNS, "rect");
+        cVert.setAttribute("x", 3 * STICKER_PX);
+        cVert.setAttribute("y", 0);
+        cVert.setAttribute("width", 3 * STICKER_PX);
+        cVert.setAttribute("height", 9 * STICKER_PX);
+        clip.appendChild(cVert);
+        const cHorz = document.createElementNS(svgNS, "rect");
+        cHorz.setAttribute("x", 0);
+        cHorz.setAttribute("y", 3 * STICKER_PX);
+        cHorz.setAttribute("width", 12 * STICKER_PX);
+        cHorz.setAttribute("height", 3 * STICKER_PX);
+        clip.appendChild(cHorz);
+        defs.appendChild(clip);
+
         svg.appendChild(defs);
 
         // Sticker drawing helper
@@ -676,25 +718,39 @@
 
         // Z-order (bottom → top):
         //   1. Static stickers (already added above as staticLayer)
-        //   2. Ribbon-slide groups (extensions live outside the cross,
-        //      so the overlay above them dims those extensions until
-        //      they slide into the cross)
-        //   3. Inverse-opacity overlay (dims everything below it that
-        //      sits outside the cross silhouette)
-        //   4. Face-rotation group (rendered ABOVE the overlay so
-        //      mid-rotation stickers passing through corner regions
-        //      are NEVER dimmed)
+        //   2. Ribbon-slide container (wraps primary + secondary slide
+        //      groups). Carries clip-path="url(#extension-clip-…)"
+        //      when "Show extensions" is OFF (production view) so the
+        //      ribbon is clipped to the cross silhouette and any
+        //      off-cross extension or overflow is invisible. With the
+        //      toggle ON (debug view), the clip-path attribute is
+        //      removed and the dimming overlay (layer 3) renders
+        //      extensions as dimmed ghosts.
+        //   3. Inverse-opacity dimming overlay (visible only in debug
+        //      view — toggled via display:none in production view).
+        //   4. Face-rotation group (rendered ABOVE the overlay and
+        //      OUTSIDE the ribbon clip so mid-rotation stickers
+        //      passing through corner regions are NEVER clipped or
+        //      dimmed)
         //   5. Ring-rotation group for F/B (same reasoning — above
-        //      the overlay)
+        //      the overlay and outside the clip)
         //
         // For F/B moves the overlay is effectively invisible since
-        // everything moving renders above it.
+        // everything moving renders above it; the ring group is also
+        // unclipped so its rotation is always fully visible.
         const ringCenterPx = faceCenterPx("F"); // for F/B rings (pixel space)
         const edgeGroups = []; // each: { node, kind, sv? }
 
-        // Layer 2: ribbon-slide groups (UNDER overlay). For ring moves,
-        // the ring rotation group is built here but appended LATER
-        // (above the overlay).
+        // Layer 2: ribbon-slide container + child slide groups.
+        // The container holds the clip-path; the children are the
+        // primary and (for v-ribbon) secondary ribbons, each animated
+        // independently via their own transform.
+        const ribbonContainer = document.createElementNS(svgNS, "g");
+        ribbonContainer.setAttribute("data-layer", "ribbon-container");
+        // Default OFF state: clip to cross silhouette.
+        ribbonContainer.setAttribute("clip-path", `url(#${crossClipId})`);
+        svg.appendChild(ribbonContainer);
+
         let ringGroup = null;
 
         if (kind === "h-ribbon" || kind === "v-ribbon") {
@@ -705,7 +761,7 @@
           for (const it of groups.primary.items) {
             drawSticker(primaryG, it.x, it.y, it.color);
           }
-          svg.appendChild(primaryG);
+          ribbonContainer.appendChild(primaryG);
           edgeGroups.push({ node: primaryG, kind: "slide", sv: groups.primary.sv });
           // secondary (only for v-ribbon)
           if (groups.secondary && groups.secondary.items.length) {
@@ -714,7 +770,7 @@
             for (const it of groups.secondary.items) {
               drawSticker(secondaryG, it.x, it.y, it.color);
             }
-            svg.appendChild(secondaryG);
+            ribbonContainer.appendChild(secondaryG);
             edgeGroups.push({
               node: secondaryG,
               kind: "slide",
@@ -724,7 +780,8 @@
         } else {
           // Ring rotation: 12 stickers at pre-move positions in one
           // group. We build it now but attach it AFTER the overlay
-          // (see layer 5 below) so it renders above the overlay.
+          // (see layer 5 below) so it renders above the overlay AND
+          // outside the ribbon clip (ring rotation never gets clipped).
           ringGroup = document.createElementNS(svgNS, "g");
           ringGroup.setAttribute("data-layer", "edge-ring");
           const items = buildRingStickers(move, facelet);
@@ -734,15 +791,18 @@
         }
 
         // Layer 3: inverse-opacity overlay dimming outside-cross region.
+        // Hidden by default (production view); shown only when the
+        // "Show extensions" debug toggle is on.
         const overlay = document.createElementNS(svgNS, "rect");
         overlay.setAttribute("x", VB_X);
         overlay.setAttribute("y", VB_Y);
         overlay.setAttribute("width", VB_W);
         overlay.setAttribute("height", VB_H);
         overlay.setAttribute("fill", overlayFill);
-        overlay.setAttribute("mask", `url(#${maskId})`);
+        overlay.setAttribute("mask", `url(#${extensionMaskId})`);
         overlay.setAttribute("pointer-events", "none");
-        overlay.setAttribute("data-layer", "mask-overlay");
+        overlay.setAttribute("data-layer", "extension-overlay");
+        overlay.style.display = "none";
         svg.appendChild(overlay);
 
         // Layer 4: animated face rotation group (ABOVE overlay).
@@ -807,21 +867,21 @@
         // 'reverse-then-forward' is the auto-reset-on-replay case: clicking
         // Play when the panel is already at progress=1 plays a three-leg
         // sequence with discernible beats between them:
-        //   1. reverse  (200 ms, progress 1 → 0)
-        //   2. pause    (250 ms, progress held at 0 so the user sees
-        //                the pre-move state momentarily)
-        //   3. forward  (600 ms, progress 0 → 1)
+        //   1. reverse  (DUR_REVERSE_MS, progress 1 → 0)
+        //   2. pause    (DUR_PAUSE_MS,  progress held at 0 so the user
+        //                sees the pre-move state momentarily)
+        //   3. forward  (DUR_FORWARD_MS, progress 0 → 1)
         // legPhase tracks which leg of the chained sequence we're on.
         const state = { progress: 0, direction: "idle", startTime: 0, raf: 0 };
         function tick(now) {
           if (state.direction === "idle") return;
-          // Pause leg: hold at progress=0 for DUR_PAUSE, then chain
+          // Pause leg: hold at progress=0 for DUR_PAUSE_MS, then chain
           // forward.
           if (
             state.direction === "reverse-then-forward" &&
             state.legPhase === "pause"
           ) {
-            const t = Math.min(1, (now - state.startTime) / DUR_PAUSE);
+            const t = Math.min(1, (now - state.startTime) / DUR_PAUSE_MS);
             // progress stays at 0 — renderAt was already called at the
             // end of the reverse leg, no need to re-render every frame.
             if (t < 1) {
@@ -838,7 +898,7 @@
             state.direction === "forward" ||
             (state.direction === "reverse-then-forward" &&
               state.legPhase === "forward");
-          const dur = isForwardLeg ? DUR_FORWARD : DUR_REVERSE;
+          const dur = isForwardLeg ? DUR_FORWARD_MS : DUR_REVERSE_MS;
           const t = Math.min(1, (now - state.startTime) / dur);
           const p = isForwardLeg
             ? state.startProgress + (1 - state.startProgress) * t
@@ -863,8 +923,8 @@
         function play() {
           if (state.raf) cancelAnimationFrame(state.raf);
           // Auto-reset on replay: if already at end-of-forward, run a
-          // 200 ms reverse leg + 250 ms pause + 600 ms forward leg as
-          // a single visible sequence.
+          // reverse leg (DUR_REVERSE_MS) + pause (DUR_PAUSE_MS) +
+          // forward leg (DUR_FORWARD_MS) as a single visible sequence.
           if (state.progress > 0.99) {
             state.direction = "reverse-then-forward";
             state.legPhase = "reverse";
@@ -883,7 +943,7 @@
           state.raf = requestAnimationFrame(tick);
         }
 
-        return { svg, play, reset };
+        return { svg, play, reset, ribbonContainer, overlay, crossClipId };
       }
 
       // ---------------------------------------------------------------
@@ -937,18 +997,33 @@
         controllers.forEach((c) => c.reset());
       });
 
-      // Cross-mask toggle: hides every panel's dimming overlay when off.
-      const maskToggle = document.getElementById("mask-toggle");
-      function applyMaskVisibility() {
-        const visible = maskToggle.checked;
-        document
-          .querySelectorAll('[data-layer="mask-overlay"]')
-          .forEach((node) => {
-            node.style.display = visible ? "" : "none";
-          });
+      // "Show extensions" toggle (defaults OFF = production view).
+      //   OFF (default): each panel's ribbon-slide container carries
+      //                  clip-path → off-cross extensions and overflow
+      //                  are invisible. Dimming overlay hidden.
+      //   ON  (debug):   clip-path stripped from the ribbon container
+      //                  so extensions render outside the cross.
+      //                  Dimming overlay shown so they read as ghosts.
+      const extensionToggle = document.getElementById("extension-toggle");
+      function applyExtensionVisibility() {
+        const showExtensions = extensionToggle.checked;
+        controllers.forEach((c) => {
+          if (showExtensions) {
+            // Debug view: extensions visible, overlay dims them.
+            c.ribbonContainer.removeAttribute("clip-path");
+            c.overlay.style.display = "";
+          } else {
+            // Production view: clip ribbons to cross, hide overlay.
+            c.ribbonContainer.setAttribute(
+              "clip-path",
+              `url(#${c.crossClipId})`,
+            );
+            c.overlay.style.display = "none";
+          }
+        });
       }
-      maskToggle.addEventListener("change", applyMaskVisibility);
-      applyMaskVisibility();
+      extensionToggle.addEventListener("change", applyExtensionVisibility);
+      applyExtensionVisibility();
     </script>
   </body>
 </html>
