@@ -259,6 +259,65 @@ describe("Cube2D — animated mode: SVG envelope + structure", () => {
     expect(html).toContain('clipPathUnits="userSpaceOnUse"');
   });
 
+  it("animated stickers carry rx + gap + stroke-width matching static (regression: C·P1 fix 2)", () => {
+    // Regression for C·P1 fix 2: before the fix, animated mode used the
+    // rev5 preview's no-gap-crisp look (gap=0, no rx, strokeWidth=1).
+    // Side-by-side in the production solution grid, the start card
+    // (static) and non-start cards (animated) rendered visibly different
+    // sticker cells — animated looked heavier/blockier. The fix aligns
+    // animated stickers to the static renderer's gap+rx geometry,
+    // expressed in viewBox units:
+    //   gap          = STICKER_PX * 0.06 = 1.2
+    //   rx           = STICKER_PX * 0.06 = 1.2
+    //   strokeWidth  = STICKER_PX * 0.025 = 0.5
+    // Each rect's `width` is therefore STICKER_PX - gap = 18.8.
+    // This test pins those values so a regression in either direction
+    // (going back to no-gap-crisp, or drifting the gap/rx ratio) shows up.
+    const html = renderAtTimestamp(["R"], 300);
+    // rx attribute present on every sticker rect (was absent / 0 before).
+    expect(html).toMatch(/<rect[^>]*\srx="1\.2"/);
+    // Stroke width matches static's STICKER_PX * 0.025 = 0.5.
+    expect(html).toMatch(/<rect[^>]*\bstroke-width="0\.5"/);
+    // Width matches STICKER_PX - gap = 18.8 (i.e. gap-inset positioning).
+    expect(html).toMatch(/<rect[^>]*\bwidth="18\.8"/);
+    // Static stickers' x coords are STICKER_PX*col + gap/2 = col*20 + 0.6.
+    // Verify at least one static sticker is offset by gap/2 = 0.6 (not 0).
+    expect(html).toMatch(/data-layer="static">[\s\S]*?<rect[^>]*\bx="\d+\.6"/);
+  });
+
+  it("clip-path padding tracks ANIM_STROKE_W, not a hardcoded value (regression: C·P1 fix 2)", () => {
+    // Regression for the slip-through corollary of C·P1 fix 2: before
+    // tightening, the cross-silhouette clipPath was padded by a hardcoded
+    // 2 viewBox units to swallow rev5's wider stroke. With animated mode
+    // now using the static stroke (0.5 viewBox units), the old padding
+    // was 4× too wide and exposed a thin sliver of slide-group depart
+    // copies below the cross at progress=1.
+    //
+    // The geometry contract:
+    //   vertical strip (U/F/D cols 3..5 column rows): x=3-pad, y=-pad,
+    //   w=3+2*pad, h=9+2*pad in viewBox sticker units (multiplied by
+    //   STICKER_PX=20). With pad=0.5 →
+    //     x = 60 - 0.5 = 59.5
+    //     y = -0.5
+    //     w = 60 + 1   = 61
+    //     h = 180 + 1  = 181
+    //   horizontal strip (L/F/R/B row): x=-pad, y=60-pad, w=240+2*pad,
+    //   h=60+2*pad →
+    //     x = -0.5
+    //     y = 59.5
+    //     w = 241
+    //     h = 61
+    const html = renderAtTimestamp(["R"], 300);
+    // Vertical strip with the tightened padding.
+    expect(html).toMatch(
+      /<rect[^>]*\bx="59\.5"[^>]*\by="-0\.5"[^>]*\bwidth="61"[^>]*\bheight="181"/,
+    );
+    // Horizontal strip with the tightened padding.
+    expect(html).toMatch(
+      /<rect[^>]*\bx="-0\.5"[^>]*\by="59\.5"[^>]*\bwidth="241"[^>]*\bheight="61"/,
+    );
+  });
+
   it("ribbon-container <g> carries the clip-path reference", () => {
     const html = renderAtTimestamp(["U"], 300);
     expect(html).toMatch(/data-layer="ribbon-container"[^>]*clip-path="url\(#/);

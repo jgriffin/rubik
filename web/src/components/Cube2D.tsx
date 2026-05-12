@@ -311,10 +311,22 @@ function AnimatedInner({
 // the math module stay progress-independent.
 //
 // Per-sticker rendering: viewBox-coord stickers (`x*STICKER_PX,
-// y*STICKER_PX`, size `STICKER_PX × STICKER_PX`), stroke `INK_STROKE`
-// width 1 (in viewBox coords — invariant across `sizePx`), no gap,
-// no rounded corners (matches the preview, not the static renderer's
-// rounded-with-gap look — animated mode is the rev5 look).
+// y*STICKER_PX`, nominal size `STICKER_PX × STICKER_PX`), stroke
+// `INK_STROKE`. We render with **the static renderer's gap + rounded-
+// corner look** (rev5.4 look), expressed in viewBox units:
+//   - gap   = STICKER_PX * 0.06        (matches static's stickerPx*0.06)
+//   - rx    = STICKER_PX * 0.06        (matches static's rx=1 at the
+//                                       same proportion)
+//   - strokeWidth = STICKER_PX * 0.025 (matches static's stickerPx*0.025)
+// Production C·P1 fix 2: previously the animated mode used the rev5
+// preview's no-gap + crisp-edges look (gap=0, rx=0, strokeWidth=1).
+// Side-by-side in the production solution grid, the start card (static
+// mode, gap+rx) and the non-start cards (animated mode, no-gap-crisp)
+// looked visibly different — the non-start cards looked heavier/blockier.
+// Aligning the styles here makes ALL cards in the grid render with the
+// same visual cell shape. The kinematics math is untouched; only the
+// per-sticker rect geometry changed (the gap/rx is purely cosmetic and
+// fits inside the same viewBox-coord position).
 //
 // `clipPath` id must be unique per rendered instance to avoid SVG id
 // collisions when multiple Cube2D instances mount simultaneously. We
@@ -363,23 +375,27 @@ function SvgFromRenderPlan({
   const testIdProp =
     testId === null ? {} : { "data-testid": testId ?? "flat-cube" };
 
-  // Cross-silhouette clip-path geometry, matching the preview.
-  // Vertical strip (U/F/D column): cols 3..5 inclusive of rows 0..8,
-  // padded by 2 px on each side (in sticker-coord px) to preserve the
-  // outer half of sticker strokes at the clip boundary (rev5.4 fix).
+  // Cross-silhouette clip-path geometry. Padded by ANIM_STROKE_W on
+  // each side (viewBox units) to preserve the outer sticker strokes
+  // at the clip boundary without exposing a sliver of the slide-group
+  // depart copies that overshoot the cross. The rev5.4 preview used a
+  // hand-tuned `+2` viewBox-unit padding for a wider visual stroke;
+  // here we match the actual stroke width since animated mode now uses
+  // the static renderer's stroke geometry (C·P1 fix 2).
+  const clipPad = ANIM_STROKE_W;
   const cVert = {
-    x: 3 * STICKER_PX - 2,
-    y: -2,
-    w: 3 * STICKER_PX + 4,
-    h: 9 * STICKER_PX + 4,
+    x: 3 * STICKER_PX - clipPad,
+    y: -clipPad,
+    w: 3 * STICKER_PX + 2 * clipPad,
+    h: 9 * STICKER_PX + 2 * clipPad,
   };
   // Horizontal strip (L/F/R/B row): cols 0..11 inclusive of rows 3..5,
-  // same +2 padding.
+  // same padding.
   const cHorz = {
-    x: -2,
-    y: 3 * STICKER_PX - 2,
-    w: 12 * STICKER_PX + 4,
-    h: 3 * STICKER_PX + 4,
+    x: -clipPad,
+    y: 3 * STICKER_PX - clipPad,
+    w: 12 * STICKER_PX + 2 * clipPad,
+    h: 3 * STICKER_PX + 2 * clipPad,
   };
 
   // Slot the groups by kind so we can render them in z-order. We
@@ -475,18 +491,26 @@ function SvgFromRenderPlan({
 // One sticker, rendered at its viewBox-coord position. Color comes
 // from the palette via `COLOR_FOR_LETTER`. Inline so the SVG tree
 // stays compact and the per-sticker map keys read clearly.
+//
+// Geometry mirrors the static renderer (gap+rx; rev5.4 look), expressed
+// in viewBox units. See `SvgFromRenderPlan` header for the C·P1 fix 2
+// rationale.
+const ANIM_GAP = STICKER_PX * 0.06;
+const ANIM_RX = STICKER_PX * 0.06;
+const ANIM_STROKE_W = STICKER_PX * 0.025;
+
 function StickerRect({ sticker }: { sticker: AnimatedSticker }) {
   const color = COLOR_FOR_LETTER[sticker.color] ?? "#444";
   return (
     <rect
-      x={sticker.x * STICKER_PX}
-      y={sticker.y * STICKER_PX}
-      width={STICKER_PX}
-      height={STICKER_PX}
+      x={sticker.x * STICKER_PX + ANIM_GAP / 2}
+      y={sticker.y * STICKER_PX + ANIM_GAP / 2}
+      width={STICKER_PX - ANIM_GAP}
+      height={STICKER_PX - ANIM_GAP}
+      rx={ANIM_RX}
       fill={color}
       stroke={INK_STROKE}
-      strokeWidth={1}
-      shapeRendering="crispEdges"
+      strokeWidth={ANIM_STROKE_W}
       data-color={sticker.color}
     />
   );
