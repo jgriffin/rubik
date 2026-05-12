@@ -94,23 +94,24 @@ Phases (each = one atomic commit, app builds + tests pass throughout):
 
 **Eyeball gate (block-close).** User opens `web/preview/flat-cube-animated.html`, types a move sequence into the widget, hits play, watches the 2D cross walk through the sequence with the rev5 visual model. Matches the per-move panels below. Eyeball passes → Block A closes.
 
-### Block B — 3D renderer on the same controller
+### Block C — Per-card wiring (executed second; B↔C plan-order swap)
 
-Output: `TwistyAnimatedCube` that drives cubing.js's twisty-player from the controller, validated in the same preview now showing 2D + 3D side-by-side.
+Output: production `SolutionCard` animates each card's single move on scroll-into-view, click-replays. **2D mode only in this block** — twisty (3D) mode keeps stock cubing.js behavior until Block B catches up. Plan-order swap (C before B) because animation-visible-on-cards is more valuable to the user than 3D bring-up at this point; the controller contract is the same for both, so swapping execution order doesn't change architecture.
+
+- **C·P5 — `SolutionGrid` + `SolutionCard` rewire.** Each non-start card constructs `useCubeSequence({ startFacelet: states[stepNum-1], moves: [card.move], msPerMove: 600 })`. `IntersectionObserver` fires `.replay()` on first visibility; click handler also fires `.replay()`. The 2D mode uses `<Cube2D sequence={…} />`; the twisty mode keeps the current `<TwistyPlayerWrapper>` (no animation wiring yet — Block B). Start card (stepNum=0) skips the hook entirely — passes a static facelet via `<Cube2D facelet={…} />` instead.
+- **C·P5-tests — Vitest:** `SolutionCard.test.tsx` observer wiring smoke + click handler + start-card-skips-animation.
+- **C·e2e refresh.** `solution-grid.spec.ts` adds a deterministic post-settle assertion: 54 rects with correct `data-color` after `msPerMove + 50ms` buffer. Mid-animation assertions skipped (intentionally non-deterministic). Existing visibility tests stay green.
+
+### Block B — 3D renderer on the same controller (executed third)
+
+Output: `TwistyAnimatedCube` that drives cubing.js's twisty-player from the controller, validated in the preview showing 2D + 3D side-by-side, then dropped into `SolutionCard`'s twisty mode so the per-card animation works in 3D too.
 
 - **B·P4 — `web/src/components/TwistyAnimatedCube.tsx`.** Wraps `<twisty-player>` with `controlPanel="none"`, `tempoScale=1`. Binds `player.timestamp` from `sequence.timestamp`. Surfaces the cubing.js external-clock fight (if any) and resolves it: ideally pure timestamp writes work; if not, fall back to a minimal `.play()`/`.pause()` mirror of our controller's `status`; if cubing.js fights both paths, scope a pivot here.
 - **B·P0' — Preview extends to dual.** The sequence widget now drives both renderers side-by-side; user eyeballs lockstep.
 - **B·P4-tests — Vitest:** `TwistyAnimatedCube.test.tsx` smoke + an integration test that asserts the wrapper sets `player.timestamp` in response to controller state changes.
+- **B·P5 — `SolutionCard` twisty mode wires to `TwistyAnimatedCube`.** The Block C wiring extended: twisty mode now uses `<TwistyAnimatedCube sequence={…} />` instead of stock `<TwistyPlayerWrapper>`. Split mode finally has both surfaces animating.
 
-**Eyeball gate.** 2D and 3D walk the same sequence in visible lockstep. Sub-frame drift acceptable.
-
-### Block C — Per-card wiring
-
-Output: production `SolutionCard` animates each card's single move on scroll-into-view, click-replays. Both net and twisty modes wired through the new components.
-
-- **C·P5 — `SolutionGrid` + `SolutionCard` rewire.** Each non-start card constructs `useCubeSequence({ startFacelet: states[stepNum-1], moves: [card.move], msPerMove: 600 })`. `IntersectionObserver` fires `.replay()` on first visibility; click handler also fires `.replay()`. The 2D mode uses `<Cube2D sequence={…} />`; the twisty mode uses `<TwistyAnimatedCube sequence={…} />`. Start card (stepNum=0) skips the hook entirely — passes a static facelet via `<Cube2D facelet={…} />` instead.
-- **C·P5-tests — Vitest:** `SolutionCard.test.tsx` observer wiring smoke + click handler + start-card-skips-animation.
-- **C·e2e refresh.** `solution-grid.spec.ts` adds a deterministic post-settle assertion: 54 rects with correct `data-color` after `msPerMove + 50ms` buffer. Mid-animation assertions skipped (intentionally non-deterministic). Existing visibility tests stay green.
+**Eyeball gate.** 2D and 3D walk the same sequence in visible lockstep (preview + per-card). Sub-frame drift acceptable.
 
 ### Block D — Full-solve dual-cube view (section iv replacement)
 

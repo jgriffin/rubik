@@ -114,7 +114,39 @@ describe("useCubeSequence — return-value contract", () => {
     expect(typeof seq.seek).toBe("function");
     expect(typeof seq.seekToMove).toBe("function");
     expect(typeof seq.replay).toBe("function");
+    expect(typeof seq.replayWithReverse).toBe("function");
+    expect(typeof seq.replayWithReverseHold).toBe("function");
+    expect(typeof seq.releaseHold).toBe("function");
     expect(typeof seq.subscribe).toBe("function");
+  });
+
+  it("releaseHold from non-hold states is a graceful no-op (bound to instance, not a stub)", () => {
+    // Verify the new methods exist on the factory return value AND
+    // operate on the same instance as the other controls — i.e.
+    // they're not stub functions floating free of the sequence. We
+    // call releaseHold from each non-hold status and confirm state
+    // doesn't change. (Driving the held pause itself requires an rAF
+    // shim; that coverage lives in state/cubeSequence.test.ts. Here
+    // we just confirm wiring.)
+    const seq = createCubeSequence({
+      startFacelet: SOLVED,
+      moves: ["R"] as MoveStr[],
+    });
+    // idle → releaseHold → still idle (no-op).
+    expect(seq.status).toBe("idle");
+    seq.releaseHold();
+    expect(seq.status).toBe("idle");
+    // seek to mid-move → paused; releaseHold no-op.
+    seq.seek(300);
+    expect(seq.status).toBe("paused");
+    seq.releaseHold();
+    expect(seq.status).toBe("paused");
+    expect(seq.timestamp).toBe(300);
+    // seek to end → ended; releaseHold no-op.
+    seq.seek(600);
+    expect(seq.status).toBe("ended");
+    seq.releaseHold();
+    expect(seq.status).toBe("ended");
   });
 });
 

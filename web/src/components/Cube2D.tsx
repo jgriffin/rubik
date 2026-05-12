@@ -14,20 +14,33 @@
 //
 // Animated mode subscribes to the passed-in `CubeSequence` via
 // `useSyncExternalStore` and renders the rev5 animation overlay by
-// consuming `cube2DKinematics.getRenderInstructions(...)`. The
-// animated SVG uses the **widget envelope** from cube2DKinematics
-// (22×19 sticker viewBox), so ribbon extensions + face-rotation
-// swing corners fit cleanly at any rendered scale. Geometry is
-// independent of `sizePx` — `sizePx` only sets the rendered pixel
-// box; viewBox math + clip-path coordinates are in sticker units.
+// consuming `cube2DKinematics.getRenderInstructions(...)`. The math
+// module's WIDGET_ENVELOPE (22×19 sticker units, with 5 stickers of
+// padding around the cross) defines the kinematics coordinate system
+// — slide vectors, rotation pivots, and ribbon extension positions
+// are all expressed in those coordinates.
 //
-// When `currentMoveIndex === -1` (idle, pre-first-move), animated
-// mode falls through to the static renderer rendering the start
-// facelet. Block C will trigger `replay()` on intersection-observer,
-// so this fall-through is mostly transitional state. Layout note:
-// the static SVG is sized 12×9 sticker units while the animated SVG
-// is 22×19 (widget envelope); switching modes causes a brief layout
-// shift — acceptable since pre-animation is a short-lived state.
+// The SVG element's **rendered intrinsic size** matches the static
+// mode exactly: width = stickerPx*12, height = stickerPx*9 — the
+// cross's natural 12×9 sticker footprint. To achieve this while
+// preserving the kinematics coordinate system, the viewBox is
+// cropped to the cross region of the WIDGET_ENVELOPE
+// (`viewBox="0 0 240 180"` in STICKER_PX units). Slide groups
+// (clipped to the cross silhouette) render exactly inside this
+// region; face-rotation and F/B ring-rotation groups render at their
+// kinematics coordinates and rely on `overflow="visible"` so the
+// portions that swing outside the cross silhouette during animation
+// still draw (outside the SVG's CSS box).
+//
+// This contract — animated SVG element same size as static SVG
+// element — exists because the production layout (.sol-cell .render
+// .net svg { max-width: 100% }) scales any SVG larger than the card
+// width down to fit. A 22×19-envelope SVG would intrinsically be
+// ~2.4× the static SVG's width, causing CSS to scale the entire
+// rendering down and produce a visibly smaller cross. Keeping the
+// SVG element 12×9 means the cross renders at exactly the same
+// pixel size in both modes — and switching modes (start vs
+// non-start card) no longer causes a layout shift.
 //
 // References:
 //   - `cube2DKinematics.ts` (A·P1) — math + types this component
@@ -45,7 +58,6 @@ import {
 } from "./cubePalette";
 import {
   STICKER_PX,
-  WIDGET_ENVELOPE,
   easeOut,
   getRenderInstructions,
   type AnimatedSticker,
@@ -299,10 +311,22 @@ function AnimatedInner({
 // the math module stay progress-independent.
 //
 // Per-sticker rendering: viewBox-coord stickers (`x*STICKER_PX,
-// y*STICKER_PX`, size `STICKER_PX × STICKER_PX`), stroke `INK_STROKE`
-// width 1 (in viewBox coords — invariant across `sizePx`), no gap,
-// no rounded corners (matches the preview, not the static renderer's
-// rounded-with-gap look — animated mode is the rev5 look).
+// y*STICKER_PX`, nominal size `STICKER_PX × STICKER_PX`), stroke
+// `INK_STROKE`. We render with **the static renderer's gap + rounded-
+// corner look** (rev5.4 look), expressed in viewBox units:
+//   - gap   = STICKER_PX * 0.06        (matches static's stickerPx*0.06)
+//   - rx    = STICKER_PX * 0.06        (matches static's rx=1 at the
+//                                       same proportion)
+//   - strokeWidth = STICKER_PX * 0.025 (matches static's stickerPx*0.025)
+// Production C·P1 fix 2: previously the animated mode used the rev5
+// preview's no-gap + crisp-edges look (gap=0, rx=0, strokeWidth=1).
+// Side-by-side in the production solution grid, the start card (static
+// mode, gap+rx) and the non-start cards (animated mode, no-gap-crisp)
+// looked visibly different — the non-start cards looked heavier/blockier.
+// Aligning the styles here makes ALL cards in the grid render with the
+// same visual cell shape. The kinematics math is untouched; only the
+// per-sticker rect geometry changed (the gap/rx is purely cosmetic and
+// fits inside the same viewBox-coord position).
 //
 // `clipPath` id must be unique per rendered instance to avoid SVG id
 // collisions when multiple Cube2D instances mount simultaneously. We
@@ -321,37 +345,57 @@ function SvgFromRenderPlan({
   const idScope = useId();
   const clipId = `cube2d-clip-${idScope}`;
 
-  // Animated viewBox is the widget envelope (22×19 stickers, padded).
-  const vb = WIDGET_ENVELOPE;
-  // `sizePx` is interpreted as the rendered HEIGHT of the visible
-  // cross (9 sticker rows tall in the cross silhouette), matching the
-  // static renderer's `sizePx = 9 stickers tall` convention. The
-  // animated SVG envelope is taller (19 rows of which 9 are cross +
-  // 10 are padding), so the rendered height = sizePx * (19/9).
+  // SVG element intrinsic dimensions match StaticInner exactly:
+  // stickerPx * 12 wide, stickerPx * 9 tall (the cross's natural
+  // footprint). `sizePx` is interpreted as the rendered HEIGHT of
+  // the cross, same convention as static mode. This keeps the cross
+  // visually identical between modes and prevents production CSS
+  // (`.sol-cell .render .net svg { max-width: 100% }`) from scaling
+  // the animated SVG down relative to the static SVG.
   const stickerPx = sizePx / 9;
-  const heightPx = stickerPx * (vb.height / STICKER_PX);
-  const widthPx = stickerPx * (vb.width / STICKER_PX);
+  const widthPx = stickerPx * 12;
+  const heightPx = stickerPx * 9;
+
+  // ViewBox is cropped to the cross region of the WIDGET_ENVELOPE
+  // coordinate system. The cross occupies sticker cols 0..11
+  // (x: 0..240) and rows 0..8 (y: 0..180) in viewBox coords; the
+  // WIDGET_ENVELOPE's negative-origin padding (-5,-5 sticker units)
+  // is dropped from the rendered viewport. Slide groups and ribbon
+  // extensions inside the clip path continue to render in the same
+  // coords as before. Rotation groups (face + F/B ring) render at
+  // their kinematics coords and rely on `overflow="visible"` to draw
+  // outside the SVG's CSS bounding box when their swing corners
+  // extend past the cross silhouette.
+  const crossVbX = 0;
+  const crossVbY = 0;
+  const crossVbW = 12 * STICKER_PX;
+  const crossVbH = 9 * STICKER_PX;
+  const viewBoxStr = `${crossVbX} ${crossVbY} ${crossVbW} ${crossVbH}`;
 
   const testIdProp =
     testId === null ? {} : { "data-testid": testId ?? "flat-cube" };
 
-  // Cross-silhouette clip-path geometry, matching the preview.
-  // Vertical strip (U/F/D column): cols 3..5 inclusive of rows 0..8,
-  // padded by 2 px on each side (in sticker-coord px) to preserve the
-  // outer half of sticker strokes at the clip boundary (rev5.4 fix).
+  // Cross-silhouette clip-path geometry. Padded by ANIM_STROKE_W on
+  // each side (viewBox units) to preserve the outer sticker strokes
+  // at the clip boundary without exposing a sliver of the slide-group
+  // depart copies that overshoot the cross. The rev5.4 preview used a
+  // hand-tuned `+2` viewBox-unit padding for a wider visual stroke;
+  // here we match the actual stroke width since animated mode now uses
+  // the static renderer's stroke geometry (C·P1 fix 2).
+  const clipPad = ANIM_STROKE_W;
   const cVert = {
-    x: 3 * STICKER_PX - 2,
-    y: -2,
-    w: 3 * STICKER_PX + 4,
-    h: 9 * STICKER_PX + 4,
+    x: 3 * STICKER_PX - clipPad,
+    y: -clipPad,
+    w: 3 * STICKER_PX + 2 * clipPad,
+    h: 9 * STICKER_PX + 2 * clipPad,
   };
   // Horizontal strip (L/F/R/B row): cols 0..11 inclusive of rows 3..5,
-  // same +2 padding.
+  // same padding.
   const cHorz = {
-    x: -2,
-    y: 3 * STICKER_PX - 2,
-    w: 12 * STICKER_PX + 4,
-    h: 3 * STICKER_PX + 4,
+    x: -clipPad,
+    y: 3 * STICKER_PX - clipPad,
+    w: 12 * STICKER_PX + 2 * clipPad,
+    h: 3 * STICKER_PX + 2 * clipPad,
   };
 
   // Slot the groups by kind so we can render them in z-order. We
@@ -362,7 +406,7 @@ function SvgFromRenderPlan({
     <svg
       width={widthPx}
       height={heightPx}
-      viewBox={vb.viewBoxStr}
+      viewBox={viewBoxStr}
       style={{ display: "block", overflow: "visible" }}
       overflow="visible"
       {...testIdProp}
@@ -395,13 +439,16 @@ function SvgFromRenderPlan({
       </g>
 
       {/* Layer 3: inverse-opacity dimming overlay (hidden in
-          production: overlayOpacity=0 → no rect rendered). */}
+          production: overlayOpacity=0 → no rect rendered). Covers
+          the visible viewBox (the cross region); since overlay use
+          is dev-tooling-only and the cross region is the visible
+          area, this is the correct extent. */}
       {plan.overlayOpacity > 0 && (
         <rect
-          x={vb.x}
-          y={vb.y}
-          width={vb.width}
-          height={vb.height}
+          x={crossVbX}
+          y={crossVbY}
+          width={crossVbW}
+          height={crossVbH}
           fill="currentColor"
           opacity={plan.overlayOpacity}
           pointerEvents="none"
@@ -444,18 +491,26 @@ function SvgFromRenderPlan({
 // One sticker, rendered at its viewBox-coord position. Color comes
 // from the palette via `COLOR_FOR_LETTER`. Inline so the SVG tree
 // stays compact and the per-sticker map keys read clearly.
+//
+// Geometry mirrors the static renderer (gap+rx; rev5.4 look), expressed
+// in viewBox units. See `SvgFromRenderPlan` header for the C·P1 fix 2
+// rationale.
+const ANIM_GAP = STICKER_PX * 0.06;
+const ANIM_RX = STICKER_PX * 0.06;
+const ANIM_STROKE_W = STICKER_PX * 0.025;
+
 function StickerRect({ sticker }: { sticker: AnimatedSticker }) {
   const color = COLOR_FOR_LETTER[sticker.color] ?? "#444";
   return (
     <rect
-      x={sticker.x * STICKER_PX}
-      y={sticker.y * STICKER_PX}
-      width={STICKER_PX}
-      height={STICKER_PX}
+      x={sticker.x * STICKER_PX + ANIM_GAP / 2}
+      y={sticker.y * STICKER_PX + ANIM_GAP / 2}
+      width={STICKER_PX - ANIM_GAP}
+      height={STICKER_PX - ANIM_GAP}
+      rx={ANIM_RX}
       fill={color}
       stroke={INK_STROKE}
-      strokeWidth={1}
-      shapeRendering="crispEdges"
+      strokeWidth={ANIM_STROKE_W}
       data-color={sticker.color}
     />
   );

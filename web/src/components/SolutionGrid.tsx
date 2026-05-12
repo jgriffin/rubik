@@ -93,6 +93,8 @@ export default function SolutionGrid({
           stepNum={i + 1}
           moveLabel={m}
           facelet={states[i + 1]}
+          preFacelet={states[i]}
+          move={m as MoveStr}
           scrambleAlg={scrambleAlg}
           solution={solution}
           sizePx={sizePx}
