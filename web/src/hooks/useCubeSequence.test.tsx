@@ -114,6 +114,7 @@ describe("useCubeSequence — return-value contract", () => {
     expect(typeof seq.seek).toBe("function");
     expect(typeof seq.seekToMove).toBe("function");
     expect(typeof seq.replay).toBe("function");
+    expect(typeof seq.replayWithReverse).toBe("function");
     expect(typeof seq.subscribe).toBe("function");
   });
 });

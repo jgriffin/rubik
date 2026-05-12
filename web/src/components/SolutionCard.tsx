@@ -16,10 +16,17 @@
 //
 // Animation triggers (non-start only):
 //   - IntersectionObserver: first time the card scrolls into view,
-//     call seq.replay() and disconnect. One-shot — we don't re-animate
-//     on every scroll.
-//   - onClick: alongside the existing onActiveChange, call seq.replay()
-//     so clicks always re-trigger the animation.
+//     call seq.play() (forward only) and disconnect. One-shot — we
+//     don't re-animate on every scroll. From the sequence's idle state
+//     (timestamp=0), play() is equivalent to replay() for the first
+//     pass; we use play() so the IO trigger is unambiguous about
+//     "begin forward playback" semantics.
+//   - onClick: alongside the existing onActiveChange, call
+//     seq.replayWithReverse() — when the sequence has already settled
+//     (status=ended), this runs the rev5 choreography: short reverse
+//     leg → pause beat → forward play. From any non-settled state it
+//     collapses to the forward-only replay so mid-flight clicks still
+//     feel snappy.
 //
 // References:
 //   - hooks/useCubeSequence.ts — spec memoization is the caller's
@@ -218,7 +225,7 @@ function NonStartCard({
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            seq.replay();
+            seq.play();
             io.disconnect();
             break;
           }
@@ -234,12 +241,21 @@ function NonStartCard({
     };
   }, [seq]);
 
-  // Compose onClick: original onActiveChange + replay. replay() from
-  // any prior state (idle/playing/paused/ended) restarts the animation
-  // — so even mid-flight clicks visibly restart the move.
+  // Compose onClick: original onActiveChange + the choreographed
+  // replay. replayWithReverse() switches between two paths based on
+  // sequence state:
+  //   - settled at end (status=ended OR last move progress > 0.99):
+  //     reverse leg (DUR_REVERSE_MS) → pause leg (DUR_PAUSE_MS) →
+  //     forward leg (msPerMove). This is the rev5 choreography —
+  //     gives the eye a beat to register the pre-move state before
+  //     the forward animation replays.
+  //   - any other state (idle / playing / paused / mid-flight):
+  //     collapses to replay() (seek 0 + forward play) so the click
+  //     feels responsive rather than mandatorily playing the
+  //     rewind-pause cue every time.
   const handleClick = () => {
     onClick();
-    seq.replay();
+    seq.replayWithReverse();
   };
 
   return (

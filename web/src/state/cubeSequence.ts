@@ -23,14 +23,36 @@
 //   - `web/src/components/cube2DKinematics.ts` (A·P1) — DUR_FORWARD_MS
 //     re-used as default `msPerMove`.
 
-import { DUR_FORWARD_MS } from "../components/cube2DKinematics";
+import {
+  DUR_FORWARD_MS,
+  DUR_PAUSE_MS,
+  DUR_REVERSE_MS,
+} from "../components/cube2DKinematics";
 import { FACELET_MOVES, type MoveStr } from "./faceletMoves";
 
 // ---------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------
 
-export type CubeSequenceStatus = "idle" | "playing" | "paused" | "ended";
+// Statuses:
+//   idle      — never played; timestamp at 0; currentMoveIndex=-1.
+//   playing   — forward play under rAF; timestamp advances toward end.
+//   paused    — mid-sequence hold (timestamp frozen, no rAF running).
+//   ended     — reached totalDurationMs; timestamp clamped there.
+//   reversing — `replayWithReverse()` reverse leg: timestamp decreases
+//               from current value to 0 over DUR_REVERSE_MS.
+//   pausing   — `replayWithReverse()` pause leg: timestamp held at 0
+//               for DUR_PAUSE_MS before the forward leg begins.
+//
+// `reversing` and `pausing` are only produced by `replayWithReverse()`.
+// `play() / pause() / seek() / replay()` never transition into them.
+export type CubeSequenceStatus =
+  | "idle"
+  | "playing"
+  | "paused"
+  | "ended"
+  | "reversing"
+  | "pausing";
 
 export interface CubeSequenceSpec {
   /** 54-char URFDLB facelet to start from. */
@@ -80,6 +102,20 @@ export interface CubeSequence {
   seekToMove(i: number): void;
   /** seek(0) + play(); transitions status to "playing". */
   replay(): void;
+  /**
+   * "Choreographed replay": if progress is at end (>= 0.99), run a
+   * reverse leg (timestamp → 0 over DUR_REVERSE_MS) followed by a
+   * pause leg (held at 0 for DUR_PAUSE_MS), then the standard forward
+   * leg. From any other state (idle / playing / paused / mid-flight)
+   * behaves like `replay()` — seek(0) + forward play. Mirrors the
+   * rev5 preview's per-panel state machine: when the user clicks an
+   * already-completed move, the cube "rewinds" first so the eye
+   * registers the pre-move state before the forward animation plays
+   * again. Statuses visited during the choreographed legs:
+   *   reversing (DUR_REVERSE_MS) → pausing (DUR_PAUSE_MS) → playing.
+   * Listeners fire on each leg transition + each rAF tick within a leg.
+   */
+  replayWithReverse(): void;
 
   // ---- subscription ----
   /** Subscribe to state-change notifications. Returns an unsubscribe fn.
@@ -152,6 +188,16 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
   let rafId = 0;
   let rafStartWall = 0; // performance.now() when the current play leg began
   let rafStartTimestamp = 0; // controller timestamp when the current play leg began
+  // Reverse-leg bookkeeping for `replayWithReverse()`. Captured once at
+  // the start of the leg so the per-tick interpolation is stable.
+  // `reverseFromTimestamp` is the timestamp the reverse leg started
+  // FROM (e.g. totalDurationMs when called at end-of-sequence). The
+  // leg always lands at timestamp=0.
+  let reverseFromTimestamp = 0;
+  // Pause-leg deadline (wall time at which the pause expires and the
+  // forward leg begins). Held during the `pausing` status; rAF ticks
+  // poll this and transition to forward when wall-time crosses it.
+  let pauseUntilWall = 0;
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -201,21 +247,58 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
   }
 
   function tick(now: number): void {
-    if (status !== "playing") {
-      rafId = 0;
-      return;
-    }
-    const elapsed = now - rafStartWall;
-    timestamp = rafStartTimestamp + elapsed;
-    if (timestamp >= totalDurationMs) {
-      timestamp = totalDurationMs;
-      status = "ended";
-      rafId = 0;
+    if (status === "playing") {
+      const elapsed = now - rafStartWall;
+      timestamp = rafStartTimestamp + elapsed;
+      if (timestamp >= totalDurationMs) {
+        timestamp = totalDurationMs;
+        status = "ended";
+        rafId = 0;
+        notify();
+        return;
+      }
       notify();
+      rafId = requestAnimationFrame(tick);
       return;
     }
-    notify();
-    rafId = requestAnimationFrame(tick);
+    if (status === "reversing") {
+      // Reverse leg: timestamp interpolates linearly from
+      // reverseFromTimestamp → 0 over DUR_REVERSE_MS.
+      const elapsed = now - rafStartWall;
+      const t = Math.min(1, elapsed / DUR_REVERSE_MS);
+      timestamp = reverseFromTimestamp * (1 - t);
+      if (t >= 1) {
+        timestamp = 0;
+        status = "pausing";
+        pauseUntilWall = now + DUR_PAUSE_MS;
+        notify();
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      notify();
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
+    if (status === "pausing") {
+      // Pause leg: hold timestamp at 0 for DUR_PAUSE_MS, then enter
+      // forward play. Each rAF tick we still notify subscribers so
+      // any UI tied to status (e.g. a "rewinding…" cue) updates; the
+      // rendered cube is unchanged (timestamp=0 throughout).
+      if (now >= pauseUntilWall) {
+        status = "playing";
+        rafStartWall = now;
+        rafStartTimestamp = 0;
+        timestamp = 0;
+        notify();
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      notify();
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
+    // Status was changed externally (paused/seek/etc) — stop the loop.
+    rafId = 0;
   }
 
   function startRaf(): void {
@@ -232,13 +315,25 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
       // play() at end → replay semantics: rewind to 0, then play.
       timestamp = 0;
     }
+    // If called during a reverse-or-pause leg, abandon the leg and
+    // start a fresh forward play from whatever timestamp we're at.
+    // The leg's rAF will be cancelled by startRaf().
     status = "playing";
     startRaf();
     notify();
   }
 
   function pause(): void {
-    if (status !== "playing") return;
+    // Pause from any running leg (forward / reverse / pause) snapshots
+    // the current timestamp and stops further automatic progression.
+    // From other statuses (idle / paused / ended) pause is a no-op.
+    if (
+      status !== "playing" &&
+      status !== "reversing" &&
+      status !== "pausing"
+    ) {
+      return;
+    }
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
     status = "paused";
@@ -247,6 +342,8 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
 
   function seek(ms: number): void {
     const clamped = Math.max(0, Math.min(totalDurationMs, ms));
+    // A seek during a reverse-or-pause leg abandons the choreography
+    // — treated as "not playing" for the purposes of resume-after-seek.
     const wasPlaying = status === "playing";
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
@@ -282,6 +379,40 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     timestamp = 0;
     status = "playing";
     startRaf();
+    notify();
+  }
+
+  function replayWithReverse(): void {
+    // Mirrors the rev5 preview's per-panel state machine. The choreography
+    // engages only when we'd otherwise be "rewinding from end" — i.e.
+    // when the current sequence is essentially fully advanced. In every
+    // other case (mid-flight, paused, just-started) we behave like
+    // `replay()` so the click feels snappy rather than perfunctory.
+    //
+    // Threshold: progress > 0.99 against the current move OR status is
+    // "ended". The preview uses `state.progress > 0.99` on a single
+    // panel; for multi-move sequences we generalise to "near the end of
+    // the sequence" by checking ended OR currentMoveProgress > 0.99 on
+    // the last move. For one-move card sequences this collapses to the
+    // exact preview behaviour.
+    if (moves.length === 0) return;
+    const { currentMoveIndex: idx, currentMoveProgress: prog } =
+      indexAndProgress();
+    const atEnd =
+      status === "ended" || (idx === moves.length - 1 && prog > 0.99);
+    if (!atEnd) {
+      replay();
+      return;
+    }
+    // Engage the choreographed path: reverse → pause → forward.
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    reverseFromTimestamp = totalDurationMs;
+    timestamp = totalDurationMs;
+    status = "reversing";
+    rafStartWall = performance.now();
+    rafStartTimestamp = totalDurationMs;
+    rafId = requestAnimationFrame(tick);
     notify();
   }
 
@@ -329,6 +460,7 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     seek,
     seekToMove,
     replay,
+    replayWithReverse,
     subscribe,
   };
 

@@ -277,6 +277,206 @@ describe("createCubeSequence — replay()", () => {
   });
 });
 
+describe("createCubeSequence — replayWithReverse() choreography", () => {
+  // The choreography (DUR_REVERSE_MS=150 → DUR_PAUSE_MS=250 → forward
+  // play) only engages when the sequence is at or past 99% of its
+  // last move. From any other state, replayWithReverse collapses to
+  // a forward-only replay() so mid-flight clicks feel snappy.
+
+  it("from idle: collapses to replay() (forward only, no reverse leg)", () => {
+    const s = makeSeq();
+    s.replayWithReverse();
+    expect(s.status).toBe("playing");
+    expect(s.timestamp).toBe(0);
+  });
+
+  it("from paused mid-sequence: collapses to replay() (forward only)", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(800); // mid-move 1
+    s.pause();
+    expect(s.timestamp).toBeGreaterThan(0);
+    s.replayWithReverse();
+    expect(s.status).toBe("playing");
+    expect(s.timestamp).toBe(0);
+  });
+
+  it("from playing mid-sequence: collapses to replay() (forward only)", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(800);
+    s.replayWithReverse();
+    expect(s.status).toBe("playing");
+    expect(s.timestamp).toBe(0);
+  });
+
+  it("from ended: enters 'reversing' status with timestamp at totalDurationMs", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(s.status).toBe("ended");
+    s.replayWithReverse();
+    expect(s.status).toBe("reversing");
+    expect(s.timestamp).toBe(2400);
+  });
+
+  it("reverse leg: timestamp interpolates linearly from totalDurationMs → 0 over DUR_REVERSE_MS (150 ms)", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500); // run to end
+    s.replayWithReverse();
+    // Tick ~75 ms in (half of DUR_REVERSE_MS=150) — timestamp should
+    // be ~half of totalDurationMs (~1200). Loose bound to absorb the
+    // setTimeout(0) rAF shim's coarse cadence.
+    await vi.advanceTimersByTimeAsync(75);
+    expect(s.status).toBe("reversing");
+    expect(s.timestamp).toBeLessThan(2400);
+    expect(s.timestamp).toBeGreaterThan(0);
+  });
+
+  it("reverse leg → pausing at timestamp 0 after DUR_REVERSE_MS", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    // Step past DUR_REVERSE_MS (150 ms) — reverse leg should land at
+    // timestamp 0 and transition to 'pausing'.
+    await vi.advanceTimersByTimeAsync(200);
+    expect(s.status).toBe("pausing");
+    expect(s.timestamp).toBe(0);
+  });
+
+  it("pausing → playing at timestamp 0 after DUR_PAUSE_MS", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    // Step past DUR_REVERSE_MS + DUR_PAUSE_MS (150 + 250 = 400) — the
+    // pause should expire and forward play should begin.
+    await vi.advanceTimersByTimeAsync(450);
+    expect(s.status).toBe("playing");
+    expect(s.timestamp).toBeGreaterThanOrEqual(0);
+    expect(s.timestamp).toBeLessThan(2400);
+  });
+
+  it("end-to-end: reversing → pausing → playing → ended (total = 150+250+2400 = 2800 ms)", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    // Step well past 2800 ms; should land on 'ended' again.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(s.status).toBe("ended");
+    expect(s.timestamp).toBe(2400);
+  });
+
+  it("pause() during reverse leg → status 'paused', timestamp frozen mid-rewind", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    await vi.advanceTimersByTimeAsync(50);
+    const tsMidReverse = s.timestamp;
+    expect(s.status).toBe("reversing");
+    s.pause();
+    expect(s.status).toBe("paused");
+    // Timestamp does not continue to fall.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(s.timestamp).toBe(tsMidReverse);
+  });
+
+  it("pause() during pause leg → status 'paused', timestamp held at 0", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    await vi.advanceTimersByTimeAsync(200); // into pause leg
+    expect(s.status).toBe("pausing");
+    expect(s.timestamp).toBe(0);
+    s.pause();
+    expect(s.status).toBe("paused");
+    expect(s.timestamp).toBe(0);
+  });
+
+  it("play() during reverse leg → abandons leg, forward play resumes from current timestamp", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    await vi.advanceTimersByTimeAsync(75); // mid-reverse
+    const tsMidReverse = s.timestamp;
+    expect(s.status).toBe("reversing");
+    s.play();
+    expect(s.status).toBe("playing");
+    // Forward play continues forward from where the reverse leg left off.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(s.timestamp).toBeGreaterThan(tsMidReverse);
+  });
+
+  it("seek() during reverse leg → abandons leg, lands at requested timestamp", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(s.status).toBe("reversing");
+    s.seek(1500);
+    expect(s.timestamp).toBe(1500);
+    // Seek from non-playing → paused. The reverse status was not
+    // "playing", so wasPlaying=false and we land in paused.
+    expect(s.status).toBe("paused");
+  });
+
+  it("replay() during reverse leg → resets to 0 and starts forward play", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    s.replayWithReverse();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(s.status).toBe("reversing");
+    s.replay();
+    expect(s.status).toBe("playing");
+    expect(s.timestamp).toBe(0);
+  });
+
+  it("listener fires on each leg transition (reversing → pausing → playing → ended)", async () => {
+    const s = makeSeq();
+    s.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    const seen: string[] = [];
+    s.subscribe(() => {
+      const top = seen[seen.length - 1];
+      if (top !== s.status) seen.push(s.status);
+    });
+    s.replayWithReverse();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(seen).toContain("reversing");
+    expect(seen).toContain("pausing");
+    expect(seen).toContain("playing");
+    expect(seen).toContain("ended");
+    expect(seen.indexOf("reversing")).toBeLessThan(seen.indexOf("pausing"));
+    expect(seen.indexOf("pausing")).toBeLessThan(seen.indexOf("playing"));
+    expect(seen.indexOf("playing")).toBeLessThan(seen.indexOf("ended"));
+  });
+
+  it("empty moves: replayWithReverse is a no-op (status stays idle)", () => {
+    const s = createCubeSequence({ startFacelet: SOLVED, moves: [] });
+    s.replayWithReverse();
+    expect(s.status).toBe("idle");
+  });
+
+  it("from progress > 0.99 (very near end but not exactly ended): also engages reverse leg", () => {
+    const s = makeSeq();
+    // Land just past 99% of the last move: timestamp = 3*600 + 0.995*600 = 2397
+    s.seek(2397);
+    expect(s.status).toBe("paused");
+    expect(s.currentMoveIndex).toBe(3);
+    expect(s.currentMoveProgress).toBeGreaterThan(0.99);
+    s.replayWithReverse();
+    expect(s.status).toBe("reversing");
+  });
+});
+
 describe("createCubeSequence — seek()", () => {
   it("seek(0) on idle keeps idle", () => {
     const s = makeSeq();

@@ -229,28 +229,32 @@ describe("SolutionCard — renderMode wiring (non-start card)", () => {
 //
 // renderToStaticMarkup produces static HTML — click handlers don't
 // attach, useEffect never fires, IntersectionObserver never observes.
-// Verifying the click path AND the IO one-shot replay behaviour both
-// require jsdom + @testing-library/react. Queued for the RTL upgrade,
-// same pattern as documented in useCubeSequence.test.tsx.
+// Verifying the click path AND the IO one-shot behaviour both require
+// jsdom + @testing-library/react. Queued for the RTL upgrade, same
+// pattern as documented in useCubeSequence.test.tsx.
 //
 // What we'd assert when RTL lands:
-//   - Mount → IO fires "isIntersecting" → seq.replay() called once,
+//   - Mount → IO fires "isIntersecting" → seq.play() called once
+//     (forward only — the IO trigger is the first-visibility cue),
 //     observer disconnected (subsequent intersections are no-ops).
-//   - Click → onActiveChange AND seq.replay() both fire.
-//   - The composite handler keeps working when status=ended (replay
-//     resets ts=0 and starts playing — verified at the factory level
-//     in state/cubeSequence.test.ts).
+//   - Click → onActiveChange AND seq.replayWithReverse() both fire.
+//     When the sequence has settled at end, that engages the rev5
+//     choreography (reverse leg → pause → forward); from any other
+//     state it collapses to forward-only replay. The factory-level
+//     coverage in state/cubeSequence.test.ts already verifies both
+//     paths; mounted tests would just confirm the wiring fires the
+//     method on click.
 // ---------------------------------------------------------------------
 
 describe.skip("SolutionCard — click + IntersectionObserver (queued for RTL)", () => {
-  it.skip("click fires onClick AND seq.replay()", () => {
+  it.skip("click fires onClick AND seq.replayWithReverse()", () => {
     // Queued: needs jsdom + RTL to capture click events on rendered
     // buttons and spy on the hook's returned CubeSequence.
   });
 
-  it.skip("IntersectionObserver fires seq.replay() once on first visibility", () => {
+  it.skip("IntersectionObserver fires seq.play() once on first visibility", () => {
     // Queued: needs jsdom + a stubbed IntersectionObserver to simulate
-    // the entry, then assert replay() called exactly once and the
+    // the entry, then assert play() called exactly once and the
     // observer disconnected.
   });
 });
