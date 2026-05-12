@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Block 1B — 2D move animation preview (P0 rev5.3)</title>
+    <title>M9.2 A·P0 — Cube animation preview (sequence widget + per-move panels)</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -22,6 +22,12 @@
       h1 {
         margin: 0 0 8px;
         font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
         font-weight: 600;
         letter-spacing: 0.2px;
       }
@@ -63,6 +69,140 @@
         font-size: 14px;
         padding: 8px 16px;
         font-weight: 600;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      /* ---------- Sequence widget ---------- */
+      .sequence-widget {
+        padding: 24px;
+        margin-bottom: 32px;
+        border-radius: 12px;
+        background: #f6f5f1;
+        color: #131210;
+      }
+      .sequence-widget.dark {
+        background: #18181a;
+        color: #ececec;
+      }
+      .seq-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .seq-theme-toggle {
+        font-size: 12px;
+      }
+      .seq-inputs {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 8px 12px;
+        margin-bottom: 16px;
+        max-width: 900px;
+      }
+      .seq-inputs label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.7;
+        align-self: center;
+      }
+      .seq-inputs input[type="text"],
+      .seq-inputs textarea {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 13px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        width: 100%;
+      }
+      .seq-inputs textarea {
+        resize: vertical;
+        min-height: 50px;
+      }
+      .seq-error {
+        color: #c0392b;
+        font-size: 12px;
+        margin-top: 4px;
+        min-height: 16px;
+      }
+      .sequence-widget.dark .seq-error {
+        color: #ff8a7a;
+      }
+      .seq-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .seq-seek-wrap {
+        flex: 1;
+        min-width: 200px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .seq-seek {
+        flex: 1;
+      }
+      .seq-readout {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12px;
+        opacity: 0.85;
+      }
+      .seq-status {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.7;
+      }
+      .seq-moves-readout {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 14px;
+        margin-bottom: 16px;
+        min-height: 22px;
+      }
+      .seq-moves-readout .move-tok {
+        padding: 2px 5px;
+        margin-right: 2px;
+        border-radius: 3px;
+        opacity: 0.55;
+      }
+      .seq-moves-readout .move-tok.current {
+        opacity: 1;
+        background: currentColor;
+        color: #f6f5f1;
+      }
+      .sequence-widget.dark .seq-moves-readout .move-tok.current {
+        background: #ececec;
+        color: #18181a;
+      }
+      .seq-moves-readout .move-tok.done {
+        opacity: 0.8;
+      }
+      .seq-cube-host {
+        display: flex;
+        justify-content: center;
+        overflow: visible;
+      }
+      .seq-cube-host svg {
+        display: block;
+        overflow: visible;
+      }
+
+      /* ---------- Per-move panel grid (unchanged) ---------- */
+      .panels-section {
+        margin-top: 16px;
+      }
+      .panels-intro {
+        max-width: 900px;
+        margin: 0 0 20px;
       }
       .theme-row {
         padding: 24px;
@@ -128,46 +268,92 @@
     </style>
   </head>
   <body>
-    <h1>Block 1B — 2D move animation preview (P0 rev5.3)</h1>
+    <h1>M9.2 A·P0 — Cube animation preview</h1>
     <p class="intro">
-      <strong>Ribbon-with-extension model.</strong> Each move animates as
-      three concurrent parts on one timeline:
-      (1) the turned face's 9 stickers rotate ±90° around the face center;
-      (2) the affected edge stickers form a rigid "ribbon" that slides in
-      a single direction (e.g. R's primary ribbon on col 5 slides UP);
-      off-canonical-net source stickers are drawn as "extensions" so the
-      ribbon has visible content sliding in from beyond the cross edge;
-      (3) for F/F'/B/B' the edge cycle is a closed ring around F-center —
-      those use a rotation primitive (12 stickers rotate 90°) with no
-      extension. For R/R'/L/L' a secondary ribbon at B's near-F column
-      slides in the OPPOSITE direction — the content wrapping over the
-      top/bottom of the cube from U/D arrives at B from above/below B's
-      face. By default the ribbon-slide groups are clipped to the cross
-      silhouette so the panel looks like the eventual production view;
-      toggle <em>Show extensions</em> to render extensions outside the
-      cross with a dimming overlay (debug view). Face-rotation and F/B
-      ring-rotation groups render unclipped, ABOVE the overlay, so
-      mid-rotation swing through cross corners stays visible in both
-      modes.
+      Two surfaces share one math + visual model. <strong>Top:</strong> the
+      new <em>sequence widget</em> — a single big cross driven by a
+      controller (<code>createCubeSequence</code>) that walks any
+      <code>(startFacelet, moves)</code> through animated playback with
+      external play / pause / replay / seek. This is the structural
+      prototype for the planned <code>useCubeSequence</code> +
+      <code>NetAnimatedCube</code> TS modules. <strong>Below:</strong> the
+      original 12-QTM per-move panel grid (unchanged) — each panel still
+      animates one move from solved with the rev5 visual model
+      (ribbon-extension slides + face/ring rotations + secondary-opposite
+      for R/L + F/B-as-ring + data-first slide direction +
+      cross-silhouette clip-path with debug-toggle extensions).
     </p>
-    <div class="play-all-row">
-      <button class="primary" id="play-all">Play all</button>
-      <button class="primary" id="reset-all">Reset all</button>
-      <label class="extension-toggle">
-        <input type="checkbox" id="extension-toggle" />
-        Show extensions
-      </label>
-    </div>
 
-    <div class="theme-row light">
-      <p class="theme-label">Light theme</p>
-      <div class="grid" data-theme="light"></div>
-    </div>
+    <!-- ============================ -->
+    <!-- Sequence widget (new)        -->
+    <!-- ============================ -->
+    <section class="sequence-widget" id="sequence-widget">
+      <div class="seq-header">
+        <h2>Live sequence</h2>
+        <label class="seq-theme-toggle">
+          <input type="checkbox" id="seq-theme-toggle" />
+          Dark theme
+        </label>
+      </div>
+      <div class="seq-inputs">
+        <label for="seq-start">startFacelet</label>
+        <textarea id="seq-start" spellcheck="false" rows="1"></textarea>
+        <label for="seq-moves">moves</label>
+        <input id="seq-moves" type="text" spellcheck="false" />
+      </div>
+      <div class="seq-error" id="seq-error"></div>
+      <div class="seq-controls">
+        <button class="primary" id="seq-play">Play</button>
+        <button class="primary" id="seq-pause">Pause</button>
+        <button class="primary" id="seq-replay">Replay</button>
+        <div class="seq-seek-wrap">
+          <input type="range" class="seq-seek" id="seq-seek" min="0" max="0" step="1" value="0" />
+          <span class="seq-readout" id="seq-readout">0 / 0 ms</span>
+        </div>
+        <span class="seq-status" id="seq-status">idle</span>
+      </div>
+      <div class="seq-moves-readout" id="seq-moves-readout"></div>
+      <div class="seq-cube-host" id="seq-cube-host"></div>
+    </section>
 
-    <div class="theme-row dark">
-      <p class="theme-label">Dark theme</p>
-      <div class="grid" data-theme="dark"></div>
-    </div>
+    <!-- ============================ -->
+    <!-- Per-move panel grid          -->
+    <!-- (preserved from rev5.4)      -->
+    <!-- ============================ -->
+    <section class="panels-section">
+      <h2>Per-move panels (12 QTM from solved)</h2>
+      <p class="panels-intro">
+        <strong>Ribbon-with-extension model.</strong> Each panel animates
+        one move from solved: (1) the turned face's 9 stickers rotate ±90°
+        around the face center; (2) the affected edge stickers form a
+        rigid "ribbon" that slides; off-net source stickers are drawn as
+        extensions; (3) F/B edge cycles are closed rings around F-center
+        so they use a rotation primitive instead of a slide. R/L moves
+        have a secondary ribbon at B's near-F column that slides
+        OPPOSITE the primary direction (the U/D wrap-around content
+        arrives at B from above/below). Default = cross-silhouette
+        clipped (production view); toggle <em>Show extensions</em> for
+        the debug view with the dimming overlay.
+      </p>
+      <div class="play-all-row">
+        <button class="primary" id="play-all">Play all</button>
+        <button class="primary" id="reset-all">Reset all</button>
+        <label class="extension-toggle">
+          <input type="checkbox" id="extension-toggle" />
+          Show extensions
+        </label>
+      </div>
+
+      <div class="theme-row light">
+        <p class="theme-label">Light theme</p>
+        <div class="grid" data-theme="light"></div>
+      </div>
+
+      <div class="theme-row dark">
+        <p class="theme-label">Dark theme</p>
+        <div class="grid" data-theme="dark"></div>
+      </div>
+    </section>
 
     <script>
       // ---------------------------------------------------------------
@@ -176,6 +362,14 @@
       //   - FACE_OFFSETS                → web/src/components/cubePalette.ts
       //   - FACE_GRID                   → web/src/components/FlatCubeRenderer.tsx
       //   - FACELET_MOVES (12 × 54)     → web/src/state/faceletMoves.ts
+      //
+      // A·P0 NOTE: The JS API exposed here intentionally mirrors the
+      // planned TS contracts so the A·P1/A·P2/A·P3 port is a structural
+      // translation, not a redesign:
+      //   - applyMove / applyMoves         → cubeAnimation.ts pure fns
+      //   - computeMoveKinematics(move)    → cubeAnimation.ts
+      //   - renderNetCubeFrame(...)        → NetAnimatedCube render
+      //   - createCubeSequence(spec)       → useCubeSequence(spec)
       // ---------------------------------------------------------------
 
       const COLOR_FOR_LETTER = {
@@ -275,6 +469,7 @@
         "R", "R'", "L", "L'",
         "F", "F'", "B", "B'",
       ];
+      const MOVE_SET = new Set(MOVES);
 
       const STICKER_PX = 20;
       // viewBox covers cols -3..14 (width 17) and rows -3..11 (height 14)
@@ -283,8 +478,8 @@
       const VB_W = 17 * STICKER_PX;
       const VB_H = 14 * STICKER_PX;
 
-      // Animation timing knobs (milliseconds). Adjust these to retune
-      // the per-panel state machine without hunting through tick code.
+      // Animation timing knobs (milliseconds). Carried forward into
+      // cubeAnimation.ts in A·P1.
       //   DUR_FORWARD_MS — forward play (settled → end).
       //   DUR_REVERSE_MS — auto-reset reverse leg before replay; kept
       //                    short so the pause leg stands out from it.
@@ -298,6 +493,29 @@
       function easeOut(t) {
         const u = 1 - t;
         return 1 - u * u;
+      }
+
+      // ---------------------------------------------------------------
+      // applyMove / applyMoves — pure facelet transitions.
+      //
+      // applyMove returns the post-move facelet by applying perm:
+      //   out[i] = facelet.charAt(perm[i])
+      // applyMoves chains.
+      //
+      // These are the structural prototype for the planned
+      // cubeAnimation.ts pure functions.
+      // ---------------------------------------------------------------
+      function applyMove(facelet, move) {
+        const perm = FACELET_MOVES[move];
+        if (!perm) throw new Error("unknown move: " + move);
+        const out = new Array(54);
+        for (let i = 0; i < 54; i++) out[i] = facelet.charAt(perm[i]);
+        return out.join("");
+      }
+      function applyMoves(facelet, moves) {
+        let f = facelet;
+        for (const m of moves) f = applyMove(f, m);
+        return f;
       }
 
       // ---------------------------------------------------------------
@@ -324,26 +542,20 @@
       function turnedFace(move) {
         return move.charAt(0);
       }
-      function isPrime(move) {
-        return move.endsWith("'");
-      }
 
       // ---------------------------------------------------------------
       // Face-rotation angle derived from FACELET_MOVES.
-      // For the turned face, pick a corner sticker on the face (local
-      // (0,0)) and find where its source lives (perm[corner] within the
-      // same face). Compute the rotation angle around face center that
-      // takes the source corner to (0,0).
       //
+      // For the turned face, pick a corner sticker on the face (local
+      // (0,0)) and find where its source lives. Compute the rotation
+      // angle around face center that takes the source corner to (0,0).
       // For ring rotations (F/B edge cycle) we use the same approach
       // around the cross center.
       // ---------------------------------------------------------------
       function rotationAngleDeg(srcXY, dstXY, centerXY) {
         const a1 = Math.atan2(srcXY.y - centerXY.y, srcXY.x - centerXY.x);
         const a2 = Math.atan2(dstXY.y - centerXY.y, dstXY.x - centerXY.x);
-        // angle to rotate srcXY around centerXY to land at dstXY:
         let d = (a2 - a1) * (180 / Math.PI);
-        // normalize to (-180, 180]
         while (d > 180) d -= 360;
         while (d <= -180) d += 360;
         return d;
@@ -351,18 +563,13 @@
 
       // Integer-grid "reference" center: top-left of the center sticker.
       // Used for angle math, where src/dst from indexToNetXY are also
-      // sticker top-left positions. The angle is invariant under the
-      // uniform (+0.5, +0.5) shift, so using top-left coords gives the
-      // same result as using true geometric centers, while avoiding
-      // floating-point noise in atan2.
+      // sticker top-left positions.
       function faceCenterXY(face) {
         const { col, row } = FACE_GRID[face];
         return { x: col * 3 + 1, y: row * 3 + 1 };
       }
       // True geometric center of the 3×3 face in PIXELS. Used as the
-      // SVG rotate() pivot, where we must rotate around the actual
-      // center point of the face block — not the top-left corner of
-      // the center sticker (which is half a sticker off in each axis).
+      // SVG rotate() pivot.
       function faceCenterPx(face) {
         const { col, row } = FACE_GRID[face];
         return {
@@ -407,16 +614,8 @@
       }
 
       // Slide direction (dx,dy) in sticker units, derived from FACELET_MOVES.
-      // For each edge sticker i_post, displacement = post_xy - pre_xy
-      // (where pre_xy is the position of perm[i_post]). The slide vector
-      // is the MODE of these 12 displacements — most stickers slide by
-      // the same amount (3 cells); a few "wrap-around" stickers show a
-      // larger displacement, which is the closure of the ribbon. By
-      // taking the most common short-distance displacement, we let the
-      // data dictate the direction without hardcoding U/D/R/L tables.
-      //
-      // For ring moves (F/B), the displacements are not collinear and
-      // there's no single mode — handled separately.
+      // Mode of post_xy − pre_xy across edge stickers, preferring
+      // magnitude-3 vectors (single-face slide step).
       function slideVector(move) {
         const perm = FACELET_MOVES[move];
         const { edgeIndices } = participatingForMove(move);
@@ -429,13 +628,10 @@
           const key = `${dx},${dy}`;
           counts.set(key, (counts.get(key) || 0) + 1);
         }
-        // Pick the displacement of magnitude 3 with highest count.
         let best = null, bestCount = -1;
         for (const [key, c] of counts.entries()) {
           const [dx, dy] = key.split(",").map(Number);
           const mag2 = dx * dx + dy * dy;
-          // Prefer length-3 vectors (single-face slide step); fall back
-          // to most common otherwise.
           const score = c + (mag2 === 9 ? 100 : 0);
           if (score > bestCount) {
             bestCount = score;
@@ -445,36 +641,6 @@
         return best || { dx: 0, dy: 0 };
       }
 
-      // ---------------------------------------------------------------
-      // Build the ribbon descriptor(s) for a move.
-      //
-      // For each affected edge sticker i_post (one of the 12), we know:
-      //   - post-position = indexToNetXY(i_post)
-      //   - pre-source    = perm[i_post]  (its color comes from there)
-      // The "arriving" copy is placed at pre-slide-pos = post - sv so
-      // that after translating by sv, it lands at post.
-      // The "departing" copy is placed at i_pre's true pre-move position,
-      // showing its pre-move color; the slide carries it off into the
-      // extension on the departing side.
-      //
-      // For h-ribbon (U/D), all 12 edge stickers have natural slide
-      // = sv, so we use ONE ribbon group with 24 sticker copies.
-      //
-      // For v-ribbon (R/L), 9 of the 12 edge stickers are on the
-      // U/F/D column (natural slide = sv), and 3 are on B (whose
-      // natural displacement is NOT sv — they actually move to the
-      // U/F/D column post-move). The B stickers form a separate
-      // visual "secondary ribbon" at B's column.
-      //
-      // CRITICAL: secondary ribbon slides in the OPPOSITE direction
-      // from the primary. In the physical 3D rotation, B's column
-      // receives content that wraps OVER the top (or bottom) of the
-      // cube from U or D. Projected onto B in the cross net, that
-      // wrap arrives at B from ABOVE B's face for R (white from U
-      // comes down) and from BELOW for R' (yellow from D comes up).
-      // So the secondary's extension lives at (post - secondary_sv)
-      // where secondary_sv = -primary_sv.
-      // ---------------------------------------------------------------
       function indexFace(i) {
         for (const f of Object.keys(FACE_OFFSETS)) {
           const off = FACE_OFFSETS[f];
@@ -483,23 +649,36 @@
         throw new Error("bad facelet index " + i);
       }
 
-      function buildRibbonGroups(move, facelet) {
+      // ---------------------------------------------------------------
+      // Build the ribbon descriptor(s) for a move.
+      //
+      // For each affected edge sticker i_post, we know:
+      //   - post-position = indexToNetXY(i_post) (= pre-position on
+      //     solved-orientation panels; for a general preFacelet we still
+      //     use the canonical net position — the colors that get drawn
+      //     are taken from the preFacelet, see colorAt).
+      //   - pre-source    = perm[i_post]  (its color comes from there)
+      //
+      // For h-ribbon (U/D), all 12 edge stickers slide by sv.
+      // For v-ribbon (R/L), 9 edge stickers slide by sv (primary) and 3
+      // B-face stickers slide by -sv (secondary).
+      // ---------------------------------------------------------------
+      function buildRibbonGroups(move, preFacelet) {
         const perm = FACELET_MOVES[move];
         const { edgeIndices } = participatingForMove(move);
         const sv = slideVector(move);
         const kind = moveKind(move);
 
-        // Helper: append depart+arrive pair to items.
         function pushPair(items, iPost, departXY, arriveXY) {
           items.push({
             x: departXY.x,
             y: departXY.y,
-            color: colorAt(facelet, iPost),
+            color: colorAt(preFacelet, iPost),
           });
           items.push({
             x: arriveXY.x,
             y: arriveXY.y,
-            color: colorAt(facelet, perm[iPost]),
+            color: colorAt(preFacelet, perm[iPost]),
           });
         }
 
@@ -507,38 +686,27 @@
           const items = [];
           for (const i of edgeIndices) {
             const post = indexToNetXY(i);
-            const departXY = post; // pre-move position = post-position by index
+            const departXY = post;
             const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
             pushPair(items, i, departXY, arriveXY);
           }
-          return {
-            primary: { items, sv },
-          };
+          return { primary: { items, sv } };
         }
 
-        // v-ribbon: split by face. Primary = U/F/D stickers; secondary = B.
-        // Secondary slides OPPOSITE the primary direction (see comment
-        // above buildRibbonGroups).
         const primaryItems = [];
         const secondaryItems = [];
         const secondarySv = { dx: -sv.dx, dy: -sv.dy };
         for (const i of edgeIndices) {
           const face = indexFace(i);
           const post = indexToNetXY(i);
-          const departXY = post; // i's pre-move position is post since canonical
+          const departXY = post;
           if (face === "B") {
-            // Secondary ribbon. Arrival sticker is placed at
-            // (post - secondarySv) so that after translating by
-            // secondarySv it lands at B's canonical column.
-            // perm[i] (= B's source on U or D) gives the color the
-            // arrival should show.
             const arriveXY = {
               x: post.x - secondarySv.dx,
               y: post.y - secondarySv.dy,
             };
             pushPair(secondaryItems, i, departXY, arriveXY);
           } else {
-            // Primary ribbon. Natural slide.
             const arriveXY = { x: post.x - sv.dx, y: post.y - sv.dy };
             pushPair(primaryItems, i, departXY, arriveXY);
           }
@@ -549,37 +717,23 @@
         };
       }
 
-      function buildRingStickers(move, facelet) {
-        // Ring rotation: 12 stickers at their pre-move positions,
-        // rotated about ring center.
+      function buildRingStickers(move, preFacelet) {
         const { edgeIndices } = participatingForMove(move);
-        const items = edgeIndices.map((i) => {
+        return edgeIndices.map((i) => {
           const pos = indexToNetXY(i);
           return {
             x: pos.x,
             y: pos.y,
-            color: colorAt(facelet, i),
+            color: colorAt(preFacelet, i),
             i,
           };
         });
-        return items;
       }
 
-      // ---------------------------------------------------------------
-      // Determine ring rotation angle direction from data.
-      //
-      // For F/F'/B/B' the ring center is at F's center = (4, 4) in
-      // sticker grid (col 1*3+1, row 1*3+1).
-      //
-      // To pick the rotation direction, take one ring sticker i, look
-      // up perm[i] = source j, and ask: rotate src(j) around center by
-      // what angle to land on dst(i)? Should be +90 or -90.
-      // ---------------------------------------------------------------
       function ringRotationAngle(move) {
         const perm = FACELET_MOVES[move];
         const { edgeIndices } = participatingForMove(move);
-        const center = faceCenterXY("F"); // both F and B rings share F-center
-        // Pick the first edge sticker; compute rotation angle from src→dst.
+        const center = faceCenterXY("F"); // F & B rings share F-center
         const iDst = edgeIndices[0];
         const iSrc = perm[iDst];
         const dst = indexToNetXY(iDst);
@@ -587,14 +741,11 @@
         return rotationAngleDeg(src, dst, center);
       }
 
-      // For face rotation, pick a non-center sticker on the turned face
-      // and compute its rotation angle from source to destination.
       function faceRotationAngle(move) {
         const perm = FACELET_MOVES[move];
         const face = turnedFace(move);
         const off = FACE_OFFSETS[face];
         const center = faceCenterXY(face);
-        // First corner: i = off (local (0,0)). Source = perm[off].
         const iDst = off;
         const iSrc = perm[iDst];
         const dst = indexToNetXY(iDst);
@@ -603,28 +754,47 @@
       }
 
       // ---------------------------------------------------------------
-      // Build the panel: one SVG with static stickers, animated face
-      // rotation group, animated edge group(s), inverse-opacity overlay.
+      // computeMoveKinematics — the data-first kinematic plan for one
+      // move. Pure: depends only on `move`. The structural prototype
+      // for the planned cubeAnimation.ts export.
+      //
+      // Returned plan is consumed by renderNetCubeFrame below.
       // ---------------------------------------------------------------
-      function buildPanel(move, theme, panelIdx) {
-        const facelet = SOLVED;
-        const { faceIndices, staticIndices } = participatingForMove(move);
+      function computeMoveKinematics(move) {
         const kind = moveKind(move);
         const sv = slideVector(move);
+        const turned = turnedFace(move);
+        return {
+          move,
+          kind,
+          turnedFace: turned,
+          slideVector: sv,
+          faceRotationAngle: faceRotationAngle(move),
+          ringRotationAngle: kind === "ring" ? ringRotationAngle(move) : 0,
+          faceCenterPx: faceCenterPx(turned),
+          ringCenterPx: faceCenterPx("F"),
+        };
+      }
 
+      // ---------------------------------------------------------------
+      // buildNetCubeSvg — builds the SVG host for a single cross at a
+      // given preFacelet + (optional) move. If `move` is null, the
+      // result is a static cross with no animated layers (sequence
+      // widget uses this when currentMoveIndex === -1).
+      //
+      // Returns:
+      //   { svg, renderAt(progress), ribbonContainer, overlay, crossClipId }
+      //
+      // For static (no-move) builds, renderAt is a no-op and the
+      // ribbon/overlay/clip references are null.
+      //
+      // This is the structural prototype for the planned
+      // renderNetCubeFrame in NetAnimatedCube.tsx.
+      // ---------------------------------------------------------------
+      function buildNetCubeSvg({ preFacelet, move, theme, panelId, scale = 1 }) {
         const inkStroke = theme === "light" ? INK_STROKE_LIGHT : INK_STROKE_DARK;
         const overlayFill =
           theme === "light" ? "rgba(246,245,241,0.7)" : "rgba(24,24,26,0.75)";
-
-        const panelId = `p-${theme}-${panelIdx}`;
-        // Inverse-opacity mask used by the debug-mode dimming overlay
-        // (everything outside the cross silhouette gets dimmed).
-        const extensionMaskId = `extension-mask-${panelId}`;
-        // Positive clip-path matching the cross silhouette — applied
-        // to ribbon-slide groups when "Show extensions" is OFF so any
-        // off-cross sticker (extension or post-slide overflow) is
-        // clipped to invisibility, leaving only the cross visible.
-        const crossClipId = `extension-clip-${panelId}`;
 
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
@@ -632,19 +802,19 @@
           "viewBox",
           `${VB_X} ${VB_Y} ${VB_W} ${VB_H}`,
         );
-        svg.setAttribute("width", VB_W);
-        svg.setAttribute("height", VB_H);
+        svg.setAttribute("width", VB_W * scale);
+        svg.setAttribute("height", VB_H * scale);
         svg.style.overflow = "visible";
 
-        // defs with inverse-opacity mask + positive cross clip-path.
+        const extensionMaskId = `extension-mask-${panelId}`;
+        const crossClipId = `extension-clip-${panelId}`;
+
+        // defs (inverse-opacity mask + cross clip-path).
         const defs = document.createElementNS(svgNS, "defs");
 
-        // Inverse-opacity mask: white outside cross, black inside cross.
-        // Used by the debug-mode dimming overlay.
         const mask = document.createElementNS(svgNS, "mask");
         mask.setAttribute("id", extensionMaskId);
         mask.setAttribute("maskUnits", "userSpaceOnUse");
-        // Whole viewBox white
         const mFull = document.createElementNS(svgNS, "rect");
         mFull.setAttribute("x", VB_X);
         mFull.setAttribute("y", VB_Y);
@@ -652,7 +822,6 @@
         mFull.setAttribute("height", VB_H);
         mFull.setAttribute("fill", "white");
         mask.appendChild(mFull);
-        // U/F/D vertical column (cols 3-5, rows 0-8) black
         const mVert = document.createElementNS(svgNS, "rect");
         mVert.setAttribute("x", 3 * STICKER_PX);
         mVert.setAttribute("y", 0);
@@ -660,7 +829,6 @@
         mVert.setAttribute("height", 9 * STICKER_PX);
         mVert.setAttribute("fill", "black");
         mask.appendChild(mVert);
-        // L/F/R/B horizontal row (cols 0-11, rows 3-5) black
         const mHorz = document.createElementNS(svgNS, "rect");
         mHorz.setAttribute("x", 0);
         mHorz.setAttribute("y", 3 * STICKER_PX);
@@ -670,9 +838,6 @@
         mask.appendChild(mHorz);
         defs.appendChild(mask);
 
-        // Positive cross clip-path: two rects (UFD vertical strip +
-        // LFRB horizontal strip). clip-path is the UNION of all child
-        // shapes, so the cross is exactly the cross-net silhouette.
         const clip = document.createElementNS(svgNS, "clipPath");
         clip.setAttribute("id", crossClipId);
         clip.setAttribute("clipPathUnits", "userSpaceOnUse");
@@ -692,7 +857,6 @@
 
         svg.appendChild(defs);
 
-        // Sticker drawing helper
         function drawSticker(parent, x, y, color) {
           const r = document.createElementNS(svgNS, "rect");
           r.setAttribute("x", x * STICKER_PX);
@@ -707,55 +871,49 @@
           return r;
         }
 
-        // Layer 1: static stickers (the 33 stickers not touched by move).
+        // Static-only build (sequence widget: between-moves state).
+        if (move == null) {
+          const staticLayer = document.createElementNS(svgNS, "g");
+          staticLayer.setAttribute("data-layer", "static");
+          for (let i = 0; i < 54; i++) {
+            const pos = indexToNetXY(i);
+            drawSticker(staticLayer, pos.x, pos.y, colorAt(preFacelet, i));
+          }
+          svg.appendChild(staticLayer);
+          return {
+            svg,
+            renderAt: () => {},
+            ribbonContainer: null,
+            overlay: null,
+            crossClipId,
+          };
+        }
+
+        // Animated build.
+        const { faceIndices, staticIndices } = participatingForMove(move);
+        const kind = moveKind(move);
+        const kin = computeMoveKinematics(move);
+
+        // Layer 1: static stickers (the 33 not touched by move).
         const staticLayer = document.createElementNS(svgNS, "g");
         staticLayer.setAttribute("data-layer", "static");
         for (const i of staticIndices) {
           const pos = indexToNetXY(i);
-          drawSticker(staticLayer, pos.x, pos.y, colorAt(facelet, i));
+          drawSticker(staticLayer, pos.x, pos.y, colorAt(preFacelet, i));
         }
         svg.appendChild(staticLayer);
 
-        // Z-order (bottom → top):
-        //   1. Static stickers (already added above as staticLayer)
-        //   2. Ribbon-slide container (wraps primary + secondary slide
-        //      groups). Carries clip-path="url(#extension-clip-…)"
-        //      when "Show extensions" is OFF (production view) so the
-        //      ribbon is clipped to the cross silhouette and any
-        //      off-cross extension or overflow is invisible. With the
-        //      toggle ON (debug view), the clip-path attribute is
-        //      removed and the dimming overlay (layer 3) renders
-        //      extensions as dimmed ghosts.
-        //   3. Inverse-opacity dimming overlay (visible only in debug
-        //      view — toggled via display:none in production view).
-        //   4. Face-rotation group (rendered ABOVE the overlay and
-        //      OUTSIDE the ribbon clip so mid-rotation stickers
-        //      passing through corner regions are NEVER clipped or
-        //      dimmed)
-        //   5. Ring-rotation group for F/B (same reasoning — above
-        //      the overlay and outside the clip)
-        //
-        // For F/B moves the overlay is effectively invisible since
-        // everything moving renders above it; the ring group is also
-        // unclipped so its rotation is always fully visible.
-        const ringCenterPx = faceCenterPx("F"); // for F/B rings (pixel space)
-        const edgeGroups = []; // each: { node, kind, sv? }
-
         // Layer 2: ribbon-slide container + child slide groups.
-        // The container holds the clip-path; the children are the
-        // primary and (for v-ribbon) secondary ribbons, each animated
-        // independently via their own transform.
         const ribbonContainer = document.createElementNS(svgNS, "g");
         ribbonContainer.setAttribute("data-layer", "ribbon-container");
-        // Default OFF state: clip to cross silhouette.
         ribbonContainer.setAttribute("clip-path", `url(#${crossClipId})`);
         svg.appendChild(ribbonContainer);
 
+        const edgeGroups = [];
         let ringGroup = null;
 
         if (kind === "h-ribbon" || kind === "v-ribbon") {
-          const groups = buildRibbonGroups(move, facelet);
-          // primary
+          const groups = buildRibbonGroups(move, preFacelet);
           const primaryG = document.createElementNS(svgNS, "g");
           primaryG.setAttribute("data-layer", "edge-primary");
           for (const it of groups.primary.items) {
@@ -763,7 +921,6 @@
           }
           ribbonContainer.appendChild(primaryG);
           edgeGroups.push({ node: primaryG, kind: "slide", sv: groups.primary.sv });
-          // secondary (only for v-ribbon)
           if (groups.secondary && groups.secondary.items.length) {
             const secondaryG = document.createElementNS(svgNS, "g");
             secondaryG.setAttribute("data-layer", "edge-secondary");
@@ -778,21 +935,15 @@
             });
           }
         } else {
-          // Ring rotation: 12 stickers at pre-move positions in one
-          // group. We build it now but attach it AFTER the overlay
-          // (see layer 5 below) so it renders above the overlay AND
-          // outside the ribbon clip (ring rotation never gets clipped).
           ringGroup = document.createElementNS(svgNS, "g");
           ringGroup.setAttribute("data-layer", "edge-ring");
-          const items = buildRingStickers(move, facelet);
+          const items = buildRingStickers(move, preFacelet);
           for (const it of items) {
             drawSticker(ringGroup, it.x, it.y, it.color);
           }
         }
 
-        // Layer 3: inverse-opacity overlay dimming outside-cross region.
-        // Hidden by default (production view); shown only when the
-        // "Show extensions" debug toggle is on.
+        // Layer 3: inverse-opacity overlay (hidden by default).
         const overlay = document.createElementNS(svgNS, "rect");
         overlay.setAttribute("x", VB_X);
         overlay.setAttribute("y", VB_Y);
@@ -805,12 +956,12 @@
         overlay.style.display = "none";
         svg.appendChild(overlay);
 
-        // Layer 4: animated face rotation group (ABOVE overlay).
+        // Layer 4: face rotation group (ABOVE overlay).
         const faceLayer = document.createElementNS(svgNS, "g");
         faceLayer.setAttribute("data-layer", "face");
         for (const i of faceIndices) {
           const pos = indexToNetXY(i);
-          drawSticker(faceLayer, pos.x, pos.y, colorAt(facelet, i));
+          drawSticker(faceLayer, pos.x, pos.y, colorAt(preFacelet, i));
         }
         svg.appendChild(faceLayer);
 
@@ -820,29 +971,20 @@
           edgeGroups.push({ node: ringGroup, kind: "ring" });
         }
 
-        // Animation parameters
-        const faceAngle = faceRotationAngle(move);
-        const faceCxPx = faceCenterPx(turnedFace(move));
-        const ringAngle = kind === "ring" ? ringRotationAngle(move) : 0;
-
-        // Render function: apply transforms at given progress (0..1).
+        // renderAt(progress) — apply transforms at given progress in [0, 1].
         function renderAt(progress) {
           const e = easeOut(progress);
-          // Face rotation
-          const angle = faceAngle * e;
+          const angle = kin.faceRotationAngle * e;
           faceLayer.setAttribute(
             "transform",
-            `rotate(${angle} ${faceCxPx.x} ${faceCxPx.y})`,
+            `rotate(${angle} ${kin.faceCenterPx.x} ${kin.faceCenterPx.y})`,
           );
-          // Edge group(s). Each slide group carries its own sv so
-          // primary and secondary ribbons (which slide opposite each
-          // other for v-ribbon moves) animate correctly.
           for (const g of edgeGroups) {
             if (g.kind === "ring") {
-              const a = ringAngle * e;
+              const a = kin.ringRotationAngle * e;
               g.node.setAttribute(
                 "transform",
-                `rotate(${a} ${ringCenterPx.x} ${ringCenterPx.y})`,
+                `rotate(${a} ${kin.ringCenterPx.x} ${kin.ringCenterPx.y})`,
               );
             } else {
               const gsv = g.sv;
@@ -856,34 +998,458 @@
           }
         }
 
-        // Initialize at progress=0
         renderAt(0);
 
-        // Per-panel controller
+        return { svg, renderAt, ribbonContainer, overlay, crossClipId };
+      }
+
+      // ---------------------------------------------------------------
+      // createCubeSequence — controller for a (startFacelet, moves)
+      // playback. Structural prototype for the planned useCubeSequence
+      // hook. Drives an rAF loop while playing; emits state-change
+      // notifications via subscribe().
+      //
+      // Returned handle exposes the planned CubeSequence interface as
+      // getter properties + control methods + subscribe(listener).
+      // ---------------------------------------------------------------
+      function createCubeSequence({
+        startFacelet,
+        moves,
+        msPerMove = DUR_FORWARD_MS,
+        gapMs = 0,
+        autoplay = false,
+      }) {
+        // Validate moves.
+        for (const m of moves) {
+          if (!MOVE_SET.has(m)) {
+            throw new Error(`invalid move "${m}" (allowed: ${MOVES.join(" ")})`);
+          }
+        }
+        if (typeof startFacelet !== "string" || startFacelet.length !== 54) {
+          throw new Error(
+            "startFacelet must be a 54-char string (got length " +
+              (startFacelet ? startFacelet.length : "n/a") + ")",
+          );
+        }
+        for (let i = 0; i < startFacelet.length; i++) {
+          if (!"URFDLB".includes(startFacelet.charAt(i))) {
+            throw new Error(
+              `startFacelet contains invalid char "${startFacelet.charAt(i)}" at index ${i}`,
+            );
+          }
+        }
+
+        const slotMs = msPerMove + gapMs;
+        const totalDurationMs = moves.length * slotMs;
+
+        // Internal state.
+        let status = "idle"; // "idle" | "playing" | "paused" | "ended"
+        let timestamp = 0;   // ms, in [0, totalDurationMs]
+        let raf = 0;
+        let rafStartWall = 0;     // performance.now() at last play() / resume
+        let rafStartTimestamp = 0; // timestamp when last play()/resume began
+        const listeners = new Set();
+
+        function notify() {
+          for (const fn of listeners) {
+            try { fn(); } catch (e) { console.error(e); }
+          }
+        }
+
+        // Derive currentMoveIndex + currentMoveProgress from timestamp.
+        // currentMoveIndex = -1 before any move starts (only meaningful
+        // when moves.length === 0 or timestamp === 0 in idle state).
+        // Once playing, the first move begins at timestamp = 0.
+        function indexAndProgress() {
+          if (moves.length === 0) {
+            return { currentMoveIndex: -1, currentMoveProgress: 0 };
+          }
+          if (status === "idle" && timestamp === 0) {
+            return { currentMoveIndex: -1, currentMoveProgress: 0 };
+          }
+          if (timestamp >= totalDurationMs) {
+            // At end: stay on last move with progress = 1.
+            return {
+              currentMoveIndex: moves.length - 1,
+              currentMoveProgress: 1,
+            };
+          }
+          const slot = Math.floor(timestamp / slotMs);
+          const localMs = timestamp - slot * slotMs;
+          // Within slot: first msPerMove plays the move (progress 0→1);
+          // remaining gapMs holds at progress = 1.
+          let progress;
+          if (localMs >= msPerMove) {
+            progress = 1;
+          } else {
+            progress = localMs / msPerMove;
+          }
+          return {
+            currentMoveIndex: Math.min(slot, moves.length - 1),
+            currentMoveProgress: progress,
+          };
+        }
+
+        function tick(now) {
+          if (status !== "playing") {
+            raf = 0;
+            return;
+          }
+          const elapsed = now - rafStartWall;
+          timestamp = rafStartTimestamp + elapsed;
+          if (timestamp >= totalDurationMs) {
+            timestamp = totalDurationMs;
+            status = "ended";
+            raf = 0;
+            notify();
+            return;
+          }
+          notify();
+          raf = requestAnimationFrame(tick);
+        }
+
+        function startRaf() {
+          if (raf) cancelAnimationFrame(raf);
+          rafStartWall = performance.now();
+          rafStartTimestamp = timestamp;
+          raf = requestAnimationFrame(tick);
+        }
+
+        function play() {
+          if (moves.length === 0) return;
+          if (status === "playing") return;
+          if (status === "ended") {
+            // Replay semantics: seek(0) + play.
+            timestamp = 0;
+          }
+          status = "playing";
+          startRaf();
+          notify();
+        }
+        function pause() {
+          if (status !== "playing") return;
+          if (raf) cancelAnimationFrame(raf);
+          raf = 0;
+          status = "paused";
+          notify();
+        }
+        function seek(ms) {
+          const clamped = Math.max(0, Math.min(totalDurationMs, ms));
+          const wasPlaying = status === "playing";
+          if (raf) cancelAnimationFrame(raf);
+          raf = 0;
+          timestamp = clamped;
+          if (wasPlaying && clamped < totalDurationMs) {
+            status = "playing";
+            startRaf();
+          } else if (clamped >= totalDurationMs) {
+            status = "ended";
+          } else if (clamped === 0 && !wasPlaying) {
+            status = "idle";
+          } else {
+            // Mid-sequence seek while not playing → paused.
+            status = "paused";
+          }
+          notify();
+        }
+        function seekToMove(i) {
+          if (moves.length === 0) return;
+          const clamped = Math.max(0, Math.min(moves.length - 1, i));
+          seek(clamped * slotMs);
+        }
+        function replay() {
+          if (raf) cancelAnimationFrame(raf);
+          raf = 0;
+          timestamp = 0;
+          status = "playing";
+          startRaf();
+          notify();
+        }
+        function subscribe(fn) {
+          listeners.add(fn);
+          return () => listeners.delete(fn);
+        }
+
+        const handle = {
+          get status() { return status; },
+          get timestamp() { return timestamp; },
+          get totalDurationMs() { return totalDurationMs; },
+          get currentMoveIndex() { return indexAndProgress().currentMoveIndex; },
+          get currentMoveProgress() { return indexAndProgress().currentMoveProgress; },
+          get startFacelet() { return startFacelet; },
+          get moves() { return moves; },
+          get msPerMove() { return msPerMove; },
+          get gapMs() { return gapMs; },
+          play, pause, seek, seekToMove, replay, subscribe,
+        };
+
+        if (autoplay) play();
+        return handle;
+      }
+
+      // ---------------------------------------------------------------
+      // Sequence widget setup
+      // ---------------------------------------------------------------
+      function parseMoves(text) {
+        const tokens = text.trim().split(/\s+/).filter(Boolean);
+        for (const t of tokens) {
+          if (!MOVE_SET.has(t)) {
+            throw new Error(`invalid move "${t}" (allowed: ${MOVES.join(" ")})`);
+          }
+        }
+        return tokens;
+      }
+
+      const widget = {
+        sequence: null,
+        unsubscribe: null,
+        currentSvg: null,
+        currentBuilt: null,
+        // Cached metadata about the current SVG so we know when to rebuild
+        // (changing currentMoveIndex or startFacelet requires a fresh SVG).
+        builtFor: { moveIndex: null, preFaceletCache: null },
+        theme: "light",
+        widgetRoot: document.getElementById("sequence-widget"),
+        cubeHost: document.getElementById("seq-cube-host"),
+        startInput: document.getElementById("seq-start"),
+        movesInput: document.getElementById("seq-moves"),
+        errorEl: document.getElementById("seq-error"),
+        playBtn: document.getElementById("seq-play"),
+        pauseBtn: document.getElementById("seq-pause"),
+        replayBtn: document.getElementById("seq-replay"),
+        seekEl: document.getElementById("seq-seek"),
+        readoutEl: document.getElementById("seq-readout"),
+        statusEl: document.getElementById("seq-status"),
+        movesReadoutEl: document.getElementById("seq-moves-readout"),
+        themeToggle: document.getElementById("seq-theme-toggle"),
+        seeking: false,
+      };
+
+      widget.startInput.value = SOLVED;
+      widget.movesInput.value = "R U R' U'";
+
+      function setWidgetError(msg) {
+        widget.errorEl.textContent = msg || "";
+      }
+
+      function teardownSequence() {
+        if (widget.unsubscribe) {
+          widget.unsubscribe();
+          widget.unsubscribe = null;
+        }
+        if (widget.sequence) {
+          // pause any active rAF before discarding.
+          widget.sequence.pause();
+          widget.sequence = null;
+        }
+        widget.builtFor = { moveIndex: null, preFaceletCache: null };
+        widget.currentSvg = null;
+        widget.currentBuilt = null;
+        widget.cubeHost.innerHTML = "";
+      }
+
+      function preFaceletForMoveIndex(idx) {
+        // The base state going into moves[idx]. For idx === 0 or -1 →
+        // startFacelet. Otherwise, startFacelet with moves[0..idx-1] applied.
+        if (idx <= 0) return widget.sequence.startFacelet;
+        return applyMoves(
+          widget.sequence.startFacelet,
+          widget.sequence.moves.slice(0, idx),
+        );
+      }
+
+      function rebuildCubeForMoveIndex(moveIndex) {
+        const seq = widget.sequence;
+        widget.cubeHost.innerHTML = "";
+        let preFacelet;
+        let move;
+        if (moveIndex === -1) {
+          preFacelet = seq.startFacelet;
+          move = null;
+        } else {
+          preFacelet = preFaceletForMoveIndex(moveIndex);
+          move = seq.moves[moveIndex];
+        }
+        const built = buildNetCubeSvg({
+          preFacelet,
+          move,
+          theme: widget.theme,
+          panelId: `seq-${widget.theme}-${moveIndex}`,
+          scale: 2,
+        });
+        widget.cubeHost.appendChild(built.svg);
+        widget.currentBuilt = built;
+        widget.builtFor = { moveIndex, preFaceletCache: preFacelet };
+      }
+
+      function updateWidgetUI() {
+        const seq = widget.sequence;
+        if (!seq) return;
+        const moveIndex = seq.currentMoveIndex;
+        const progress = seq.currentMoveProgress;
+
+        // Rebuild the cube if the active move slot changed.
+        if (widget.builtFor.moveIndex !== moveIndex) {
+          rebuildCubeForMoveIndex(moveIndex);
+        }
+        if (widget.currentBuilt && widget.currentBuilt.renderAt) {
+          widget.currentBuilt.renderAt(progress);
+        }
+
+        // Seek slider (don't fight the user mid-drag).
+        if (!widget.seeking) {
+          widget.seekEl.value = String(Math.round(seq.timestamp));
+        }
+        widget.readoutEl.textContent =
+          `${Math.round(seq.timestamp)} / ${seq.totalDurationMs} ms`;
+        widget.statusEl.textContent = seq.status;
+
+        // Move counter readout with highlight.
+        const html = seq.moves.map((m, i) => {
+          const cls =
+            i === moveIndex
+              ? "move-tok current"
+              : i < moveIndex
+                ? "move-tok done"
+                : "move-tok";
+          return `<span class="${cls}">${m}</span>`;
+        }).join("");
+        const counter = seq.moves.length
+          ? `move ${Math.max(0, moveIndex) + 1}/${seq.moves.length} `
+          : "no moves ";
+        widget.movesReadoutEl.innerHTML = `<span class="seq-readout">${counter}</span>${html}`;
+
+        // Button enablement.
+        widget.playBtn.disabled = seq.status === "playing" || seq.moves.length === 0;
+        widget.pauseBtn.disabled = seq.status !== "playing";
+        widget.replayBtn.disabled = seq.moves.length === 0;
+      }
+
+      function recreateSequence() {
+        setWidgetError("");
+        const startFacelet = widget.startInput.value.trim();
+        let parsedMoves;
+        try {
+          parsedMoves = parseMoves(widget.movesInput.value);
+        } catch (e) {
+          setWidgetError(e.message);
+          teardownSequence();
+          widget.statusEl.textContent = "error";
+          widget.movesReadoutEl.innerHTML = "";
+          widget.seekEl.max = "0";
+          widget.seekEl.value = "0";
+          widget.readoutEl.textContent = "0 / 0 ms";
+          return;
+        }
+        teardownSequence();
+        try {
+          widget.sequence = createCubeSequence({
+            startFacelet,
+            moves: parsedMoves,
+            msPerMove: DUR_FORWARD_MS,
+            gapMs: 0,
+          });
+        } catch (e) {
+          setWidgetError(e.message);
+          widget.statusEl.textContent = "error";
+          return;
+        }
+        widget.unsubscribe = widget.sequence.subscribe(updateWidgetUI);
+        widget.seekEl.min = "0";
+        widget.seekEl.max = String(widget.sequence.totalDurationMs);
+        widget.seekEl.value = "0";
+        rebuildCubeForMoveIndex(widget.sequence.currentMoveIndex);
+        updateWidgetUI();
+      }
+
+      // Wire widget controls.
+      widget.playBtn.addEventListener("click", () => {
+        if (widget.sequence) widget.sequence.play();
+      });
+      widget.pauseBtn.addEventListener("click", () => {
+        if (widget.sequence) widget.sequence.pause();
+      });
+      widget.replayBtn.addEventListener("click", () => {
+        if (widget.sequence) widget.sequence.replay();
+      });
+
+      // Seek slider: dragging pauses; release stays paused.
+      widget.seekEl.addEventListener("pointerdown", () => {
+        widget.seeking = true;
+        if (widget.sequence && widget.sequence.status === "playing") {
+          widget.sequence.pause();
+        }
+      });
+      widget.seekEl.addEventListener("input", () => {
+        if (widget.sequence) {
+          widget.sequence.seek(Number(widget.seekEl.value));
+        }
+      });
+      widget.seekEl.addEventListener("pointerup", () => {
+        widget.seeking = false;
+      });
+      widget.seekEl.addEventListener("change", () => {
+        widget.seeking = false;
+      });
+
+      // Input changes rebuild the sequence (and stop playback).
+      let inputDebounce = 0;
+      function onInputChange() {
+        clearTimeout(inputDebounce);
+        inputDebounce = setTimeout(recreateSequence, 100);
+      }
+      widget.startInput.addEventListener("input", onInputChange);
+      widget.movesInput.addEventListener("input", onInputChange);
+
+      // Theme toggle.
+      widget.themeToggle.addEventListener("change", () => {
+        widget.theme = widget.themeToggle.checked ? "dark" : "light";
+        widget.widgetRoot.classList.toggle("dark", widget.themeToggle.checked);
+        // Rebuild cube SVG with new theme stroke color.
+        if (widget.sequence) {
+          rebuildCubeForMoveIndex(widget.sequence.currentMoveIndex);
+          updateWidgetUI();
+        }
+      });
+
+      // Initial widget setup.
+      recreateSequence();
+
+      // ---------------------------------------------------------------
+      // Per-move panel grid (preserved from rev5.4).
+      //
+      // Each panel uses the same buildNetCubeSvg primitive + a tiny
+      // per-panel state machine (forward / reverse / reverse-then-forward
+      // with a pause beat). This is the DRY share with the sequence
+      // widget — the renderer is shared; only the animation driver
+      // differs (per-panel state machine vs. controller-driven progress).
+      // ---------------------------------------------------------------
+      function buildPanel(move, theme, panelIdx) {
+        const built = buildNetCubeSvg({
+          preFacelet: SOLVED,
+          move,
+          theme,
+          panelId: `p-${theme}-${panelIdx}`,
+          scale: 1,
+        });
+
+        // Per-panel state machine driving built.renderAt(progress).
         //
         // State machine:
         //   direction: 'idle' | 'forward' | 'reverse' | 'reverse-then-forward'
         //
-        // 'reverse-then-forward' is the auto-reset-on-replay case: clicking
-        // Play when the panel is already at progress=1 plays a three-leg
-        // sequence with discernible beats between them:
+        // 'reverse-then-forward' is the auto-reset-on-replay case:
         //   1. reverse  (DUR_REVERSE_MS, progress 1 → 0)
-        //   2. pause    (DUR_PAUSE_MS,  progress held at 0 so the user
-        //                sees the pre-move state momentarily)
+        //   2. pause    (DUR_PAUSE_MS,  progress held at 0)
         //   3. forward  (DUR_FORWARD_MS, progress 0 → 1)
-        // legPhase tracks which leg of the chained sequence we're on.
         const state = { progress: 0, direction: "idle", startTime: 0, raf: 0 };
         function tick(now) {
           if (state.direction === "idle") return;
-          // Pause leg: hold at progress=0 for DUR_PAUSE_MS, then chain
-          // forward.
           if (
             state.direction === "reverse-then-forward" &&
             state.legPhase === "pause"
           ) {
             const t = Math.min(1, (now - state.startTime) / DUR_PAUSE_MS);
-            // progress stays at 0 — renderAt was already called at the
-            // end of the reverse leg, no need to re-render every frame.
             if (t < 1) {
               state.raf = requestAnimationFrame(tick);
             } else {
@@ -904,14 +1470,13 @@
             ? state.startProgress + (1 - state.startProgress) * t
             : state.startProgress - state.startProgress * t;
           state.progress = p;
-          renderAt(p);
+          built.renderAt(p);
           if (t < 1) {
             state.raf = requestAnimationFrame(tick);
           } else if (
             state.direction === "reverse-then-forward" &&
             state.legPhase === "reverse"
           ) {
-            // Reverse leg done; enter pause leg.
             state.legPhase = "pause";
             state.startTime = performance.now();
             state.raf = requestAnimationFrame(tick);
@@ -922,9 +1487,6 @@
         }
         function play() {
           if (state.raf) cancelAnimationFrame(state.raf);
-          // Auto-reset on replay: if already at end-of-forward, run a
-          // reverse leg (DUR_REVERSE_MS) + pause (DUR_PAUSE_MS) +
-          // forward leg (DUR_FORWARD_MS) as a single visible sequence.
           if (state.progress > 0.99) {
             state.direction = "reverse-then-forward";
             state.legPhase = "reverse";
@@ -943,12 +1505,16 @@
           state.raf = requestAnimationFrame(tick);
         }
 
-        return { svg, play, reset, ribbonContainer, overlay, crossClipId };
+        return {
+          svg: built.svg,
+          play,
+          reset,
+          ribbonContainer: built.ribbonContainer,
+          overlay: built.overlay,
+          crossClipId: built.crossClipId,
+        };
       }
 
-      // ---------------------------------------------------------------
-      // Page assembly.
-      // ---------------------------------------------------------------
       const controllers = [];
 
       function buildGrid(themeName) {
@@ -998,22 +1564,19 @@
       });
 
       // "Show extensions" toggle (defaults OFF = production view).
-      //   OFF (default): each panel's ribbon-slide container carries
-      //                  clip-path → off-cross extensions and overflow
-      //                  are invisible. Dimming overlay hidden.
-      //   ON  (debug):   clip-path stripped from the ribbon container
-      //                  so extensions render outside the cross.
+      //   OFF (default): clip-path → off-cross extensions invisible.
+      //                  Dimming overlay hidden.
+      //   ON  (debug):   clip-path stripped → extensions visible.
       //                  Dimming overlay shown so they read as ghosts.
       const extensionToggle = document.getElementById("extension-toggle");
       function applyExtensionVisibility() {
         const showExtensions = extensionToggle.checked;
         controllers.forEach((c) => {
+          if (!c.ribbonContainer || !c.overlay) return;
           if (showExtensions) {
-            // Debug view: extensions visible, overlay dims them.
             c.ribbonContainer.removeAttribute("clip-path");
             c.overlay.style.display = "";
           } else {
-            // Production view: clip ribbons to cross, hide overlay.
             c.ribbonContainer.setAttribute(
               "clip-path",
               `url(#${c.crossClipId})`,
