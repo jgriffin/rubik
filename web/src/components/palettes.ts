@@ -1,5 +1,5 @@
 // Named cube palettes. Sticker colors keyed by face letter (URFDLB).
-// Consumed by FlatCubeRenderer through cubePalette.ts; future palette-
+// Consumed by Cube2D through cubePalette.ts; future palette-
 // picker work (ROADMAP backlog) will swap the active palette by name.
 
 export type Palette = {

@@ -70,7 +70,7 @@ test.describe("solution grid — toggles + card selection", () => {
     await expect(card.getByTestId("flat-cube-pair")).toBeVisible();
     await expect(card.getByTestId("twisty-cube-pair")).toBeVisible();
 
-    // FlatCubeRenderer's contract still holds: 54 stickers as <rect data-pos>.
+    // Cube2D's static-mode contract still holds: 54 stickers as <rect data-pos>.
     // We don't make a count claim on the twisty side — wrapper presence is
     // its contract; shadow-DOM pixels are out of scope.
     await expect(card.locator("rect[data-pos]")).toHaveCount(54);

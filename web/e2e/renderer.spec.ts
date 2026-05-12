@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("FlatCubeRenderer (rendered inside the start card)", () => {
+test.describe("Cube2D static mode (rendered inside the start card)", () => {
   test("mounts with the solved facelet on first load", async ({ page }) => {
     await page.goto("/");
 

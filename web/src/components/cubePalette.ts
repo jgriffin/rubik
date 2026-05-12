@@ -1,4 +1,4 @@
-// Active cube palette + face geometry consumed by FlatCubeRenderer.
+// Active cube palette + face geometry consumed by Cube2D.
 // COLOR_FOR_LETTER sources from the active named preset in palettes.ts;
 // the future palette-picker will flip this re-export by user selection.
 

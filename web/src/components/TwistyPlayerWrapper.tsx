@@ -12,8 +12,8 @@
 //
 // The static-mode recipe (`experimentalSetupAlg=<scramble>` +
 // `experimentalSetupAnchor="end"` + `alg=<solution[:N]>`) displays exactly
-// `applyMove(scramble, solution[:N])` — the same ground truth the existing
-// FlatCubeRenderer emits. See .planning/research/m9-twisty-player.md §2-3.
+// `applyMove(scramble, solution[:N])` — the same ground truth Cube2D
+// (static mode) emits. See .planning/research/m9-twisty-player.md §2-3.
 //
 // Pitfall (research §2): tempo-scale=0 may render the pre-alg frame for one
 // tick before settling. If the static HTML preview confirms the flicker,
