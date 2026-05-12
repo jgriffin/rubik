@@ -39,12 +39,20 @@ import { FACELET_MOVES, type MoveStr } from "./faceletMoves";
 //   playing   — forward play under rAF; timestamp advances toward end.
 //   paused    — mid-sequence hold (timestamp frozen, no rAF running).
 //   ended     — reached totalDurationMs; timestamp clamped there.
-//   reversing — `replayWithReverse()` reverse leg: timestamp decreases
-//               from current value to 0 over DUR_REVERSE_MS.
-//   pausing   — `replayWithReverse()` pause leg: timestamp held at 0
-//               for DUR_PAUSE_MS before the forward leg begins.
+//   reversing — reverse leg in flight: timestamp decreases from the
+//               leg's start value to 0. Used by both
+//               `replayWithReverse()` (fixed DUR_REVERSE_MS) and
+//               `replayWithReverseHold()` (DUR_REVERSE_MS scaled by the
+//               normalized starting timestamp so partial reverses keep
+//               the same per-unit speed).
+//   pausing   — pause leg at timestamp 0 before the forward leg starts.
+//               `replayWithReverse()` exits this leg automatically after
+//               DUR_PAUSE_MS. `replayWithReverseHold()` enters a HELD
+//               variant that dwells indefinitely until `releaseHold()`
+//               is called.
 //
-// `reversing` and `pausing` are only produced by `replayWithReverse()`.
+// `reversing` and `pausing` are produced by the choreographed-replay
+// family (`replayWithReverse()` / `replayWithReverseHold()`).
 // `play() / pause() / seek() / replay()` never transition into them.
 export type CubeSequenceStatus =
   | "idle"
@@ -116,6 +124,52 @@ export interface CubeSequence {
    * Listeners fire on each leg transition + each rAF tick within a leg.
    */
   replayWithReverse(): void;
+  /**
+   * Press-and-hold variant of `replayWithReverse()`. Engages a reverse
+   * leg into an INDEFINITELY-held pause at timestamp=0. Pair with
+   * `releaseHold()` to resume forward play.
+   *
+   * Interruption matrix:
+   *   - ended: standard reverse leg (DUR_REVERSE_MS) → held-pause.
+   *   - playing (forward in flight at progress p∈(0,totalDurationMs)):
+   *     cancel forward, run reverse leg from p → 0 with duration
+   *     scaled by (p / totalDurationMs) so partial reverses keep the
+   *     same per-unit speed. Then held-pause.
+   *   - paused mid-sequence (timestamp > 0): same as playing — reverse
+   *     from current timestamp to 0 (scaled duration), then held-pause.
+   *   - idle (currentMoveIndex=-1, timestamp=0): skip reverse leg
+   *     (nothing to rewind from); enter held-pause immediately at
+   *     timestamp=0. Visually identical to staying idle, but state is
+   *     consistent so a subsequent `releaseHold()` plays forward.
+   *   - reversing or pausing (already in a hold): no-op.
+   *
+   * Quick-click collapse: if `releaseHold()` is called while still in
+   * the reverse leg, the hold-pause is skipped — the reverse runs to
+   * completion at progress=0 and immediately transitions to forward
+   * play. No held dwell. Net: a quick click feels reverse → forward
+   * with no pause, vs. a deliberate hold gives the user full control
+   * over the dwell at the pre-state.
+   *
+   * Statuses visited (held variant): reversing → pausing (held) →
+   * playing → ended.
+   */
+  replayWithReverseHold(): void;
+  /**
+   * Pair with `replayWithReverseHold()` — ends the hold and resumes
+   * forward play.
+   *
+   * Behaviour by current status:
+   *   - pausing (held at timestamp=0): immediately start forward leg
+   *     (currentMoveIndex=0 from progress=0).
+   *   - reversing (reverse leg still in flight, user released early):
+   *     set an internal `releaseQueued` flag. The reverse leg runs to
+   *     completion (lands at timestamp=0); instead of entering the
+   *     held-pause it transitions directly to forward play. This is
+   *     the "quick-click collapse".
+   *   - any other status: no-op (gracefully ignore; called outside an
+   *     active hold).
+   */
+  releaseHold(): void;
 
   // ---- subscription ----
   /** Subscribe to state-change notifications. Returns an unsubscribe fn.
@@ -188,16 +242,36 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
   let rafId = 0;
   let rafStartWall = 0; // performance.now() when the current play leg began
   let rafStartTimestamp = 0; // controller timestamp when the current play leg began
-  // Reverse-leg bookkeeping for `replayWithReverse()`. Captured once at
-  // the start of the leg so the per-tick interpolation is stable.
+  // Reverse-leg bookkeeping for `replayWithReverse()` and
+  // `replayWithReverseHold()`. Captured once at the start of the leg
+  // so the per-tick interpolation is stable.
   // `reverseFromTimestamp` is the timestamp the reverse leg started
   // FROM (e.g. totalDurationMs when called at end-of-sequence). The
   // leg always lands at timestamp=0.
   let reverseFromTimestamp = 0;
+  // Duration of the current reverse leg in ms. `replayWithReverse()`
+  // uses DUR_REVERSE_MS verbatim; `replayWithReverseHold()` scales it
+  // by the normalized starting timestamp so partial-reverses retain
+  // the same per-unit reverse speed.
+  let reverseDurationMs = DUR_REVERSE_MS;
   // Pause-leg deadline (wall time at which the pause expires and the
   // forward leg begins). Held during the `pausing` status; rAF ticks
   // poll this and transition to forward when wall-time crosses it.
+  // For HELD pauses (`replayWithReverseHold()`), this is set to
+  // Number.POSITIVE_INFINITY so the pause never auto-expires.
   let pauseUntilWall = 0;
+  // True when a held pause is active (entered via
+  // `replayWithReverseHold()` and not yet released). Distinguishes the
+  // held variant from `replayWithReverse()`'s fixed-duration pause so
+  // `releaseHold()` knows whether it's a no-op or an exit-now command.
+  let inHold = false;
+  // True when `releaseHold()` was called during the reverse leg of a
+  // held replay. The reverse leg runs to completion; on hitting
+  // timestamp=0 it skips the held-pause and transitions directly to
+  // forward play. This produces the "quick-click collapse" — clicks
+  // that release before the reverse leg completes get reverse →
+  // forward with no pause in between.
+  let releaseQueued = false;
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -263,14 +337,33 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     }
     if (status === "reversing") {
       // Reverse leg: timestamp interpolates linearly from
-      // reverseFromTimestamp → 0 over DUR_REVERSE_MS.
+      // reverseFromTimestamp → 0 over reverseDurationMs.
       const elapsed = now - rafStartWall;
-      const t = Math.min(1, elapsed / DUR_REVERSE_MS);
+      const t = reverseDurationMs > 0
+        ? Math.min(1, elapsed / reverseDurationMs)
+        : 1;
       timestamp = reverseFromTimestamp * (1 - t);
       if (t >= 1) {
         timestamp = 0;
+        if (inHold && releaseQueued) {
+          // Quick-click collapse: user released during the reverse
+          // leg. Skip the held pause and transition straight to
+          // forward play.
+          inHold = false;
+          releaseQueued = false;
+          status = "playing";
+          rafStartWall = now;
+          rafStartTimestamp = 0;
+          notify();
+          rafId = requestAnimationFrame(tick);
+          return;
+        }
         status = "pausing";
-        pauseUntilWall = now + DUR_PAUSE_MS;
+        // Held variant dwells indefinitely; fixed variant expires
+        // after DUR_PAUSE_MS.
+        pauseUntilWall = inHold
+          ? Number.POSITIVE_INFINITY
+          : now + DUR_PAUSE_MS;
         notify();
         rafId = requestAnimationFrame(tick);
         return;
@@ -280,11 +373,15 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
       return;
     }
     if (status === "pausing") {
-      // Pause leg: hold timestamp at 0 for DUR_PAUSE_MS, then enter
-      // forward play. Each rAF tick we still notify subscribers so
-      // any UI tied to status (e.g. a "rewinding…" cue) updates; the
-      // rendered cube is unchanged (timestamp=0 throughout).
+      // Pause leg: hold timestamp at 0 until pauseUntilWall, then
+      // enter forward play. For held pauses (`replayWithReverseHold`)
+      // pauseUntilWall is +Infinity so the wall-time check never
+      // fires — `releaseHold()` is the only exit. Each rAF tick we
+      // still notify subscribers so any UI tied to status (e.g. a
+      // "rewinding…" cue) updates; the rendered cube is unchanged
+      // (timestamp=0 throughout).
       if (now >= pauseUntilWall) {
+        inHold = false;
         status = "playing";
         rafStartWall = now;
         rafStartTimestamp = 0;
@@ -317,7 +414,10 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     }
     // If called during a reverse-or-pause leg, abandon the leg and
     // start a fresh forward play from whatever timestamp we're at.
-    // The leg's rAF will be cancelled by startRaf().
+    // The leg's rAF will be cancelled by startRaf(). Any held-replay
+    // hold-state is also cleared — play() is an explicit override.
+    inHold = false;
+    releaseQueued = false;
     status = "playing";
     startRaf();
     notify();
@@ -336,6 +436,9 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     }
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
+    // Hold-state ends — pause is an explicit override.
+    inHold = false;
+    releaseQueued = false;
     status = "paused";
     notify();
   }
@@ -347,6 +450,9 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     const wasPlaying = status === "playing";
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
+    // Seek is an explicit jump; any active hold ends.
+    inHold = false;
+    releaseQueued = false;
     timestamp = clamped;
     // Status transitions:
     //   was playing + clamped < end       → keep playing from new ts
@@ -376,6 +482,10 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     if (moves.length === 0) return;
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
+    // replay() = explicit jump to start + forward play; any active
+    // hold ends.
+    inHold = false;
+    releaseQueued = false;
     timestamp = 0;
     status = "playing";
     startRaf();
@@ -407,13 +517,97 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     // Engage the choreographed path: reverse → pause → forward.
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
+    // Non-held variant: clear any prior hold-state.
+    inHold = false;
+    releaseQueued = false;
     reverseFromTimestamp = totalDurationMs;
+    reverseDurationMs = DUR_REVERSE_MS;
     timestamp = totalDurationMs;
     status = "reversing";
     rafStartWall = performance.now();
     rafStartTimestamp = totalDurationMs;
     rafId = requestAnimationFrame(tick);
     notify();
+  }
+
+  function replayWithReverseHold(): void {
+    // Press-and-hold variant. Engages a reverse leg (or skips it for
+    // already-at-start states) into an indefinitely-held pause at
+    // timestamp=0. See the CubeSequence interface doc for the full
+    // interruption matrix.
+    if (moves.length === 0) return;
+    // Already in a hold? No-op (an in-flight reverse-into-hold should
+    // be left alone; a held pause is exactly where we want to be).
+    if (inHold) return;
+
+    const startFromTs = timestamp;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    inHold = true;
+    releaseQueued = false;
+
+    // From idle / fresh-start (timestamp=0): skip the reverse leg —
+    // nothing to rewind from — and enter the held pause immediately.
+    // Visually identical to staying at the pre-state, but state is
+    // consistent so `releaseHold()` will play forward.
+    if (startFromTs <= 0) {
+      timestamp = 0;
+      status = "pausing";
+      pauseUntilWall = Number.POSITIVE_INFINITY;
+      rafStartWall = performance.now();
+      rafStartTimestamp = 0;
+      rafId = requestAnimationFrame(tick);
+      notify();
+      return;
+    }
+
+    // Otherwise (ended / playing / paused / mid-flight): reverse leg
+    // from startFromTs → 0. Duration scaled by the normalized fraction
+    // so partial reverses keep the same per-unit speed.
+    //   ended:    fraction = 1   → full DUR_REVERSE_MS.
+    //   mid-way:  fraction = p/T → scaled.
+    reverseFromTimestamp = startFromTs;
+    const fraction = totalDurationMs > 0 ? startFromTs / totalDurationMs : 1;
+    reverseDurationMs = DUR_REVERSE_MS * Math.max(0, Math.min(1, fraction));
+    timestamp = startFromTs;
+    status = "reversing";
+    rafStartWall = performance.now();
+    rafStartTimestamp = startFromTs;
+    rafId = requestAnimationFrame(tick);
+    notify();
+  }
+
+  function releaseHold(): void {
+    // Only meaningful if a hold is active. Outside a hold this is a
+    // graceful no-op (callers can fire-and-forget on pointerup).
+    if (!inHold) return;
+
+    if (status === "pausing") {
+      // Held at progress=0 — exit the hold immediately and start
+      // forward play.
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      inHold = false;
+      releaseQueued = false;
+      timestamp = 0;
+      status = "playing";
+      startRaf();
+      notify();
+      return;
+    }
+
+    if (status === "reversing") {
+      // Reverse leg still in flight — queue a release so the tick
+      // handler skips the held-pause when the leg completes. This is
+      // the "quick-click collapse".
+      releaseQueued = true;
+      return;
+    }
+
+    // Any other status: shouldn't reach here (inHold is only set
+    // alongside reversing/pausing), but clear flags defensively.
+    inHold = false;
+    releaseQueued = false;
   }
 
   function subscribe(listener: () => void): () => void {
@@ -461,6 +655,8 @@ export function createCubeSequence(spec: CubeSequenceSpec): CubeSequence {
     seekToMove,
     replay,
     replayWithReverse,
+    replayWithReverseHold,
+    releaseHold,
     subscribe,
   };
 

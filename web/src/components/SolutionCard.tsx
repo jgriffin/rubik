@@ -21,12 +21,26 @@
 //     (timestamp=0), play() is equivalent to replay() for the first
 //     pass; we use play() so the IO trigger is unambiguous about
 //     "begin forward playback" semantics.
-//   - onClick: alongside the existing onActiveChange, call
-//     seq.replayWithReverse() — when the sequence has already settled
-//     (status=ended), this runs the rev5 choreography: short reverse
-//     leg → pause beat → forward play. From any non-settled state it
-//     collapses to the forward-only replay so mid-flight clicks still
-//     feel snappy.
+//   - Pointer events (mouse / touch / pen):
+//       onPointerDown → onActiveChange() + seq.replayWithReverseHold()
+//                       (reverse leg + indefinite held dwell at the
+//                       pre-state).
+//       onPointerUp / onPointerCancel / onPointerLeave →
+//                       seq.releaseHold() (forward play; collapses to
+//                       reverse-then-forward if release happens before
+//                       the reverse leg completes — see
+//                       state/cubeSequence.ts).
+//     Pointer-driven interaction lets the user "scrub" the pre-state
+//     dwell by holding longer; quick clicks naturally collapse to a
+//     snappy reverse → forward.
+//   - onClick: kept as a keyboard fallback (Space/Enter on a focused
+//     button fires a synthetic click but NOT pointer events). Routed
+//     to seq.replayWithReverse() — the finite-pause choreography —
+//     giving keyboard users the same quick visual cue without needing
+//     a held interaction. A useRef flag set during pointerdown /
+//     cleared during pointerup dedupes against the pointer path so
+//     the click event fired by browsers on pointer release (when it
+//     does) doesn't double-trigger.
 //
 // References:
 //   - hooks/useCubeSequence.ts — spec memoization is the caller's
@@ -87,6 +101,10 @@ function CardShell({
   isStart,
   isActive,
   onClick,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
   rootRef,
   children,
 }: {
@@ -94,7 +112,11 @@ function CardShell({
   moveLabel: string | null;
   isStart: boolean;
   isActive: boolean;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onPointerDown?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerUp?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerCancel?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerLeave?: (e: React.PointerEvent<HTMLButtonElement>) => void;
   rootRef?: React.Ref<HTMLButtonElement>;
   children: React.ReactNode;
 }) {
@@ -114,6 +136,10 @@ function CardShell({
       data-testid={`sol-card-${stepNum}`}
       data-active={isActive ? "true" : "false"}
       onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onPointerLeave={onPointerLeave}
     >
       <div className="top">
         <span className="step-num">{String(stepNum).padStart(2, "0")}</span>
@@ -241,19 +267,76 @@ function NonStartCard({
     };
   }, [seq]);
 
-  // Compose onClick: original onActiveChange + the choreographed
-  // replay. replayWithReverse() switches between two paths based on
-  // sequence state:
-  //   - settled at end (status=ended OR last move progress > 0.99):
-  //     reverse leg (DUR_REVERSE_MS) → pause leg (DUR_PAUSE_MS) →
-  //     forward leg (msPerMove). This is the rev5 choreography —
-  //     gives the eye a beat to register the pre-move state before
-  //     the forward animation replays.
-  //   - any other state (idle / playing / paused / mid-flight):
-  //     collapses to replay() (seek 0 + forward play) so the click
-  //     feels responsive rather than mandatorily playing the
-  //     rewind-pause cue every time.
+  // Pointer-driven press-and-hold interaction:
+  //   pointerdown → onActiveChange + replayWithReverseHold() (reverse
+  //                 leg + indefinite held dwell at pre-state).
+  //   pointerup / pointercancel / pointerleave → releaseHold() (forward
+  //                 play; collapses to reverse-then-forward if released
+  //                 mid-reverse).
+  //
+  // pointerHandledRef gates the onClick fallback. A click event fired
+  // synchronously after a pointerup (the normal mouse path) finds the
+  // ref set and skips the keyboard branch — the pointer handlers
+  // already drove the choreography. Keyboard-only activation
+  // (Space/Enter on focused button) fires a synthetic click WITHOUT
+  // any pointerdown/up, so the ref stays false and the click runs the
+  // finite-pause replayWithReverse() as a "snappy keyboard cue".
+  const pointerHandledRef = useRef(false);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    pointerHandledRef.current = true;
+    // Pointer capture: routes subsequent pointer events to this
+    // element even if the cursor drags out, so we still get
+    // pointerup → releaseHold instead of being stuck in the held
+    // state. Some browsers/test envs don't implement it — guard.
+    const target = e.currentTarget;
+    if (typeof target.setPointerCapture === "function") {
+      try {
+        target.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore: pointerId may have been auto-released by the browser.
+      }
+    }
+    onClick();
+    seq.replayWithReverseHold();
+  };
+
+  const handlePointerUp = () => {
+    if (!pointerHandledRef.current) return;
+    seq.releaseHold();
+    // Note: pointerHandledRef is cleared on the trailing click event
+    // (some browsers fire click after pointerup, others don't). If no
+    // click follows (e.g. drag-off + release outside the element), the
+    // ref's leftover true state is harmless — it only matters for the
+    // next click event, and any subsequent pointerdown resets it.
+  };
+
+  const handlePointerCancel = () => {
+    // System cancelled the pointer (e.g. scroll gesture stole it,
+    // touch was interrupted). Treat as a release so we don't get
+    // stuck holding the pre-state.
+    if (!pointerHandledRef.current) return;
+    seq.releaseHold();
+  };
+
+  const handlePointerLeave = () => {
+    // User dragged off the card while still pressing. Treat as
+    // release; pointer capture should have prevented this for most
+    // browsers, but the leave fallback is the safety net.
+    if (!pointerHandledRef.current) return;
+    seq.releaseHold();
+  };
+
   const handleClick = () => {
+    // If a pointer interaction just drove the choreography, the
+    // pointer-handled flag is set — consume it and skip. Otherwise
+    // this is a keyboard activation (Space/Enter); fall back to the
+    // finite-pause replayWithReverse() for a snappy keyboard cue
+    // and still notify the parent of the active change.
+    if (pointerHandledRef.current) {
+      pointerHandledRef.current = false;
+      return;
+    }
     onClick();
     seq.replayWithReverse();
   };
@@ -265,6 +348,10 @@ function NonStartCard({
       isStart={false}
       isActive={isActive}
       onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onPointerLeave={handlePointerLeave}
       rootRef={rootRef}
     >
       <NonStartSlot

@@ -225,31 +225,57 @@ describe("SolutionCard — renderMode wiring (non-start card)", () => {
 });
 
 // ---------------------------------------------------------------------
-// Click + IntersectionObserver wiring — mount-mode tests deferred.
+// Pointer events + IntersectionObserver wiring — mount-mode tests deferred.
 //
-// renderToStaticMarkup produces static HTML — click handlers don't
+// renderToStaticMarkup produces static HTML — event handlers don't
 // attach, useEffect never fires, IntersectionObserver never observes.
-// Verifying the click path AND the IO one-shot behaviour both require
-// jsdom + @testing-library/react. Queued for the RTL upgrade, same
-// pattern as documented in useCubeSequence.test.tsx.
+// Verifying the pointer-driven press-and-hold path, the keyboard-only
+// click fallback, AND the IO one-shot behaviour all require jsdom +
+// @testing-library/react. Queued for the RTL upgrade, same pattern as
+// documented in useCubeSequence.test.tsx.
 //
-// What we'd assert when RTL lands:
+// Current interaction contract (factory-level coverage in
+// state/cubeSequence.test.ts already verifies the state machine; these
+// mounted tests would just confirm the wiring fires the methods):
+//   - pointerdown → onActiveChange() + seq.replayWithReverseHold()
+//     (reverse leg + indefinite held dwell at the pre-state).
+//   - pointerup / pointercancel / pointerleave → seq.releaseHold()
+//     (forward play; collapses to reverse-then-forward if released
+//     mid-reverse).
+//   - onClick fallback (keyboard activation only — Space/Enter on a
+//     focused button fires a synthetic click but no pointer events):
+//     onActiveChange() + seq.replayWithReverse() — the finite-pause
+//     choreography for a snappy keyboard cue. A useRef flag set in
+//     pointerdown / cleared on the trailing click dedupes against the
+//     pointer path so mouse-driven clicks don't double-trigger.
 //   - Mount → IO fires "isIntersecting" → seq.play() called once
-//     (forward only — the IO trigger is the first-visibility cue),
-//     observer disconnected (subsequent intersections are no-ops).
-//   - Click → onActiveChange AND seq.replayWithReverse() both fire.
-//     When the sequence has settled at end, that engages the rev5
-//     choreography (reverse leg → pause → forward); from any other
-//     state it collapses to forward-only replay. The factory-level
-//     coverage in state/cubeSequence.test.ts already verifies both
-//     paths; mounted tests would just confirm the wiring fires the
-//     method on click.
+//     (forward only — IO is the first-visibility cue), observer
+//     disconnected (subsequent intersections are no-ops).
 // ---------------------------------------------------------------------
 
-describe.skip("SolutionCard — click + IntersectionObserver (queued for RTL)", () => {
-  it.skip("click fires onClick AND seq.replayWithReverse()", () => {
-    // Queued: needs jsdom + RTL to capture click events on rendered
+describe.skip("SolutionCard — pointer events + IntersectionObserver (queued for RTL)", () => {
+  it.skip("pointerdown fires onActiveChange + seq.replayWithReverseHold()", () => {
+    // Queued: needs jsdom + RTL to dispatch PointerEvent on rendered
     // buttons and spy on the hook's returned CubeSequence.
+  });
+
+  it.skip("pointerup fires seq.releaseHold()", () => {
+    // Queued.
+  });
+
+  it.skip("pointercancel and pointerleave both fire seq.releaseHold() (drag-off safety net)", () => {
+    // Queued.
+  });
+
+  it.skip("keyboard activation (Space/Enter → synthetic click, no pointer events) routes to replayWithReverse()", () => {
+    // Queued: needs jsdom keyboard-event simulation; the useRef flag
+    // should remain false so the click branch runs.
+  });
+
+  it.skip("pointer-driven click does NOT double-trigger (useRef dedupe)", () => {
+    // Queued: pointerdown→pointerup→click sequence; verify
+    // replayWithReverse() is NOT called (only replayWithReverseHold +
+    // releaseHold from the pointer path).
   });
 
   it.skip("IntersectionObserver fires seq.play() once on first visibility", () => {
