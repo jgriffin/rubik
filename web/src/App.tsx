@@ -36,7 +36,7 @@ export default function App() {
   const [scrambleState, setScrambleState] = useState<string>(SOLVED_3X3);
   const [scrambleMoves, setScrambleMoves] = useState<MoveStr[]>([]);
   const [scrambleLength, setScrambleLength] = useState<number>(14);
-  const [solution, setSolution] = useState<string[] | null>(null);
+  const [moves, setMoves] = useState<MoveStr[]>([]);
   const [solved, setSolved] = useState<boolean | null>(null);
   const [solveStats, setSolveStats] = useState<SolveStats | null>(null);
   const [isSolving, setIsSolving] = useState(false);
@@ -53,7 +53,7 @@ export default function App() {
   }, []);
 
   function resetSolveState() {
-    setSolution(null);
+    setMoves([]);
     setSolved(null);
     setSolveStats(null);
     setActiveIdx(0);
@@ -77,7 +77,7 @@ export default function App() {
     setActiveIdx(0);
     try {
       const r = await apiSolve({ state: scrambleState });
-      setSolution(r.moves);
+      setMoves(r.moves as MoveStr[]);
       setSolved(r.solved);
       setSolveStats(r.stats);
     } catch (e) {
@@ -105,7 +105,7 @@ export default function App() {
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
 
   const sectionFourScrambleAlg = scrambleMoves.join(" ");
-  const sectionFourSolutionAlg = (solution ?? []).join(" ");
+  const sectionFourSolutionAlg = moves.join(" ");
 
   return (
     <main className="col">
@@ -174,7 +174,7 @@ export default function App() {
       <SolutionGrid
         scrambleState={scrambleState}
         scrambleMoves={scrambleMoves}
-        solution={solution}
+        moves={moves}
         isSolving={isSolving}
         cols={cols}
         renderMode={renderMode}
@@ -198,7 +198,7 @@ export default function App() {
 
       <SolvedFooter
         solved={solved}
-        moveCount={solution?.length ?? 0}
+        moveCount={moves.length}
         metaText={metaText}
       />
 
