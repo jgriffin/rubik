@@ -1,4 +1,4 @@
-import FlatCubeRenderer from "./FlatCubeRenderer";
+import Cube2D from "./Cube2D";
 import TwistyPlayerWrapper from "./TwistyPlayerWrapper";
 import type { RenderMode } from "./SolutionGrid";
 
@@ -66,7 +66,7 @@ export default function SolutionCard({
             />
           ) : renderMode === "dual" ? (
             <div className="render-pair">
-              <FlatCubeRenderer
+              <Cube2D
                 facelet={facelet}
                 sizePx={sizePx}
                 testId="flat-cube-pair"
@@ -80,7 +80,7 @@ export default function SolutionCard({
               />
             </div>
           ) : (
-            <FlatCubeRenderer facelet={facelet} sizePx={sizePx} testId={null} />
+            <Cube2D facelet={facelet} sizePx={sizePx} testId={null} />
           )}
         </div>
       </div>

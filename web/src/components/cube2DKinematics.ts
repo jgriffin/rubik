@@ -76,7 +76,7 @@ export const FACE_OFFSETS = {
 export type FaceLetter = keyof typeof FACE_OFFSETS;
 
 // Position of each face in the cross-net grid (4 cols × 3 rows of
-// faces; each face is 3×3 stickers). Matches FlatCubeRenderer's
+// faces; each face is 3×3 stickers). Matches Cube2D's static-mode
 // FACE_GRID.
 export const FACE_GRID: Record<FaceLetter, { col: number; row: number }> = {
   U: { col: 1, row: 0 },
@@ -380,8 +380,7 @@ export function easeOut(t: number): number {
 //
 // Why a letter (not a hex code): the production renderer applies a
 // theme/palette swap; carrying the letter keeps `cube2DKinematics.ts`
-// palette-agnostic and matches `FlatCubeRenderer`'s static-mode data
-// flow.
+// palette-agnostic and matches `Cube2D`'s static-mode data flow.
 export interface AnimatedSticker {
   x: number;
   y: number;
