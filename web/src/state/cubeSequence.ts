@@ -20,10 +20,10 @@
 // References:
 //   - `plans/m9-cube-animation-system.md` — block plan, architecture
 //     section (controller contract).
-//   - `web/src/components/cubeNetAnimations.ts` (A·P1) — DUR_FORWARD_MS
+//   - `web/src/components/cube2DKinematics.ts` (A·P1) — DUR_FORWARD_MS
 //     re-used as default `msPerMove`.
 
-import { DUR_FORWARD_MS } from "../components/cubeNetAnimations";
+import { DUR_FORWARD_MS } from "../components/cube2DKinematics";
 import { FACELET_MOVES, type MoveStr } from "./faceletMoves";
 
 // ---------------------------------------------------------------------

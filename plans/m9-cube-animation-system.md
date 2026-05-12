@@ -13,7 +13,7 @@ This plan rescopes beyond per-card single-move animation. The new vision: **one 
 
 Three layers. The controller is the contract; renderers are interchangeable.
 
-### 1. `cubeNetAnimations.ts` — pure math (rev5 model)
+### 1. `cube2DKinematics.ts` — pure math (rev5 model)
 
 `getRenderInstructions(preFacelet: string, move: MoveStr, progress: number): RenderPlan` returns the render plan for a single move at a single timestamp. The plan describes:
 
@@ -62,9 +62,9 @@ Internally drives a `requestAnimationFrame` loop while `status === "playing"`. S
 
 ### 3. Renderers — consume the sequence handle
 
-- **`<NetAnimatedCube sequence={cubeSeq} />`** — SVG, applies `cubeNetAnimations.ts` instructions at the controller's `currentMoveIndex` + `currentMoveProgress`. Composed of `<NetCubeRenderer/>` (the existing static facelet renderer, renamed from `FlatCubeRenderer` per 1B' close) for the non-animated layers, plus animated `<g>` groups for ribbons + face/ring rotations.
+- **`<Cube2D facelet={fac} />`** OR **`<Cube2D sequence={cubeSeq} />`** — one component, prop-toggled mode. With `facelet`, renders a static SVG of that facelet (replaces the old `FlatCubeRenderer.tsx` entirely). With `sequence`, renders the rev5 animation overlay, consuming `cube2DKinematics.getRenderInstructions(...)` at the controller's `currentMoveIndex` + `currentMoveProgress`. Mutually exclusive props enforced via a TypeScript discriminated-union prop type. One component for both modes: simpler API, fewer files, matches the "one thing that renders + animates" mental model.
 - **`<TwistyAnimatedCube sequence={cubeSeq} />`** — wraps `<twisty-player>` with `controlPanel="none"`, `tempoScale=1`, `experimentalSetupAnchor="start"`, `setupAlg = (scrambleAlg + priorMoves)`, `alg = sequence.moves.join(" ")`. Binds `player.timestamp = sequence.timestamp` in a useEffect. If `player.play()` and our rAF clock fight, we drive *only* via direct timestamp writes (no `.play()`).
-- **`<DualAnimatedCube sequence={cubeSeq} />`** — composes both side-by-side, one controller.
+- **`<DualAnimatedCube sequence={cubeSeq} />`** — composes `Cube2D` + `TwistyAnimatedCube` side-by-side, one controller.
 
 ### Why this shape
 
@@ -83,14 +83,14 @@ This milestone breaks into four LOG blocks, each on its own branch sharing the p
 
 ### Block A — Math + controller + 2D renderer (no production wiring)
 
-Output: `cubeNetAnimations.ts` + `useCubeSequence` + `NetAnimatedCube` + `NetCubeRenderer` (renamed), gated against a controller-driven extension of `flat-cube-animated.html`. **No SolutionCard wiring yet.** The whole system works end-to-end *in the preview*; production cards still render the old static path.
+Output: `cube2DKinematics.ts` + `useCubeSequence` + `Cube2D.tsx` (single component, static-or-animated via prop discriminated union; supersedes `FlatCubeRenderer.tsx`), gated against a controller-driven extension of `flat-cube-animated.html`. **No SolutionCard wiring yet.** The whole system works end-to-end *in the preview*; production cards still render the old static path.
 
 Phases (each = one atomic commit, app builds + tests pass throughout):
 
 - **A·P0 — Preview substrate refactor.** Extend `web/preview/flat-cube-animated.html` with a "sequence widget" up top: `startFacelet` input + `moves` input (e.g. `"R U R' U'"`) + play/pause/replay/seek controls + a single big cross rendering the live sequence. Per-move-panel grid (12 QTM from solved) preserved below as a unit-test substrate. Standalone (inline JS, no React), but written to mirror the controller/math API shape so the port to TS modules is structural-only.
-- **A·P1 — `web/src/components/cubeNetAnimations.ts`.** Pure functions + types. Per-move kinematics derived data-first. Vitest: 12-move kinematics snapshots + property tests asserting post-progress=1 facelet matches `applyMove`.
+- **A·P1 — `web/src/components/cube2DKinematics.ts`.** Pure functions + types. Per-move kinematics derived data-first. Vitest: 12-move kinematics snapshots + property tests asserting post-progress=1 facelet matches `applyMove`.
 - **A·P2 — `web/src/hooks/useCubeSequence.ts`.** Controller implementation. rAF loop, state machine, seek logic. Vitest under fake timers: status transitions, replay-from-end correctness, seek mid-move boundary correctness.
-- **A·P3 — `NetCubeRenderer.tsx` (rename from `FlatCubeRenderer.tsx`) + `NetAnimatedCube.tsx`.** Single-commit rename touches `SolutionCard.tsx`, tests, preview imports. Then add `NetAnimatedCube` consuming a `CubeSequence` handle. Vitest: animation smoke (renders without crashing across all 12 moves); static-mode behavior unchanged (existing test contract preserved verbatim).
+- **A·P3 — `Cube2D.tsx` (rename + extend from `FlatCubeRenderer.tsx`).** Single commit: rename `FlatCubeRenderer.tsx` → `Cube2D.tsx` (touches `SolutionCard.tsx`, tests, preview imports) AND extend its props from `{ facelet }` to `{ facelet } | { sequence }` (mutually exclusive TypeScript discriminated union). Animated mode consumes a `CubeSequence` handle and renders the rev5 animation overlay via `cube2DKinematics.getRenderInstructions(...)`. Vitest: animation smoke across all 12 moves + existing static-mode contract preserved verbatim.
 
 **Eyeball gate (block-close).** User opens `web/preview/flat-cube-animated.html`, types a move sequence into the widget, hits play, watches the 2D cross walk through the sequence with the rev5 visual model. Matches the per-move panels below. Eyeball passes → Block A closes.
 
@@ -108,7 +108,7 @@ Output: `TwistyAnimatedCube` that drives cubing.js's twisty-player from the cont
 
 Output: production `SolutionCard` animates each card's single move on scroll-into-view, click-replays. Both net and twisty modes wired through the new components.
 
-- **C·P5 — `SolutionGrid` + `SolutionCard` rewire.** Each non-start card constructs `useCubeSequence({ startFacelet: states[stepNum-1], moves: [card.move], msPerMove: 600 })`. `IntersectionObserver` fires `.replay()` on first visibility; click handler also fires `.replay()`. Both net (`NetAnimatedCube`) and twisty (`TwistyAnimatedCube`) modes use the new components. Start card (stepNum=0) skips the hook entirely — pure static `NetCubeRenderer`.
+- **C·P5 — `SolutionGrid` + `SolutionCard` rewire.** Each non-start card constructs `useCubeSequence({ startFacelet: states[stepNum-1], moves: [card.move], msPerMove: 600 })`. `IntersectionObserver` fires `.replay()` on first visibility; click handler also fires `.replay()`. The 2D mode uses `<Cube2D sequence={…} />`; the twisty mode uses `<TwistyAnimatedCube sequence={…} />`. Start card (stepNum=0) skips the hook entirely — passes a static facelet via `<Cube2D facelet={…} />` instead.
 - **C·P5-tests — Vitest:** `SolutionCard.test.tsx` observer wiring smoke + click handler + start-card-skips-animation.
 - **C·e2e refresh.** `solution-grid.spec.ts` adds a deterministic post-settle assertion: 54 rects with correct `data-color` after `msPerMove + 50ms` buffer. Mid-animation assertions skipped (intentionally non-deterministic). Existing visibility tests stay green.
 
@@ -122,11 +122,11 @@ Output: section iv shows ONE big 2D cross + ONE 3D cube + a custom playback bar,
 
 ## What carries forward from rev5
 
-- **Timing constants** (named in the preview): `DUR_FORWARD_MS=600`, `DUR_REVERSE_MS=150`, `DUR_PAUSE_MS=250` (the auto-reset beat). Carried into `cubeNetAnimations.ts` as defaults.
+- **Timing constants** (named in the preview): `DUR_FORWARD_MS=600`, `DUR_REVERSE_MS=150`, `DUR_PAUSE_MS=250` (the auto-reset beat). Carried into `cube2DKinematics.ts` as defaults.
 - **Direction-data-first principle.** No hand-authored direction tables. Derive from the move's effect on facelet positions.
-- **Production-clipped by default + debug "Show extensions" toggle.** Same default in `NetAnimatedCube`; the toggle becomes a component prop for the preview, hidden in production.
-- **F/B = ring rotation, not slide.** Encoded in `cubeNetAnimations.ts`'s move-classification table (face turn / linear edges / ring edges).
-- **Z-order: static + ribbons UNDER overlay; face + ring rotations ABOVE.** Encoded in the SVG group ordering inside `NetAnimatedCube`.
+- **Production-clipped by default + debug "Show extensions" toggle.** Same default in `Cube2D` (animated mode); the toggle becomes a component prop for the preview, hidden in production.
+- **F/B = ring rotation, not slide.** Encoded in `cube2DKinematics.ts`'s move-classification table (face turn / linear edges / ring edges).
+- **Z-order: static + ribbons UNDER overlay; face + ring rotations ABOVE.** Encoded in the SVG group ordering inside `Cube2D` (animated mode).
 
 ## Open questions resolved later
 

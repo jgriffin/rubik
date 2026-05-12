@@ -1,10 +1,10 @@
-// rev5 cube-net animation math — pure functions + types.
+// rev5 2D cube animation math — pure functions + types.
 //
 // Source of truth for the 2D move animation model originally locked in
 // `web/preview/flat-cube-animated.html` (Block 1B', rev5.4). The
 // preview keeps its inline standalone copy as the design playground;
-// this module is the production import path for A·P3's
-// `NetAnimatedCube.tsx` and any downstream consumer.
+// this module is the production import path for A·P3's `Cube2D.tsx`
+// (animated mode) and any downstream consumer.
 //
 // Visual model summary:
 //   - 9-sticker face turn = rotation primitive around face geometric
@@ -170,7 +170,7 @@ function indexFace(i: number): FaceLetter {
 }
 // Sticker index → (x, y) in INTEGER sticker grid coords (top-left of
 // the sticker rect). Multiply by STICKER_PX for SVG viewBox coords.
-export function indexToNetXY(i: number): { x: number; y: number } {
+export function indexToXY(i: number): { x: number; y: number } {
   const { face, r, c } = indexToFaceLocal(i);
   const { col, row } = FACE_GRID[face];
   return { x: col * 3 + c, y: row * 3 + r };
@@ -259,8 +259,8 @@ export function slideVector(move: MoveStr): SlideVector {
   const { edgeIndices } = participatingForMove(move);
   const counts = new Map<string, number>();
   for (const iPost of edgeIndices) {
-    const post = indexToNetXY(iPost);
-    const pre = indexToNetXY(perm[iPost]);
+    const post = indexToXY(iPost);
+    const pre = indexToXY(perm[iPost]);
     const dx = post.x - pre.x;
     const dy = post.y - pre.y;
     const key = `${dx},${dy}`;
@@ -297,8 +297,8 @@ export function faceRotationAngle(move: MoveStr): number {
   const center = faceCenterXYInt(face);
   const iDst = off;
   const iSrc = perm[iDst];
-  const dst = indexToNetXY(iDst);
-  const src = indexToNetXY(iSrc);
+  const dst = indexToXY(iDst);
+  const src = indexToXY(iSrc);
   return rotationAngleDeg(src, dst, center);
 }
 // Angle by which the F/B ring rotates around F-center. Both F and B
@@ -311,8 +311,8 @@ export function ringRotationAngle(move: MoveStr): number {
   const center = faceCenterXYInt("F");
   const iDst = edgeIndices[0];
   const iSrc = perm[iDst];
-  const dst = indexToNetXY(iDst);
-  const src = indexToNetXY(iSrc);
+  const dst = indexToXY(iDst);
+  const src = indexToXY(iSrc);
   return rotationAngleDeg(src, dst, center);
 }
 
@@ -379,7 +379,7 @@ export function easeOut(t: number): number {
 // renderers map to palette colors.
 //
 // Why a letter (not a hex code): the production renderer applies a
-// theme/palette swap; carrying the letter keeps `cubeNetAnimations.ts`
+// theme/palette swap; carrying the letter keeps `cube2DKinematics.ts`
 // palette-agnostic and matches `FlatCubeRenderer`'s static-mode data
 // flow.
 export interface AnimatedSticker {
@@ -526,7 +526,7 @@ export function getRenderInstructions(
 
   // Static layer: the 33 untouched stickers.
   const staticStickers: AnimatedSticker[] = staticIndices.map((i) => {
-    const pos = indexToNetXY(i);
+    const pos = indexToXY(i);
     return {
       x: pos.x,
       y: pos.y,
@@ -537,7 +537,7 @@ export function getRenderInstructions(
   // Face rotation group — the 9 turned-face stickers, drawn at their
   // canonical positions, rotated as a block.
   const faceStickers: AnimatedSticker[] = faceIndices.map((i) => {
-    const pos = indexToNetXY(i);
+    const pos = indexToXY(i);
     return {
       x: pos.x,
       y: pos.y,
@@ -564,7 +564,7 @@ export function getRenderInstructions(
   if (kin.kind === "ring") {
     // F/B ring rotation. No slide groups; one ring group.
     const ringStickers: AnimatedSticker[] = edgeIndices.map((i) => {
-      const pos = indexToNetXY(i);
+      const pos = indexToXY(i);
       return {
         x: pos.x,
         y: pos.y,
@@ -589,7 +589,7 @@ export function getRenderInstructions(
 
     for (const i of edgeIndices) {
       const face = indexFace(i);
-      const post = indexToNetXY(i);
+      const post = indexToXY(i);
       // depart copy: at i's canonical position, colored from preFacelet[i].
       const departX = post.x;
       const departY = post.y;

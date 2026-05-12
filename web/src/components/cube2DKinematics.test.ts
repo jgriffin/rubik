@@ -13,12 +13,12 @@ import {
   faceRotationAngle,
   ringRotationAngle,
   easeOut,
-  indexToNetXY,
+  indexToXY,
   type FaceLetter,
   type MoveKinematics,
   type RenderPlan,
   type AnimatedGroup,
-} from "./cubeNetAnimations";
+} from "./cube2DKinematics";
 import { applyMove, applyMoves } from "../state/applyMove";
 import type { MoveStr } from "../state/faceletMoves";
 
@@ -656,13 +656,13 @@ describe("plan sticker counts", () => {
     }
   });
 
-  it("indexToNetXY round-trips against face/grid math", () => {
+  it("indexToXY round-trips against face/grid math", () => {
     // U-top-left sticker (idx 0) is at col 1*3, row 0*3 = (3, 0).
-    expect(indexToNetXY(0)).toEqual({ x: 3, y: 0 });
+    expect(indexToXY(0)).toEqual({ x: 3, y: 0 });
     // F-center (idx 18+4=22) is at col 1*3+1, row 1*3+1 = (4, 4).
-    expect(indexToNetXY(22)).toEqual({ x: 4, y: 4 });
+    expect(indexToXY(22)).toEqual({ x: 4, y: 4 });
     // B-bottom-right (idx 45+8=53) is at col 3*3+2, row 1*3+2 = (11, 5).
-    expect(indexToNetXY(53)).toEqual({ x: 11, y: 5 });
+    expect(indexToXY(53)).toEqual({ x: 11, y: 5 });
   });
 
   it("sticker `color` field is a valid FaceLetter for every sticker", () => {
