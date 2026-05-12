@@ -205,13 +205,52 @@ describe("Cube2D — animated mode: pre-animation render", () => {
 });
 
 describe("Cube2D — animated mode: SVG envelope + structure", () => {
-  it("uses the widget envelope (22×19, viewBox -100 -100 440 380)", () => {
+  it("viewBox is cropped to the cross region (0 0 240 180) — not the full widget envelope", () => {
+    // Contract: the animated SVG element renders at the same intrinsic
+    // size as the static SVG (stickerPx*12 × stickerPx*9) so production
+    // CSS doesn't scale animated cards down relative to the start card.
+    // The viewBox is cropped to the cross region of the WIDGET_ENVELOPE
+    // coordinate system: x=0..240 (12 sticker units), y=0..180 (9 rows).
+    // Rotation groups whose swing corners extend past this region render
+    // outside the SVG box via overflow:visible.
     const seq = createCubeSequence({ startFacelet: SOLVED, moves: ["R"] });
     seq.seek(300); // mid-move
     const html = renderToStaticMarkup(
       createElement(Cube2D, { sequence: seq, testId: null }),
     );
-    expect(html).toContain('viewBox="-100 -100 440 380"');
+    expect(html).toContain('viewBox="0 0 240 180"');
+  });
+
+  it("animated SVG element width/height match static SVG at the same sizePx (regression: cross-size mismatch)", () => {
+    // Regression test for C·P1 fix 1: before the fix, animated mode
+    // rendered an SVG ~2.4× wider than static mode (22×19 envelope vs
+    // 12×9 cross). In production, `.sol-cell .render .net svg { max-
+    // width: 100% }` scaled the larger animated SVG down to fit the
+    // card, shrinking the cross to ~63% of the static cross size and
+    // producing a visible start-card-vs-other-cards mismatch in the
+    // solution grid. The fix makes both modes render the SAME intrinsic
+    // SVG dimensions; this test pins that invariant.
+    const sizePx = 130; // production cols=3 sizing
+    const staticHtml = renderToStaticMarkup(
+      createElement(Cube2D, { facelet: SOLVED, sizePx, testId: null }),
+    );
+    const seq = createCubeSequence({ startFacelet: SOLVED, moves: ["R"] });
+    seq.seek(300);
+    const animatedHtml = renderToStaticMarkup(
+      createElement(Cube2D, { sequence: seq, sizePx, testId: null }),
+    );
+    const widthRe = /width="([\d.]+)"/;
+    const heightRe = /height="([\d.]+)"/;
+    const staticW = staticHtml.match(widthRe)?.[1];
+    const staticH = staticHtml.match(heightRe)?.[1];
+    const animatedW = animatedHtml.match(widthRe)?.[1];
+    const animatedH = animatedHtml.match(heightRe)?.[1];
+    expect(staticW).toBeDefined();
+    expect(staticH).toBeDefined();
+    expect(animatedW).toBe(staticW);
+    expect(animatedH).toBe(staticH);
+    // Sanity: at sizePx=130, stickerPx ≈ 14.44, widthPx ≈ 173.33, heightPx=130.
+    expect(Number(animatedH)).toBe(130);
   });
 
   it("emits a cross-silhouette clipPath in <defs>", () => {
@@ -357,7 +396,7 @@ describe("Cube2D — animated mode: smoke across all 12 QTM at 3 progress points
         const html = renderToStaticMarkup(
           createElement(Cube2D, { sequence: seq, testId: null }),
         );
-        expect(html).toContain('viewBox="-100 -100 440 380"');
+        expect(html).toContain('viewBox="0 0 240 180"');
         expect(html).not.toContain("NaN");
         // Always a face rotation present.
         expect(html).toContain('data-layer="face"');

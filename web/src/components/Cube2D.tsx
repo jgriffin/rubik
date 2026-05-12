@@ -14,20 +14,33 @@
 //
 // Animated mode subscribes to the passed-in `CubeSequence` via
 // `useSyncExternalStore` and renders the rev5 animation overlay by
-// consuming `cube2DKinematics.getRenderInstructions(...)`. The
-// animated SVG uses the **widget envelope** from cube2DKinematics
-// (22×19 sticker viewBox), so ribbon extensions + face-rotation
-// swing corners fit cleanly at any rendered scale. Geometry is
-// independent of `sizePx` — `sizePx` only sets the rendered pixel
-// box; viewBox math + clip-path coordinates are in sticker units.
+// consuming `cube2DKinematics.getRenderInstructions(...)`. The math
+// module's WIDGET_ENVELOPE (22×19 sticker units, with 5 stickers of
+// padding around the cross) defines the kinematics coordinate system
+// — slide vectors, rotation pivots, and ribbon extension positions
+// are all expressed in those coordinates.
 //
-// When `currentMoveIndex === -1` (idle, pre-first-move), animated
-// mode falls through to the static renderer rendering the start
-// facelet. Block C will trigger `replay()` on intersection-observer,
-// so this fall-through is mostly transitional state. Layout note:
-// the static SVG is sized 12×9 sticker units while the animated SVG
-// is 22×19 (widget envelope); switching modes causes a brief layout
-// shift — acceptable since pre-animation is a short-lived state.
+// The SVG element's **rendered intrinsic size** matches the static
+// mode exactly: width = stickerPx*12, height = stickerPx*9 — the
+// cross's natural 12×9 sticker footprint. To achieve this while
+// preserving the kinematics coordinate system, the viewBox is
+// cropped to the cross region of the WIDGET_ENVELOPE
+// (`viewBox="0 0 240 180"` in STICKER_PX units). Slide groups
+// (clipped to the cross silhouette) render exactly inside this
+// region; face-rotation and F/B ring-rotation groups render at their
+// kinematics coordinates and rely on `overflow="visible"` so the
+// portions that swing outside the cross silhouette during animation
+// still draw (outside the SVG's CSS box).
+//
+// This contract — animated SVG element same size as static SVG
+// element — exists because the production layout (.sol-cell .render
+// .net svg { max-width: 100% }) scales any SVG larger than the card
+// width down to fit. A 22×19-envelope SVG would intrinsically be
+// ~2.4× the static SVG's width, causing CSS to scale the entire
+// rendering down and produce a visibly smaller cross. Keeping the
+// SVG element 12×9 means the cross renders at exactly the same
+// pixel size in both modes — and switching modes (start vs
+// non-start card) no longer causes a layout shift.
 //
 // References:
 //   - `cube2DKinematics.ts` (A·P1) — math + types this component
@@ -45,7 +58,6 @@ import {
 } from "./cubePalette";
 import {
   STICKER_PX,
-  WIDGET_ENVELOPE,
   easeOut,
   getRenderInstructions,
   type AnimatedSticker,
@@ -321,16 +333,32 @@ function SvgFromRenderPlan({
   const idScope = useId();
   const clipId = `cube2d-clip-${idScope}`;
 
-  // Animated viewBox is the widget envelope (22×19 stickers, padded).
-  const vb = WIDGET_ENVELOPE;
-  // `sizePx` is interpreted as the rendered HEIGHT of the visible
-  // cross (9 sticker rows tall in the cross silhouette), matching the
-  // static renderer's `sizePx = 9 stickers tall` convention. The
-  // animated SVG envelope is taller (19 rows of which 9 are cross +
-  // 10 are padding), so the rendered height = sizePx * (19/9).
+  // SVG element intrinsic dimensions match StaticInner exactly:
+  // stickerPx * 12 wide, stickerPx * 9 tall (the cross's natural
+  // footprint). `sizePx` is interpreted as the rendered HEIGHT of
+  // the cross, same convention as static mode. This keeps the cross
+  // visually identical between modes and prevents production CSS
+  // (`.sol-cell .render .net svg { max-width: 100% }`) from scaling
+  // the animated SVG down relative to the static SVG.
   const stickerPx = sizePx / 9;
-  const heightPx = stickerPx * (vb.height / STICKER_PX);
-  const widthPx = stickerPx * (vb.width / STICKER_PX);
+  const widthPx = stickerPx * 12;
+  const heightPx = stickerPx * 9;
+
+  // ViewBox is cropped to the cross region of the WIDGET_ENVELOPE
+  // coordinate system. The cross occupies sticker cols 0..11
+  // (x: 0..240) and rows 0..8 (y: 0..180) in viewBox coords; the
+  // WIDGET_ENVELOPE's negative-origin padding (-5,-5 sticker units)
+  // is dropped from the rendered viewport. Slide groups and ribbon
+  // extensions inside the clip path continue to render in the same
+  // coords as before. Rotation groups (face + F/B ring) render at
+  // their kinematics coords and rely on `overflow="visible"` to draw
+  // outside the SVG's CSS bounding box when their swing corners
+  // extend past the cross silhouette.
+  const crossVbX = 0;
+  const crossVbY = 0;
+  const crossVbW = 12 * STICKER_PX;
+  const crossVbH = 9 * STICKER_PX;
+  const viewBoxStr = `${crossVbX} ${crossVbY} ${crossVbW} ${crossVbH}`;
 
   const testIdProp =
     testId === null ? {} : { "data-testid": testId ?? "flat-cube" };
@@ -362,7 +390,7 @@ function SvgFromRenderPlan({
     <svg
       width={widthPx}
       height={heightPx}
-      viewBox={vb.viewBoxStr}
+      viewBox={viewBoxStr}
       style={{ display: "block", overflow: "visible" }}
       overflow="visible"
       {...testIdProp}
@@ -395,13 +423,16 @@ function SvgFromRenderPlan({
       </g>
 
       {/* Layer 3: inverse-opacity dimming overlay (hidden in
-          production: overlayOpacity=0 → no rect rendered). */}
+          production: overlayOpacity=0 → no rect rendered). Covers
+          the visible viewBox (the cross region); since overlay use
+          is dev-tooling-only and the cross region is the visible
+          area, this is the correct extent. */}
       {plan.overlayOpacity > 0 && (
         <rect
-          x={vb.x}
-          y={vb.y}
-          width={vb.width}
-          height={vb.height}
+          x={crossVbX}
+          y={crossVbY}
+          width={crossVbW}
+          height={crossVbH}
           fill="currentColor"
           opacity={plan.overlayOpacity}
           pointerEvents="none"
