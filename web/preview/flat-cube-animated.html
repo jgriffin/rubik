@@ -472,11 +472,50 @@
       const MOVE_SET = new Set(MOVES);
 
       const STICKER_PX = 20;
-      // viewBox covers cols -3..14 (width 17) and rows -3..11 (height 14)
+      // SVG viewBox envelope.
+      //
+      // Cross silhouette occupies cols 0..11 (12 wide) and rows 0..8
+      // (9 tall). We pad on each side so that ALL ribbon-extension
+      // positions and face-rotation swing corners fit within the
+      // rendered SVG, even at maximum progress.
+      //
+      // Worst-case extents at progress=1:
+      //   - U' / D ribbon depart copies overshoot the cross right
+      //     edge by 3 stickers (sv = +3): col 11 → col 14.
+      //   - U  / D' ribbon depart copies overshoot the cross left
+      //     edge by 3 stickers (sv = -3): col 0  → col -3.
+      //   - R/L primary ribbon depart overshoots top/bottom of cross
+      //     by 3 stickers (similar to U/D but vertical): row 8 →
+      //     row 11, or row 0 → row -3.
+      //   - F/B ring rotation pivots at F-center: corners swing
+      //     within the existing cross silhouette (ring radii ≤ 4),
+      //     no extra envelope room needed.
+      //   - Face-rotation corners swing up to ~0.62 stickers past
+      //     the face boundary (for a 90° rotation of a 3×3 corner).
+      //
+      // Two envelope sizes:
+      //   - VB_* → 17×14 sticker viewBox for the per-move panels.
+      //     Preserves rev5.4 visuals byte-for-byte: viewBox starts at
+      //     col -3 (x = -60) and runs 340 sticker-px wide = cols -3
+      //     to 14 right edge → leftmost sticker fully visible is col
+      //     -3, rightmost is col 13. (Ribbon depart copies that reach
+      //     col 14 at progress=1 fall exactly on the right edge — fine
+      //     at panel size, but the big-cross widget shows visible edge
+      //     artifacts at 2× scale, hence the WIDGET_VB_* envelope.)
+      //   - WIDGET_VB_* → 22×19 sticker viewBox for the big-cross
+      //     widget. Extra 2 stickers of padding on each side: cols -5
+      //     to 16, rows -5 to 13. Ribbon depart copies + face-rotation
+      //     swing corners all sit comfortably inside the viewBox at
+      //     2× scale, with ~2 sticker margin beyond worst-case extents.
       const VB_X = -3 * STICKER_PX;
       const VB_Y = -3 * STICKER_PX;
       const VB_W = 17 * STICKER_PX;
       const VB_H = 14 * STICKER_PX;
+
+      const WIDGET_VB_X = -5 * STICKER_PX;
+      const WIDGET_VB_Y = -5 * STICKER_PX;
+      const WIDGET_VB_W = 22 * STICKER_PX;
+      const WIDGET_VB_H = 19 * STICKER_PX;
 
       // Animation timing knobs (milliseconds). Carried forward into
       // cubeAnimation.ts in A·P1.
@@ -791,19 +830,38 @@
       // This is the structural prototype for the planned
       // renderNetCubeFrame in NetAnimatedCube.tsx.
       // ---------------------------------------------------------------
-      function buildNetCubeSvg({ preFacelet, move, theme, panelId, scale = 1 }) {
+      function buildNetCubeSvg({
+        preFacelet,
+        move,
+        theme,
+        panelId,
+        scale = 1,
+        envelope = "panel", // "panel" → VB_*; "widget" → WIDGET_VB_*
+      }) {
         const inkStroke = theme === "light" ? INK_STROKE_LIGHT : INK_STROKE_DARK;
         const overlayFill =
           theme === "light" ? "rgba(246,245,241,0.7)" : "rgba(24,24,26,0.75)";
+
+        // Envelope selection. Widget uses a wider viewBox so ribbon
+        // depart copies + face-rotation swing corners fit cleanly at
+        // 2× scale; panels keep the rev5.4 17×14 envelope for
+        // byte-for-byte visual preservation.
+        const eX = envelope === "widget" ? WIDGET_VB_X : VB_X;
+        const eY = envelope === "widget" ? WIDGET_VB_Y : VB_Y;
+        const eW = envelope === "widget" ? WIDGET_VB_W : VB_W;
+        const eH = envelope === "widget" ? WIDGET_VB_H : VB_H;
 
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute(
           "viewBox",
-          `${VB_X} ${VB_Y} ${VB_W} ${VB_H}`,
+          `${eX} ${eY} ${eW} ${eH}`,
         );
-        svg.setAttribute("width", VB_W * scale);
-        svg.setAttribute("height", VB_H * scale);
+        svg.setAttribute("width", eW * scale);
+        svg.setAttribute("height", eH * scale);
+        // overflow:visible set as BOTH attribute and inline style for
+        // browser-compat (Safari historically required the attribute).
+        svg.setAttribute("overflow", "visible");
         svg.style.overflow = "visible";
 
         const extensionMaskId = `extension-mask-${panelId}`;
@@ -816,10 +874,10 @@
         mask.setAttribute("id", extensionMaskId);
         mask.setAttribute("maskUnits", "userSpaceOnUse");
         const mFull = document.createElementNS(svgNS, "rect");
-        mFull.setAttribute("x", VB_X);
-        mFull.setAttribute("y", VB_Y);
-        mFull.setAttribute("width", VB_W);
-        mFull.setAttribute("height", VB_H);
+        mFull.setAttribute("x", eX);
+        mFull.setAttribute("y", eY);
+        mFull.setAttribute("width", eW);
+        mFull.setAttribute("height", eH);
         mFull.setAttribute("fill", "white");
         mask.appendChild(mFull);
         const mVert = document.createElementNS(svgNS, "rect");
@@ -945,10 +1003,10 @@
 
         // Layer 3: inverse-opacity overlay (hidden by default).
         const overlay = document.createElementNS(svgNS, "rect");
-        overlay.setAttribute("x", VB_X);
-        overlay.setAttribute("y", VB_Y);
-        overlay.setAttribute("width", VB_W);
-        overlay.setAttribute("height", VB_H);
+        overlay.setAttribute("x", eX);
+        overlay.setAttribute("y", eY);
+        overlay.setAttribute("width", eW);
+        overlay.setAttribute("height", eH);
         overlay.setAttribute("fill", overlayFill);
         overlay.setAttribute("mask", `url(#${extensionMaskId})`);
         overlay.setAttribute("pointer-events", "none");
@@ -1276,6 +1334,7 @@
           theme: widget.theme,
           panelId: `seq-${widget.theme}-${moveIndex}`,
           scale: 2,
+          envelope: "widget", // 22×19 sticker viewBox (panels keep 17×14)
         });
         widget.cubeHost.appendChild(built.svg);
         widget.currentBuilt = built;
