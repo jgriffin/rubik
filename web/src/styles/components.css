@@ -138,10 +138,13 @@
   gap: 8px;
 }
 
-/* Section iv — watch the solve (animated twisty-player) -------------- */
-.section-four-stage {
+/* Cube-mode stage — single big card replacing the column grid when the
+   `cube` mode button is selected. Left-aligned, no grid template. */
+.sol-cube-stage {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 24px;
   margin: 12px 0 24px;
 }
 

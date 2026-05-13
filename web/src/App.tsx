@@ -9,7 +9,6 @@ import MovesGrid from "./components/MovesGrid";
 import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionGrid";
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
-import SectionFour from "./components/SectionFour";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
@@ -132,9 +131,6 @@ export default function App() {
   const isCubeSolved = currentState === SOLVED_3X3;
   const canSolve = ready && !isSolving && !isCubeSolved;
 
-  const sectionFourScrambleAlg = scrambleMoves.join(" ");
-  const sectionFourSolutionAlg = moves.join(" ");
-
   return (
     <main className="col">
       <header className="head">
@@ -246,14 +242,6 @@ export default function App() {
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
         isCubeSolved={isCubeSolved}
-      />
-
-      {/* Section iv — watch the solve (animated player). Renders only
-          once a solution exists; SectionFour itself returns null on
-          empty solutionAlg. */}
-      <SectionFour
-        scrambleAlg={sectionFourScrambleAlg}
-        solutionAlg={sectionFourSolutionAlg}
       />
 
       {error && (
