@@ -290,7 +290,11 @@ export default function MovesGrid({
   }
 
   function handleFocus(i: number, target: HTMLInputElement) {
-    onActiveChange?.(i);
+    // Cell idx N holds moves[N]; the corresponding card in section iii
+    // is at step N+1 (the state AFTER move N is applied). Card 0 is
+    // the start state (before any moves). So focusing cell N highlights
+    // card N+1 — the result of the move sitting in this cell.
+    onActiveChange?.(i + 1);
     // User-initiated focus (Tab / click): select-all so Backspace
     // deletes the whole token. Programmatic auto-advance focus skips
     // this — see `focusCellWithMode`.
@@ -364,7 +368,10 @@ export default function MovesGrid({
       }
       const val = cells[idx];
       const isTrailing = idx === moves.length;
-      const isActive = activeIdx === idx;
+      // activeIdx is in "step" coordinates (card index): step 0 = start
+      // card, step N+1 = card after move N. Cell idx N corresponds to
+      // step N+1, so the cell-level isActive matches that mapping.
+      const isActive = activeIdx === idx + 1;
       const inputClassName = [
         // Non-trailing cells carry the border on the input itself; the
         // trailing cell is wrapped by a div that owns the dashed
