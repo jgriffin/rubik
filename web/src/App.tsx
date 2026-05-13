@@ -155,14 +155,30 @@ export default function App() {
       />
       <StateGrid state={scrambleState} onStateChange={handleSetState} />
 
-      {/* Section ii — moves to apply (editable; the source of truth) */}
+      {/* Section ii — moves to apply (editable; the source of truth).
+          Right-side chrome mirrors section i's clear | [actions] pattern:
+          clear empties moves, solve writes solver output into moves. */}
       <SectionHeader
         roman="ii."
         name="moves to apply"
         right={
-          <span>
-            {moves.length} {moves.length === 1 ? "move" : "moves"}
-          </span>
+          <>
+            <button
+              type="button"
+              className="link-btn"
+              data-testid="clear-moves-button"
+              onClick={() => handleMovesEdit([])}
+              disabled={!ready || isSolving || moves.length === 0}
+              title="erase all moves"
+            >
+              clear
+            </button>
+            <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
+            <span className="scramble-divider" />
+            <span>
+              {moves.length} {moves.length === 1 ? "move" : "moves"}
+            </span>
+          </>
         }
       />
       <MovesGrid
@@ -173,15 +189,12 @@ export default function App() {
         disabled={!ready || isSolving}
       />
 
-      {/* Section iii — solution (cards with column + render toggles) */}
+      {/* Section iii — steps (cards visualize each move in section ii) */}
       <SectionHeader
         roman="iii."
-        name="solution"
+        name="steps"
         right={
           <>
-            <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
-            <span className="scramble-divider" />
-            <span className="seg-label">render</span>
             <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
             <span className="seg-label">columns</span>
             <ColumnsSwitch value={cols} onChange={setCols} />

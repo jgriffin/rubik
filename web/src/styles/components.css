@@ -310,12 +310,19 @@
   border-style: dashed;
   opacity: 0.55;
 }
-/* Editable input variant — overrides the input's user-agent chrome so
- * it visually matches the static glyph cell, then layers focus/active
- * states on top. */
+/* Editable input variant — overrides the input's user-agent chrome
+ * (font reset, default intrinsic width) so it visually matches the
+ * static glyph cell, then layers focus/active states on top. */
 input.move-cell-input {
+  width: 100%;
+  min-width: 0;
   padding: 0;
+  margin: 0;
   outline: none;
+  font: inherit;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  line-height: 1;
   text-align: center;
   text-transform: uppercase;
   color: var(--ink);
