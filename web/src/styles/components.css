@@ -388,6 +388,21 @@ input.move-cell-input:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Cell-mode (keyboard-navigation mode) — synced via the `data-cell-mode`
+ * attribute on the focused input from a global selectionchange listener
+ * in MovesGrid. Full-selection / empty-cell = cell mode; collapsed or
+ * partial selection = text mode. In cell mode we hide the browser's
+ * inner text-selection rendering (the visual cue becomes the inset
+ * focus ring below) and signal keyboard-focus mode via the ring. In
+ * text mode none of these rules apply, so normal browser caret +
+ * drag-select painting takes over. */
+input.move-cell-input[data-cell-mode="true"]:focus::selection {
+  background: transparent;
+  color: inherit;
+}
+input.move-cell-input[data-cell-mode="true"]:focus {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 .move-cell.unused {
   pointer-events: none;
   visibility: hidden;

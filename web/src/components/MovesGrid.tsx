@@ -84,6 +84,33 @@ export default function MovesGrid({
     }
   });
 
+  // Reflect DOM selection state onto a `data-cell-mode` attribute on
+  // the focused input. "Cell mode" = full selection (or empty value);
+  // "text mode" = collapsed / partial. CSS uses the attribute to swap
+  // the inner browser text-highlight for an inset focus ring, making
+  // keyboard-navigation mode visually distinct from caret-edit mode
+  // without changing the underlying detection (key handlers still read
+  // selectionStart/End directly). selectionchange fires for every
+  // selection mutation including programmatic select() / setSelectionRange.
+  useEffect(() => {
+    function sync() {
+      const active = document.activeElement;
+      if (
+        !(active instanceof HTMLInputElement) ||
+        !active.classList.contains("move-cell-input")
+      ) {
+        return;
+      }
+      const start = active.selectionStart;
+      const end = active.selectionEnd;
+      if (start === null || end === null) return;
+      const isCellMode = start === 0 && end === active.value.length;
+      active.dataset.cellMode = isCellMode ? "true" : "false";
+    }
+    document.addEventListener("selectionchange", sync);
+    return () => document.removeEventListener("selectionchange", sync);
+  }, []);
+
   function commit(newMoves: MoveStr[], focusIdx: number | null) {
     pendingFocusRef.current = focusIdx;
     onMovesChange(newMoves);
