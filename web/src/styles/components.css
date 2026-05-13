@@ -39,16 +39,17 @@
 
 /* Cube size switch — elegant inline serif text echoing the wordmark.
  * Primary mode selector (2x2 vs 3x3); active shows accent, inactive
- * shows ink. Vertical bar separates the two options. */
+ * shows ink. A solid ink-colored vertical bar separates the two
+ * options; thin but visually present at this scale. */
 .cube-size-switch {
   display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
   font-family: "Fraunces", Georgia, serif;
-  font-weight: 400;
-  font-size: 26px;
+  font-weight: 500;
+  font-size: 32px;
   line-height: 1;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   font-variation-settings: "opsz" 144;
   white-space: nowrap;
 }
@@ -67,11 +68,14 @@
 }
 .cube-size-opt.on {
   color: var(--accent);
-  font-style: italic;
 }
+/* Vertical bar separator — explicit element rather than the `|` glyph
+ * so we can size and color it directly. */
 .cube-size-sep {
-  color: var(--rule);
-  font-size: 22px;
+  display: inline-block;
+  width: 2px;
+  height: 26px;
+  background: var(--ink);
   user-select: none;
 }
 

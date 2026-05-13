@@ -21,9 +21,7 @@ export default function CubeSizeSwitch({ value, onChange }: Props) {
       >
         2×2
       </button>
-      <span className="cube-size-sep" aria-hidden="true">
-        |
-      </span>
+      <span className="cube-size-sep" aria-hidden="true" />
       <button
         type="button"
         data-testid="cube-size-3"
