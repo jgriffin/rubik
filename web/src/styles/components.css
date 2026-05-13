@@ -392,38 +392,54 @@ input.move-cell-input:disabled {
   pointer-events: none;
   visibility: hidden;
 }
-/* End-of-grid label slot — flat text, no border. "solve" is an orange
- * clickable button; "solved" is plain ink text once the cube reaches
- * the solved state. Sized to fit the same grid slot as a move-cell so
- * the row rhythm stays even. */
-.move-grid-end-label {
-  aspect-ratio: 1;
+/* Trailing input cell wrap — dashed border lives on this wrapper so
+ * the inner input has no double border. The input fills the top
+ * portion; a bottom-anchored "solve"/"solved" label sits inside the
+ * same dashed box. */
+.move-cell.move-cell-trailing-wrap {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+.move-cell.move-cell-trailing-wrap.active {
+  border-color: var(--accent);
+}
+input.move-cell-input.move-cell-input-trailing {
+  flex: 1 1 auto;
+  border: 0; /* wrapper owns the border */
+  width: 100%;
+  background: transparent;
+  /* Keep the input centered visually so a typed char appears mid-cell
+   * before commit; the bottom label sits below. */
+}
+.trailing-end-label {
+  flex: 0 0 auto;
+  align-self: center;
   border: 0;
   background: transparent;
-  font-family: "Fraunces", Georgia, serif;
-  font-size: 18px;
-  font-weight: 400;
-  line-height: 1;
-  padding: 0;
+  padding: 0 0 4px;
   margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 12px;
+  line-height: 1;
   user-select: none;
 }
-button.move-grid-end-solve {
+button.trailing-end-label.end-solve {
   color: var(--accent);
   cursor: pointer;
   transition: color 0.12s, opacity 0.12s;
 }
-button.move-grid-end-solve:hover:not(:disabled) {
+button.trailing-end-label.end-solve:hover:not(:disabled) {
   color: var(--ink);
 }
-button.move-grid-end-solve:disabled {
+button.trailing-end-label.end-solve:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.move-grid-end-solved {
+.trailing-end-label.end-solved {
   color: var(--ink);
 }
 
@@ -457,11 +473,14 @@ button.move-grid-end-solve:disabled {
   border-style: dashed;
 }
 /* "solved" label — sits in the section iii grid where the next card
- * would be, after the cube reaches solved. Plain ink text, no border. */
+ * would be, after the cube reaches solved. Bottom-anchored ink text
+ * to match section ii's trailing solve/solved label position. */
 .sol-cell-solved-label {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+  padding-bottom: 6px;
+  min-height: 100px;
   font-family: "Fraunces", Georgia, serif;
   font-size: 22px;
   color: var(--ink);

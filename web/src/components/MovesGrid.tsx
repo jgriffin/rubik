@@ -12,7 +12,7 @@
 // so the controlled `value` attribute can reset the DOM back to its
 // committed state.
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { MoveStr } from "../state/faceletMoves";
 import { parseMovesPartial } from "../state/parseMoves";
 
@@ -56,14 +56,13 @@ export default function MovesGrid({
   const [, setSnapBumper] = useState(0);
 
   // Visible input cells = moves + 1 trailing empty (the "next move
-  // goes here" affordance). An additional cell slot after the trailing
-  // input renders as an inline label — "solve" (clickable, accent) when
-  // the cube can be solved, or "solved" (ink) when it already is. No
-  // border on this label slot so it doesn't double up visually against
-  // the trailing dotted input cell.
+  // goes here" affordance). The trailing cell ALSO carries the
+  // end-of-journey label at its bottom — "solve" (clickable, accent)
+  // when the cube can be solved, "solved" (ink) when it already is.
+  // Both are positioned at the bottom-center of the same dashed cell
+  // so there's no separate floating block beside the trailing input.
   const cells: string[] = [...moves, ""];
-  const hasEndLabel = canSolve || isCubeSolved;
-  const totalCells = cells.length + (hasEndLabel ? 1 : 0);
+  const totalCells = cells.length;
 
   // Focus the pending cell after a commit that requested it. Sets
   // `programmaticFocusRef` so the onFocus handler skips select-all and
@@ -172,8 +171,20 @@ export default function MovesGrid({
       el.selectionStart === 0 && el.selectionEnd === el.value.length;
 
     if (e.key === "Escape") {
+      // Back to cell-selected mode. preventDefault blocks browser
+      // defaults (some browsers blur on Escape in inputs); rAF
+      // defer keeps the select() from being clobbered by anything
+      // racing it (e.g. a tail blur).
       e.preventDefault();
-      el.select(); // back to cell-selected mode
+      requestAnimationFrame(() => {
+        if (document.activeElement === el) {
+          el.select();
+        } else {
+          // If we did get blurred, refocus and select.
+          el.focus();
+          el.select();
+        }
+      });
       return;
     }
 
@@ -250,12 +261,22 @@ export default function MovesGrid({
     onActiveChange?.(i);
     // User-initiated focus (Tab / click): select-all so Backspace
     // deletes the whole token. Programmatic auto-advance focus skips
-    // this — see the useEffect that sets `programmaticFocusRef`.
-    // Clicking an already-focused cell collapses the selection to a
-    // caret (native browser behavior) — that's the path for char-level
-    // editing.
+    // this — see `focusCellWithMode`.
+    //
+    // Selection is deferred via rAF so it runs *after* the browser's
+    // mousedown→mouseup→click chain finishes positioning the caret.
+    // Without the defer, the post-click caret-positioning wipes our
+    // selection on the first click. Clicking an already-focused cell
+    // doesn't trigger focus, so no rAF runs — the user's caret stays
+    // where they clicked (text mode entered).
     if (!programmaticFocusRef.current) {
-      target.select();
+      requestAnimationFrame(() => {
+        // Only re-select if focus is still on this cell. If the user
+        // tabbed away or pressed Escape-then-blur in the meantime, skip.
+        if (document.activeElement === target) {
+          target.select();
+        }
+      });
     }
   }
 
@@ -265,38 +286,6 @@ export default function MovesGrid({
     const cellEls = [];
     for (let c = 0; c < rowSize; c++) {
       const idx = r * rowSize + c;
-
-      // End-of-grid label slot. Either "solve" (orange, clickable) or
-      // "solved" (ink, plain text). No border — sits next to the
-      // trailing dotted input cell so the dotted box isn't doubled.
-      if (hasEndLabel && idx === cells.length) {
-        if (canSolve) {
-          cellEls.push(
-            <button
-              key={c}
-              type="button"
-              className="move-grid-end-label move-grid-end-solve"
-              data-testid="solve-button"
-              onClick={onSolve}
-              disabled={isSolving}
-              title="solve from current state"
-            >
-              {isSolving ? "…" : "solve"}
-            </button>,
-          );
-        } else {
-          cellEls.push(
-            <span
-              key={c}
-              className="move-grid-end-label move-grid-end-solved"
-              data-testid="solved-label"
-            >
-              solved
-            </span>,
-          );
-        }
-        continue;
-      }
 
       if (idx >= totalCells) {
         // Visual placeholders so the row stays full-width.
@@ -313,21 +302,24 @@ export default function MovesGrid({
       const val = cells[idx];
       const isTrailing = idx === moves.length;
       const isActive = activeIdx === idx;
-      const className = [
-        "move-cell",
+      const inputClassName = [
+        // Non-trailing cells carry the border on the input itself; the
+        // trailing cell is wrapped by a div that owns the dashed
+        // border (so the bottom solve/solved label sits inside).
+        isTrailing ? "" : "move-cell",
         "move-cell-input",
+        isTrailing ? "move-cell-input-trailing" : "",
         val ? "" : "empty",
-        isActive ? "active" : "",
+        isActive && !isTrailing ? "active" : "",
       ]
         .filter(Boolean)
         .join(" ");
-      cellEls.push(
+      const inputEl = (
         <input
-          key={c}
           ref={(el) => {
             inputRefs.current[idx] = el;
           }}
-          className={className}
+          className={inputClassName}
           type="text"
           data-testid={isTrailing ? "move-cell-empty" : "move-cell"}
           data-cell-idx={idx}
@@ -336,22 +328,50 @@ export default function MovesGrid({
           onChange={(e) => handleChange(idx, e.target.value)}
           onKeyDown={(e) => handleKeyDown(idx, e)}
           onPaste={(e) => handlePaste(idx, e)}
-          onMouseDown={(e) => {
-            // First click on an unfocused cell: cell-selected mode
-            // (full selection). Second click (already focused): let
-            // the browser default position the caret → text mode.
-            if (document.activeElement !== e.currentTarget) {
-              e.preventDefault();
-              focusCellWithMode(idx, "select");
-            }
-          }}
           onFocus={(e) => handleFocus(idx, e.currentTarget)}
           spellCheck={false}
           autoComplete="off"
           disabled={disabled}
           aria-label={`move ${idx + 1}`}
-        />,
+        />
       );
+
+      if (isTrailing) {
+        cellEls.push(
+          <div
+            key={c}
+            className={`move-cell move-cell-trailing-wrap empty ${isActive ? "active" : ""}`}
+            data-testid="move-cell-trailing-wrap"
+          >
+            {inputEl}
+            {canSolve ? (
+              <button
+                type="button"
+                className="trailing-end-label end-solve"
+                data-testid="solve-button"
+                onClick={onSolve}
+                disabled={isSolving}
+                title="solve from current state"
+              >
+                {isSolving ? "…" : "solve"}
+              </button>
+            ) : isCubeSolved ? (
+              <span
+                className="trailing-end-label end-solved"
+                data-testid="solved-label"
+              >
+                solved
+              </span>
+            ) : null}
+          </div>,
+        );
+      } else {
+        // Non-trailing cells: bare input (the .move-cell border is on
+        // the input itself).
+        cellEls.push(
+          <React.Fragment key={c}>{inputEl}</React.Fragment>,
+        );
+      }
     }
     rows.push(
       <div key={r} className="moves-row">
