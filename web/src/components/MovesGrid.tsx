@@ -3,9 +3,24 @@
 // auto-advance on token commit; paste spreads a parsed sequence across
 // cells; backspace at an empty cell rewinds focus to the previous cell.
 //
-// Visible cells = moves.length + 1 trailing empty cell ("next move
-// goes here"). Cells are controlled inputs bound to the App-level
-// `moves` slice — typing IS editing the source of truth.
+// Visible cells = 1 leading [start] cell + moves.length move inputs +
+// 1 trailing empty cell ("next move goes here"). The [start] cell is a
+// non-editable button that anchors the trajectory at activeIdx=0
+// (scramble state); the trailing cell holds the "solve" CTA and is the
+// landing spot for the next typed move. Together the row reads as
+// `[start] [R] [U] ... [solve]` — section ii is the navigation surface
+// for the entire trajectory, not just an editor.
+//
+// Move cells are controlled inputs bound to the App-level `moves`
+// slice — typing IS editing the source of truth.
+//
+// Grid mapping: grid position 0 is the start cell; grid positions 1..N
+// map to cells[0..N-1] where cells = [...moves, ""]. The start cell is
+// out-of-band — not in the `cells` array, not in `inputRefs` — so the
+// move/trailing handler logic (handleChange, handleFocus, etc.) is
+// unchanged. Arrow-key nav bridges between the two via a separate
+// `startButtonRef` (ArrowLeft from move cell 0 → start; ArrowRight
+// from start → move cell 0).
 //
 // Snap-back on invalid input: a small bump counter forces a re-render
 // when a keystroke is rejected (e.g. typing "X" into an empty cell),
@@ -48,6 +63,7 @@ export default function MovesGrid({
   disabled,
 }: Props) {
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const startButtonRef = useRef<HTMLButtonElement | null>(null);
   const pendingFocusRef = useRef<number | null>(null);
   // Distinguishes programmatic focus (auto-advance after a commit;
   // caret-at-end) from user-initiated focus (Tab / click; select-all so
@@ -136,6 +152,20 @@ export default function MovesGrid({
     if (mode === "select") el.select();
     else if (mode === "caret-start") el.setSelectionRange(0, 0);
     else el.setSelectionRange(el.value.length, el.value.length);
+    queueMicrotask(() => {
+      programmaticFocusRef.current = false;
+    });
+  }
+
+  // Programmatic focus for the [start] button. Mirrors focusCellWithMode's
+  // programmaticFocusRef dance so that downstream input focus events
+  // (when nav bounces back across the boundary) don't see a stale
+  // "this came from a user click" flag.
+  function focusStartButton() {
+    const el = startButtonRef.current;
+    if (!el) return;
+    programmaticFocusRef.current = true;
+    el.focus();
     queueMicrotask(() => {
       programmaticFocusRef.current = false;
     });
@@ -249,6 +279,14 @@ export default function MovesGrid({
         // (caret-end), stay in text mode.
         e.preventDefault();
         focusCellWithMode(i - 1, "caret-end");
+        return;
+      }
+      // From cell 0 at the left edge (cell-mode OR caret-at-start),
+      // land on the [start] cell. Start is a button so there's no
+      // text/cell-mode distinction on it — focus fires onActiveChange(0).
+      if (i === 0 && (isCellMode || el.selectionStart === 0)) {
+        e.preventDefault();
+        focusStartButton();
       }
       return;
     }
@@ -267,6 +305,17 @@ export default function MovesGrid({
         e.preventDefault();
         focusCellWithMode(i + 1, "caret-start");
       }
+    }
+  }
+
+  function handleStartKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    // ArrowRight crosses from [start] into the first move cell in
+    // cell-mode (select-all so Backspace would clear the whole token).
+    // ArrowLeft has nowhere to go — start is the leftmost element.
+    // Space/Enter trigger the button's onClick by default (no preventDefault).
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      focusCellWithMode(0, "select");
     }
   }
 
@@ -347,12 +396,60 @@ export default function MovesGrid({
     if (!isFull) target.select();
   }
 
-  const totalRows = Math.max(1, Math.ceil(totalCells / rowSize));
+  // Grid layout reserves position 0 for the [start] cell; positions
+  // 1..totalCells map to cells[0..totalCells-1]. Row count must include
+  // the +1 start slot.
+  const totalRows = Math.max(1, Math.ceil((totalCells + 1) / rowSize));
   const rows = [];
   for (let r = 0; r < totalRows; r++) {
     const cellEls = [];
     for (let c = 0; c < rowSize; c++) {
-      const idx = r * rowSize + c;
+      const pos = r * rowSize + c;
+
+      if (pos === 0) {
+        // [start] cell — non-editable navigation anchor at activeIdx=0
+        // (scramble state). Mirrors the trailing-cell wrap pattern: a
+        // column-flex wrapper with the "start" label filling the top
+        // and an empty bottom-anchored slot reserved for the play/pause
+        // control that D·P2 will install. Out-of-band from `cells` and
+        // `inputRefs` — its own ref + key handler bridge arrow-key nav
+        // to/from the move cells.
+        const isStartActive = activeIdx === 0;
+        cellEls.push(
+          <div
+            key={c}
+            className={`move-cell move-cell-start-wrap ${isStartActive ? "active" : ""}`}
+            data-testid="move-cell-start-wrap"
+          >
+            <button
+              ref={startButtonRef}
+              type="button"
+              className="move-cell-start-button"
+              data-testid="move-cell-start"
+              aria-label="start: scramble state"
+              onClick={() => onActiveChange?.(0)}
+              onFocus={() => onActiveChange?.(0)}
+              onKeyDown={handleStartKeyDown}
+              disabled={disabled}
+            >
+              start
+            </button>
+            {/* Bottom-anchored action slot — empty in D·P1; D·P2 will
+              * mount the play/pause control here. The &nbsp; reserves
+              * line-height so the "start" text sits at its final
+              * vertical position now (no reflow when play arrives). */}
+            <span
+              className="trailing-end-label move-cell-start-slot"
+              aria-hidden="true"
+            >
+              {" "}
+            </span>
+          </div>,
+        );
+        continue;
+      }
+
+      const idx = pos - 1;
 
       if (idx >= totalCells) {
         // Visual placeholders so the row stays full-width.

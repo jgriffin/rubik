@@ -481,6 +481,57 @@ input.move-cell-input.move-cell-input-trailing {
   font-size: 11px;
 }
 
+/* Leading [start] cell — section ii's navigation anchor at activeIdx=0
+ * (scramble state). Mirrors the trailing-cell wrap pattern so the row
+ * reads as `[start] [R] [U] ... [solve]` with matching internal layout:
+ * column flex with the "start" label filling the top main area and a
+ * bottom-anchored slot for the play/pause control (D·P2 mounts it).
+ * The focus ring lives on the wrapper via `:has(button:focus)` so it
+ * spans the full cell height, paralleling the trailing wrap. */
+.move-cell.move-cell-start-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+.move-cell.move-cell-start-wrap.active {
+  border-color: var(--accent);
+}
+.move-cell-start-wrap:has(button.move-cell-start-button:focus) {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+.move-cell-start-button {
+  flex: 1 1 auto;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.move-cell-start-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Empty placeholder for the play/pause slot D·P2 will fill. The
+ * &nbsp; inside reserves one line of line-height so the "start" text
+ * sits at its final vertical position now, with no reflow when the
+ * play button arrives. */
+.move-cell-start-slot {
+  visibility: hidden;
+}
+
 /* Section iii — solution grid --------------------------------------- */
 .sol-grid {
   display: grid;
