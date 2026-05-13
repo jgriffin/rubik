@@ -90,6 +90,26 @@ export default function MovesGrid({
     onMovesChange(newMoves);
   }
 
+  // Programmatic focus helper. `mode` controls where the caret/selection
+  // lands so the same path serves auto-advance (caret-end), arrow-key
+  // text-mode crossing (caret-start/end), and arrow-key cell-mode
+  // crossing (select-all).
+  function focusCellWithMode(
+    idx: number,
+    mode: "select" | "caret-start" | "caret-end",
+  ) {
+    const el = inputRefs.current[idx];
+    if (!el) return;
+    programmaticFocusRef.current = true;
+    el.focus();
+    if (mode === "select") el.select();
+    else if (mode === "caret-start") el.setSelectionRange(0, 0);
+    else el.setSelectionRange(el.value.length, el.value.length);
+    queueMicrotask(() => {
+      programmaticFocusRef.current = false;
+    });
+  }
+
   function snapBack() {
     setSnapBumper((v) => v + 1);
   }
@@ -143,50 +163,66 @@ export default function MovesGrid({
   }
 
   function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace" && e.currentTarget.value === "" && i > 0) {
+    const el = e.currentTarget;
+    // "Cell-selected mode" = full content selected (or empty cell);
+    // this is the state immediately after focus or Escape. "Text mode"
+    // = collapsed selection / partial selection, after the user clicked
+    // an already-focused cell to position the caret.
+    const isCellMode =
+      el.selectionStart === 0 && el.selectionEnd === el.value.length;
+
+    if (e.key === "Escape") {
       e.preventDefault();
-      const prev = inputRefs.current[i - 1];
-      if (prev) {
-        prev.focus();
-        const len = prev.value.length;
-        prev.setSelectionRange(len, len);
-      }
+      el.select(); // back to cell-selected mode
       return;
     }
+
+    if (e.key === "Backspace" && el.value === "" && i > 0) {
+      e.preventDefault();
+      focusCellWithMode(i - 1, "select");
+      return;
+    }
+
     if (e.key === " ") {
-      // Space advances focus when the current cell holds a valid
-      // 1-char token (the "I'm done with this move, next one" cue).
-      const v = e.currentTarget.value.toUpperCase();
+      const v = el.value.toUpperCase();
       if (FACE_LETTERS.has(v) && i < cells.length - 1) {
         e.preventDefault();
-        const nextCell = inputRefs.current[i + 1];
-        if (nextCell) nextCell.focus();
+        focusCellWithMode(i + 1, "select");
       } else if (v === "") {
-        // Space in an empty cell is a no-op (don't insert literal space).
         e.preventDefault();
       }
       return;
     }
-    if (e.key === "ArrowLeft" && e.currentTarget.selectionStart === 0 && i > 0) {
-      e.preventDefault();
-      const prev = inputRefs.current[i - 1];
-      if (prev) {
-        prev.focus();
-        const len = prev.value.length;
-        prev.setSelectionRange(len, len);
+
+    if (e.key === "ArrowLeft") {
+      if (isCellMode && i > 0) {
+        // Cell-mode navigation: jump to prev cell, stay in cell mode.
+        e.preventDefault();
+        focusCellWithMode(i - 1, "select");
+        return;
+      }
+      if (!isCellMode && el.selectionStart === 0 && i > 0) {
+        // Text-mode edge crossing: enter prev cell at the right edge
+        // (caret-end), stay in text mode.
+        e.preventDefault();
+        focusCellWithMode(i - 1, "caret-end");
       }
       return;
     }
-    if (
-      e.key === "ArrowRight" &&
-      e.currentTarget.selectionStart === e.currentTarget.value.length &&
-      i < cells.length - 1
-    ) {
-      e.preventDefault();
-      const next = inputRefs.current[i + 1];
-      if (next) {
-        next.focus();
-        next.setSelectionRange(0, 0);
+
+    if (e.key === "ArrowRight") {
+      if (isCellMode && i < cells.length - 1) {
+        e.preventDefault();
+        focusCellWithMode(i + 1, "select");
+        return;
+      }
+      if (
+        !isCellMode &&
+        el.selectionStart === el.value.length &&
+        i < cells.length - 1
+      ) {
+        e.preventDefault();
+        focusCellWithMode(i + 1, "caret-start");
       }
     }
   }
@@ -300,6 +336,15 @@ export default function MovesGrid({
           onChange={(e) => handleChange(idx, e.target.value)}
           onKeyDown={(e) => handleKeyDown(idx, e)}
           onPaste={(e) => handlePaste(idx, e)}
+          onMouseDown={(e) => {
+            // First click on an unfocused cell: cell-selected mode
+            // (full selection). Second click (already focused): let
+            // the browser default position the caret → text mode.
+            if (document.activeElement !== e.currentTarget) {
+              e.preventDefault();
+              focusCellWithMode(idx, "select");
+            }
+          }}
           onFocus={(e) => handleFocus(idx, e.currentTarget)}
           spellCheck={false}
           autoComplete="off"
