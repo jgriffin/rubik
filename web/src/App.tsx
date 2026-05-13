@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import SolveButton from "./components/SolveButton";
+import { useEffect, useMemo, useState } from "react";
 import Wordmark from "./components/Wordmark";
 import CubeSizeSwitch from "./components/CubeSizeSwitch";
 import SolvedFooter from "./components/SolvedFooter";
@@ -11,6 +10,7 @@ import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionG
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
 import SectionFour from "./components/SectionFour";
+import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
 
@@ -72,12 +72,19 @@ export default function App() {
   }
 
   async function handleSolve() {
+    // Solve from the cube's *current* state (= scrambleState with the
+    // existing `moves` applied). Append solver moves to existing —
+    // trajectory tells the story start → user-tinkering → solve. Stale
+    // closure caveat: use the functional setMoves form so a race
+    // against in-flight edits doesn't drop appended moves (the editor
+    // is disabled while isSolving=true so this is belt-and-suspenders).
     setError(null);
     setIsSolving(true);
-    setActiveIdx(0);
+    const stateAtSolve = applyMoves(scrambleState, moves);
     try {
-      const r = await apiSolve({ state: scrambleState });
-      setMoves(r.moves as MoveStr[]);
+      const r = await apiSolve({ state: stateAtSolve });
+      const newMoves = r.moves as MoveStr[];
+      setMoves((prev) => [...prev, ...newMoves]);
       setSolved(r.solved);
       setSolveStats(r.stats);
     } catch (e) {
@@ -114,6 +121,15 @@ export default function App() {
 
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
+
+  // The cube's *current* state — start state with section ii's moves
+  // applied. Drives the Solve affordance: visible only when the cube
+  // isn't already solved.
+  const currentState = useMemo(
+    () => applyMoves(scrambleState, moves),
+    [scrambleState, moves],
+  );
+  const canSolve = ready && !isSolving && currentState !== SOLVED_3X3;
 
   const sectionFourScrambleAlg = scrambleMoves.join(" ");
   const sectionFourSolutionAlg = moves.join(" ");
@@ -156,8 +172,8 @@ export default function App() {
       <StateGrid state={scrambleState} onStateChange={handleSetState} />
 
       {/* Section ii — moves to apply (editable; the source of truth).
-          Right-side chrome mirrors section i's clear | [actions] pattern:
-          clear empties moves, solve writes solver output into moves. */}
+          Solve lives inside the grid as a trailing cell when the cube
+          isn't already solved (always-available solve-from-here). */}
       <SectionHeader
         roman="ii."
         name="moves to apply"
@@ -173,7 +189,6 @@ export default function App() {
             >
               clear
             </button>
-            <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
             <span className="scramble-divider" />
             <span>
               {moves.length} {moves.length === 1 ? "move" : "moves"}
@@ -186,6 +201,9 @@ export default function App() {
         onMovesChange={handleMovesEdit}
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
+        canSolve={canSolve}
+        onSolve={handleSolve}
+        isSolving={isSolving}
         disabled={!ready || isSolving}
       />
 
@@ -210,6 +228,8 @@ export default function App() {
         renderMode={renderMode}
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
+        canSolve={canSolve}
+        onSolve={handleSolve}
       />
 
       {/* Section iv — watch the solve (animated player). Renders only

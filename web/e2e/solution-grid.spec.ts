@@ -180,42 +180,14 @@ test.describe("solution grid — per-card animation post-settle", () => {
   const SOLUTION: MoveStr[] = ["R", "U", "F"];
 
   test.beforeEach(async ({ page }) => {
-    // Mock both /api/scramble and /api/solve. We need a deterministic
-    // (scrambleState, solution) pair so the per-card facelets are
-    // known up-front. Using SOLVED as the scramble keeps the math
-    // simple: card N's preFacelet = applyMoves(SOLVED, SOLUTION[0..N-1]).
-    await page.route("**/api/scramble", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ state: SOLVED, moves: [] }),
-      });
-    });
-    await page.route("**/api/solve", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          solved: true,
-          moves: SOLUTION,
-          stats: {
-            time_ms: 1,
-            beam_width: 64,
-            steps_searched: SOLUTION.length,
-            final_value: 0,
-          },
-        }),
-      });
-    });
-
+    // App.scrambleState defaults to SOLVED. Type the three solution
+    // moves directly into section ii — no scramble/solve API round-trip
+    // needed. Cards derive from SOLVED + moves applied.
     await page.goto("/");
     await expect(page.getByTestId("scramble-button")).toBeEnabled();
-    // Trigger scramble (no-op state, but flushes solution + activeIdx
-    // through App's resetSolveState path), then solve to populate the
-    // grid with SOLUTION's move cards.
-    await page.getByTestId("scramble-button").click();
-    await page.getByTestId("solve-button").click();
-    // The 3 move cards mount once the solve resolves.
+    const cell = page.getByTestId("move-cell-empty");
+    await cell.focus();
+    await page.keyboard.type("R U F");
     await expect(page.getByTestId("sol-card-3")).toBeVisible({
       timeout: 5_000,
     });

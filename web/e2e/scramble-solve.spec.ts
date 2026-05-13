@@ -55,14 +55,14 @@ test.describe("scramble + solve flow", () => {
     await expect(page.getByTestId("moves-grid").locator('[data-testid="move-cell-empty"]'))
       .toHaveCount(1);
 
-    // Click Solve. Stub net never returns moves; the wire still responds.
-    const solve = page.getByTestId("solve-button");
-    await solve.click();
-
-    // After the solve resolves, the solution grid still has step-00 at minimum.
-    // Stub returns moves=[], so we just assert the request fired and the
-    // button re-enables.
-    await expect(solve).toBeEnabled({ timeout: 10_000 });
+    // Click Solve (trailing cell in section ii — testid solve-button).
+    // Solve outcome is environment-dependent (stub net's beam search
+    // result depends on which states it sees), so we just assert that
+    // the request fires and the start card stays mounted.
+    const reqPromise = page.waitForRequest("**/api/solve");
+    await page.getByTestId("solve-button").click();
+    await reqPromise;
+    await expect(page.getByTestId("sol-card-0")).toBeVisible();
   });
 
   test("length slider drives /api/scramble request body", async ({ page }) => {

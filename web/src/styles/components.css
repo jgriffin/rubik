@@ -350,6 +350,28 @@ input.move-cell-input:disabled {
   pointer-events: none;
   visibility: hidden;
 }
+/* Trailing Solve button — same cell shell, accented label, click fires
+ * solve from current state. */
+button.move-cell.move-cell-solve {
+  border-style: dashed;
+  color: var(--accent);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  padding: 0;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+button.move-cell.move-cell-solve:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--paper);
+}
+button.move-cell.move-cell-solve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* Section iii — solution grid --------------------------------------- */
 .sol-grid {
@@ -379,6 +401,27 @@ input.move-cell-input:disabled {
 }
 .sol-cell.zero {
   border-style: dashed;
+}
+/* Empty-state Solve CTA card — sits next to sol-card-0 when section ii
+ * has no moves but the cube is unsolved. Dotted outline keeps it
+ * visually distinct from a real card; the accent label pulls the eye. */
+button.sol-cell.empty-state-solve {
+  border-style: dashed;
+  border-color: var(--rule);
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+}
+button.sol-cell.empty-state-solve:hover {
+  border-color: var(--accent);
+  background: var(--paper);
+}
+.empty-state-solve-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 .sol-cell .top {
   display: flex;

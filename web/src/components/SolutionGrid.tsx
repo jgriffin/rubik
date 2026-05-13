@@ -15,6 +15,8 @@ type Props = {
   renderMode: RenderMode;
   activeIdx: number;
   onActiveChange: (idx: number) => void;
+  canSolve?: boolean;
+  onSolve?: () => void;
 };
 
 // README's per-column cube preview pixel sizes (220 / 200 / 130 / 90).
@@ -44,6 +46,8 @@ export default function SolutionGrid({
   renderMode,
   activeIdx,
   onActiveChange,
+  canSolve,
+  onSolve,
 }: Props) {
   // Joined scramble alg, used by twisty-player as the static-mode setup-alg.
   // Each card receives the full `moves` array and slices for its step,
@@ -102,6 +106,17 @@ export default function SolutionGrid({
           onClick={() => onActiveChange(i + 1)}
         />
       ))}
+      {moves.length === 0 && canSolve && (
+        <button
+          type="button"
+          className="sol-cell empty-state-solve"
+          data-testid="empty-state-solve"
+          onClick={onSolve}
+          title="solve from the starting state"
+        >
+          <span className="empty-state-solve-label">solve</span>
+        </button>
+      )}
       {isSolving && (
         <div className="sol-loading" data-testid="solution-loading">
           solving…

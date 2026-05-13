@@ -21,6 +21,9 @@ type Props = {
   onMovesChange: (moves: MoveStr[]) => void;
   activeIdx?: number;
   onActiveChange?: (idx: number) => void;
+  canSolve?: boolean;
+  onSolve?: () => void;
+  isSolving?: boolean;
   rowSize?: number;
   disabled?: boolean;
 };
@@ -36,6 +39,9 @@ export default function MovesGrid({
   onMovesChange,
   activeIdx,
   onActiveChange,
+  canSolve,
+  onSolve,
+  isSolving,
   rowSize = 10,
   disabled,
 }: Props) {
@@ -43,8 +49,13 @@ export default function MovesGrid({
   const pendingFocusRef = useRef<number | null>(null);
   const [, setSnapBumper] = useState(0);
 
-  // Visible cells = moves + 1 trailing empty.
+  // Visible input cells = moves + 1 trailing empty (the "next move
+  // goes here" affordance). When `canSolve` is set, an additional
+  // cell after the trailing input renders as a Solve button (the
+  // always-available "solve from here" CTA the user can click any
+  // time the cube isn't already solved).
   const cells: string[] = [...moves, ""];
+  const totalCells = cells.length + (canSolve ? 1 : 0);
 
   // Focus the pending cell after a commit that requested it.
   useEffect(() => {
@@ -189,13 +200,32 @@ export default function MovesGrid({
     onActiveChange?.(i);
   }
 
-  const totalRows = Math.max(1, Math.ceil(cells.length / rowSize));
+  const totalRows = Math.max(1, Math.ceil(totalCells / rowSize));
   const rows = [];
   for (let r = 0; r < totalRows; r++) {
     const cellEls = [];
     for (let c = 0; c < rowSize; c++) {
       const idx = r * rowSize + c;
-      if (idx >= cells.length) {
+
+      // Solve button cell, if canSolve is set and this is its slot.
+      if (canSolve && idx === cells.length) {
+        cellEls.push(
+          <button
+            key={c}
+            type="button"
+            className="move-cell move-cell-solve"
+            data-testid="solve-button"
+            onClick={onSolve}
+            disabled={isSolving}
+            title="solve from current state"
+          >
+            {isSolving ? "…" : "solve"}
+          </button>,
+        );
+        continue;
+      }
+
+      if (idx >= totalCells) {
         // Visual placeholders so the row stays full-width.
         cellEls.push(
           <div
