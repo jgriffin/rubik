@@ -83,6 +83,7 @@ export default function SolutionGrid({
           states={states}
           moves={moves}
           activeIdx={activeIdx}
+          onActiveChange={onActiveChange}
           scrambleAlg={scrambleAlg}
           renderMode={renderMode}
           sizePx={sizePx}

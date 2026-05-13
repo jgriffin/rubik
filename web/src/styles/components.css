@@ -139,13 +139,26 @@
 }
 
 /* Cube-mode stage — single big card replacing the column grid when the
-   `cube` mode button is selected. Left-aligned, no grid template. */
+   `cube` mode button is selected. Column flex so the play button sits
+   above the cube; dual-mode's `.render-pair` keeps its row layout
+   inside this column. Left-aligned. */
 .sol-cube-stage {
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 24px;
+  gap: 16px;
   margin: 12px 0 24px;
+}
+
+/* Play button above the cube. `.text-action`'s 16px / weight 600 / orange
+   typography is inherited; this rule just makes the button align with
+   the cube's left edge and reserves consistent text width so the label
+   swap (play ↔ pause) doesn't cause horizontal jitter. */
+.cube-play-btn {
+  /* min-width sized for the longer of the two labels at the rendered
+     16px so swapping doesn't visually nudge the cube down. */
+  min-width: 56px;
+  text-align: left;
 }
 
 /* Link-style text button (clear, etc.) ------------------------------- */

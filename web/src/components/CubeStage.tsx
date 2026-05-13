@@ -28,21 +28,27 @@ type Props = {
   states: string[];
   moves: MoveStr[];
   activeIdx: number;
+  onActiveChange: (idx: number) => void;
   scrambleAlg: string;
   renderMode: RenderMode;
   sizePx: number;
 };
 
-// Animation duration per move. SolutionCard uses 600ms; cube mode runs
-// a touch quicker because the playback feel needs to keep up with
-// rapid cell clicks. Re-tunable at C·P5 if the play cadence wants it
-// slower / faster.
+// Animation duration per move (ms). SolutionCard uses 600ms; cube mode
+// runs a touch quicker so the playback keeps up with rapid cell clicks
+// and the auto-play cadence doesn't feel sluggish.
 const ANIM_MS_PER_MOVE = 400;
+
+// Dwell between the end of one auto-play step's animation and the start
+// of the next. 100ms reads as a brief "settle" pause without dragging
+// the playback. Total per-step duration = ANIM_MS_PER_MOVE + this.
+const PLAY_STEP_DWELL_MS = 100;
 
 export default function CubeStage({
   states,
   moves,
   activeIdx,
+  onActiveChange,
   scrambleAlg,
   renderMode,
   sizePx,
@@ -52,6 +58,45 @@ export default function CubeStage({
   // from `activeIdx` so animations survive subsequent ref updates.
   const [animIdx, setAnimIdx] = useState<number | null>(null);
   const prevActiveIdxRef = useRef(activeIdx);
+
+  // Auto-play: advance `activeIdx` forward at a steady cadence riding
+  // the per-step animation. Local-only state — switching to columns
+  // mode unmounts CubeStage and resets play.
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Pause on any moves-array change. The user typed / pasted / deleted
+  // a move — they've taken manual control of the editor, so auto-play
+  // should yield. The "store information from previous renders" pattern
+  // (storing the prior moves identity via useState rather than useRef)
+  // lets the pause land the SAME render the moves changed in (no effect-
+  // tick delay), and setState-in-render is the React-blessed idiom for
+  // resetting state on a prop change. `moves` is a fresh array reference
+  // on each user edit, stable across unrelated re-renders.
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevMoves, setPrevMoves] = useState(moves);
+  if (prevMoves !== moves) {
+    setPrevMoves(moves);
+    if (isPlaying) setIsPlaying(false);
+  }
+
+  // Auto-advance timer. When `isPlaying`, schedule the next step
+  // (activeIdx + 1) after one full step duration (anim + dwell). Each
+  // activeIdx change re-fires this effect and schedules the next step.
+  // The end-of-moves stop is folded into the timer callback so its
+  // setState lands inside an event, not directly in the effect body.
+  // Manual cell clicks that land forward continue the playback chain
+  // naturally; backward clicks also continue forward from the new
+  // position (since the chain's only invariant is "advance by +1 each
+  // tick"). Typing pauses via the moves-change branch above.
+  useEffect(() => {
+    if (!isPlaying || activeIdx >= moves.length) return;
+    const timer = setTimeout(() => {
+      const nextIdx = activeIdx + 1;
+      onActiveChange(nextIdx);
+      if (nextIdx >= moves.length) setIsPlaying(false);
+    }, ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS);
+    return () => clearTimeout(timer);
+  }, [isPlaying, activeIdx, moves.length, onActiveChange]);
 
   useEffect(() => {
     const prev = prevActiveIdxRef.current;
@@ -120,14 +165,46 @@ export default function CubeStage({
     />
   );
 
-  if (renderMode === "iso") return cube3D;
-  if (renderMode === "dual") {
-    return (
+  const canPlay = moves.length > 0;
+
+  function handleTogglePlay() {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    // If at end-of-moves, rewind to start before kicking off — playing
+    // from the end position would immediately stop. Letting play
+    // re-rewatch the whole sequence is the natural interaction.
+    if (activeIdx >= moves.length) {
+      onActiveChange(0);
+    }
+    setIsPlaying(true);
+  }
+
+  const cubeRender =
+    renderMode === "iso" ? (
+      cube3D
+    ) : renderMode === "dual" ? (
       <div className="render-pair">
         {cube2D}
         {cube3D}
       </div>
+    ) : (
+      cube2D
     );
-  }
-  return cube2D;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="text-action cube-play-btn"
+        data-testid="cube-play-button"
+        onClick={handleTogglePlay}
+        disabled={!canPlay}
+      >
+        {isPlaying ? "pause" : "play"}
+      </button>
+      {cubeRender}
+    </>
+  );
 }
