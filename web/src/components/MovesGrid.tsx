@@ -53,6 +53,11 @@ export default function MovesGrid({
   // caret-at-end) from user-initiated focus (Tab / click; select-all so
   // Backspace deletes the whole token).
   const programmaticFocusRef = useRef(false);
+  // Tracks per-cell "was this cell focused before the current mouse
+  // event chain started?" — captured in onMouseDown, read in onClick.
+  // A first-click (was not focused) forces cell mode; a second-click
+  // on the already-focused cell falls through to text mode (intentional).
+  const wasFocusedAtMouseDownRef = useRef<Array<boolean>>([]);
   const [, setSnapBumper] = useState(0);
 
   // Visible input cells = moves + 1 trailing empty (the "next move
@@ -83,6 +88,33 @@ export default function MovesGrid({
       }
     }
   });
+
+  // Reflect DOM selection state onto a `data-cell-mode` attribute on
+  // the focused input. "Cell mode" = full selection (or empty value);
+  // "text mode" = collapsed / partial. CSS uses the attribute to swap
+  // the inner browser text-highlight for an inset focus ring, making
+  // keyboard-navigation mode visually distinct from caret-edit mode
+  // without changing the underlying detection (key handlers still read
+  // selectionStart/End directly). selectionchange fires for every
+  // selection mutation including programmatic select() / setSelectionRange.
+  useEffect(() => {
+    function sync() {
+      const active = document.activeElement;
+      if (
+        !(active instanceof HTMLInputElement) ||
+        !active.classList.contains("move-cell-input")
+      ) {
+        return;
+      }
+      const start = active.selectionStart;
+      const end = active.selectionEnd;
+      if (start === null || end === null) return;
+      const isCellMode = start === 0 && end === active.value.length;
+      active.dataset.cellMode = isCellMode ? "true" : "false";
+    }
+    document.addEventListener("selectionchange", sync);
+    return () => document.removeEventListener("selectionchange", sync);
+  }, []);
 
   function commit(newMoves: MoveStr[], focusIdx: number | null) {
     pendingFocusRef.current = focusIdx;
@@ -258,7 +290,11 @@ export default function MovesGrid({
   }
 
   function handleFocus(i: number, target: HTMLInputElement) {
-    onActiveChange?.(i);
+    // Cell idx N holds moves[N]; the corresponding card in section iii
+    // is at step N+1 (the state AFTER move N is applied). Card 0 is
+    // the start state (before any moves). So focusing cell N highlights
+    // card N+1 — the result of the move sitting in this cell.
+    onActiveChange?.(i + 1);
     // User-initiated focus (Tab / click): select-all so Backspace
     // deletes the whole token. Programmatic auto-advance focus skips
     // this — see `focusCellWithMode`.
@@ -269,6 +305,10 @@ export default function MovesGrid({
     // selection on the first click. Clicking an already-focused cell
     // doesn't trigger focus, so no rAF runs — the user's caret stays
     // where they clicked (text mode entered).
+    //
+    // This path handles Tab navigation reliably; for mouse clicks the
+    // onClick handler below is the authoritative safety net (rAF can
+    // race the browser's mouseup-drag-end on fast clicks and lose).
     if (!programmaticFocusRef.current) {
       requestAnimationFrame(() => {
         // Only re-select if focus is still on this cell. If the user
@@ -278,6 +318,33 @@ export default function MovesGrid({
         }
       });
     }
+  }
+
+  function handleMouseDown(i: number, e: React.MouseEvent<HTMLInputElement>) {
+    // Capture whether this cell was already the active element BEFORE
+    // the mousedown moved focus. handleClick reads this to distinguish
+    // first-click (force cell mode) from second-click (allow text mode).
+    wasFocusedAtMouseDownRef.current[i] =
+      document.activeElement === e.currentTarget;
+  }
+
+  function handleClick(i: number, e: React.MouseEvent<HTMLInputElement>) {
+    // First-click safety net. After the full mouse event chain
+    // completes — mousedown → caret-positioned → mouseup → drag-end →
+    // click — if this was a first-click (cell was not focused at
+    // mousedown) and we did NOT end up in cell mode (full selection),
+    // force-select. Beats the rAF-in-handleFocus race on fast clicks.
+    if (programmaticFocusRef.current) return;
+    if (wasFocusedAtMouseDownRef.current[i]) return;
+    const target = e.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const isFull =
+      start !== null &&
+      end !== null &&
+      start === 0 &&
+      end === target.value.length;
+    if (!isFull) target.select();
   }
 
   const totalRows = Math.max(1, Math.ceil(totalCells / rowSize));
@@ -301,7 +368,10 @@ export default function MovesGrid({
       }
       const val = cells[idx];
       const isTrailing = idx === moves.length;
-      const isActive = activeIdx === idx;
+      // activeIdx is in "step" coordinates (card index): step 0 = start
+      // card, step N+1 = card after move N. Cell idx N corresponds to
+      // step N+1, so the cell-level isActive matches that mapping.
+      const isActive = activeIdx === idx + 1;
       const inputClassName = [
         // Non-trailing cells carry the border on the input itself; the
         // trailing cell is wrapped by a div that owns the dashed
@@ -329,6 +399,8 @@ export default function MovesGrid({
           onKeyDown={(e) => handleKeyDown(idx, e)}
           onPaste={(e) => handlePaste(idx, e)}
           onFocus={(e) => handleFocus(idx, e.currentTarget)}
+          onMouseDown={(e) => handleMouseDown(idx, e)}
+          onClick={(e) => handleClick(idx, e)}
           spellCheck={false}
           autoComplete="off"
           disabled={disabled}
@@ -347,7 +419,7 @@ export default function MovesGrid({
             {canSolve ? (
               <button
                 type="button"
-                className="trailing-end-label end-solve"
+                className="trailing-end-label end-solve text-action"
                 data-testid="solve-button"
                 onClick={onSolve}
                 disabled={isSolving}

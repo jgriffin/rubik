@@ -47,30 +47,46 @@ Page-load effect: if no scramble in state and no URL state, call `/api/scramble`
 
 ## Blocks
 
-Three blocks proposed; each = one LOG block on its own branch, atomic commits, eyeball-gated at close. Open in plan-phase before execution.
+Original three-block plan reshaped twice mid-milestone (Block A design pivot 2026-05-12, then post-Block-A re-scoping 2026-05-12). Current sequence below — each block = one LOG block on its own branch, atomic commits, eyeball-gated at close.
 
-### Block A — State-model surgery: moves becomes source of truth
+### Block A — Section ii becomes the editable source of truth ✅ done
 
-The central change. Touches `App.tsx` + `SolutionGrid.tsx` + new `MovesEditor.tsx` + tests.
+[2026-05-12, branch `m9.3-block-a-moves-editor`, 10 work commits.] Section ii ("moves to apply") rewritten as the editable surface — per-cell `<input>` grid with auto-advance, paste-spread, backspace-rewind, and a cell-mode-vs-text-mode selection model (full-selection = keyboard-navigation mode, collapsed/partial = caret edit). Section iii renamed "steps" and derives its cards from `moves` (no longer "the solution"). Solve consolidated into a bottom-anchored label inside the trailing dashed cell; matched by a "solved" label in the same slot + appended to section iii once the cube reaches solved. Render-mode reshaped from a 3-button segmented control to two independent 2D/3D toggles (both on = split). CubeSizeSwitch promoted to the wordmark's serif register. Solve semantics: from current state + append (was: from start + replace). Mid-block design pivot recorded as a feedback memory ("edit the existing surface, don't add a parallel input"). See LOG 2026-05-12 for the full file inventory and per-phase commit list.
 
-- **A·P1 — Refactor state model.** `moves` becomes editable App-level state. `solve` writes to `moves` instead of a separate cards-driving state. `SolutionGrid` consumes `moves` directly. Existing scramble flow updated to reset `moves` to empty. **No new UI yet** — internal refactor that should produce the same observable behavior at this commit.
-- **A·P2 — `MovesEditor` component.** New text input bound to `moves`. As-you-type parser; live cards update. Inline error surface for invalid tokens. Location TBD — see **Open questions** below.
-- **A·P3 — Tests.** Vitest for parser, MovesEditor smoke; e2e for type-in-field → cards-update flow.
+### Block B — Move-cell polish (cell-mode focus ring + solve as primary CTA) — current
 
-### Block B — Auto-scramble + auto-solve
+Polishing on the foundation Block A built. Two pillars surfaced post-eyeball:
 
-Smaller block. Falls out cleanly after Block A's state-model surgery is in place.
+- **Cell-mode visual differentiation.** Cell-mode and text-mode currently look identical except for the focused-cell highlight — and cell-mode shows the browser's inner text-selection blue on the token, which clutters the visual. Goal: an inset focus-ring on the cell when in cell mode (signals "keyboard mode, arrows behave differently") + hide the inner `::selection` rendering (DOM selection range still tracked so the existing detection logic and key handlers keep working). Drag-select inside the text in text mode still paints normally.
+- **Solve label as primary CTA + reusable text-as-button pattern.** The trailing "solve" label is theme-orange already (`var(--accent)`) but reads as muted because it's 12px regular weight, and its hover state goes orange → `var(--ink)` (the wrong direction: the action becomes a non-action color on press). Goal: bigger (16px), bold (weight 600), proper button-press feedback (scale + brightness, not color-change), and a reusable `.text-action` utility class so future text-styled actions follow the same convention. The post-state "solved" label drops a step in size to disambiguate from the action, but stays pure `var(--ink)` — user-emphasized as "real information, not muted."
 
-- **B·P1 — Auto-scramble on mount.** App-level effect: on first mount with no URL state, call `/api/scramble`.
-- **B·P2 — Auto-solve toggle.** Setting (default on? off? UI for it?). After scramble lands, if enabled, fire solve.
-- **B·P3 — Tests + UX polish.** Loading states. Race-condition handling (user clicks scramble during auto-solve, etc.).
+Phases (each = one atomic commit):
+- **B·P0** — Open LOG block + this plan refresh.
+- **B·P1** — Cell-mode visual differentiation. `data-cell-mode` attribute on the focused input + CSS for hidden-`::selection` + inset focus ring.
+- **B·P2** — Solve label as primary CTA + `.text-action` utility class. `.end-solve` adopts `.text-action`; hover-to-ink rule dropped. `.end-solved` shrinks but stays visible-black.
+- **B·P3** — Eyeball + close.
 
-### Block C — Polish + "make it fun"
+**Eyeball gate.** Click any cell → inset focus ring appears, no inner text highlight, arrows navigate between cells. Click into the text inside → text-mode (no ring, normal browser caret + drag-select). Hover the trailing "solve" label → scales subtly + brightens, stays orange (no longer goes black). Press it → scale-down + slight orange deepen → solve fires. After solve completes → "solved" appears in the same slot, smaller than solve was, still pure black (not muted).
 
-Falls out as edge cases surface from A+B.
+### Block C — Auto-play / progression mode (planned)
 
-- **C·candidates** — animation interaction with mid-edit moves (does typing a move animate the new card? probably yes, IO won't fire since the card was already in view — need to .replay() on append?). Clear-moves button. Keyboard shortcuts (Cmd-K to focus moves field? Enter-to-solve?). Copy/paste UX. Sharable state URL (serializes scramble + moves into URL params). Mobile responsiveness checkpoint.
-- Pick which subset to land based on what the A+B eyeballs surface.
+User direction (2026-05-12): *"I'd like some sort of progression, kind of a play sort of functionality. You scramble, you solve, then I want a way to play through the moves, automatically advance between the moves to apply. Maybe with an animation in each one — we could do the play animation where it rotates back and then forward, but it'd be kind of nifty if we didn't have the transition. Let's try the auto play where it's basically just moving through steps and then maybe we do the move animation when we kind of select it in this play mode."*
+
+Open design points: cadence (fixed interval? user-controlled tempo slider?), controls (play/pause/scrub? keyboard space-bar?), interaction with manual edit (does typing pause auto-play?), animation strategy (no transition + active-step indicator only / reverse-then-forward per step / use the existing replay-with-reverse path from M9.2). Block opens with a small design pass before phasing.
+
+### Block D — Auto-scramble + sharable URL + Block-A cleanup deferrals (planned)
+
+The original "Block B — auto-scramble + auto-solve" plus the items that fell out of Block A's close note:
+- Auto-scramble on mount (no URL state) — `App.tsx` first-paint effect, ~10 lines.
+- Sharable state URL (originally "Block C: sharable state URL"; serialize scramble + moves into URL params; restore on load).
+- Drive-by: delete unused `SolveButton.tsx` (~20 lines).
+- Reverse active-state sync: card click → cell focus (today only cell → card works one-way).
+- Card animation on cell click (imperative hook into the per-card sequence's `replayWithReverse`).
+- RTL test backfill for the edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
+
+### Block E — Mobile + keyboard shortcuts (planned, M9.3-closing)
+
+The original "Block C — polish + make it fun" residual. Mobile responsiveness checkpoint (the per-cell input grid + 3D view need a mobile pass). Keyboard shortcuts (Cmd-K to focus the first empty cell? Enter-to-solve? Shift-Enter for scramble?). Final UAT pass before milestone close.
 
 ## Open questions
 
