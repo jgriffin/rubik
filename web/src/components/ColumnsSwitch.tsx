@@ -5,30 +5,20 @@ type Props = {
   onChange: (c: Cols) => void;
 };
 
-const OPTIONS: Array<{ value: Cols; disabled: boolean; reason?: string }> = [
-  { value: 1, disabled: true, reason: "single-column row layout ships in v2" },
-  { value: 2, disabled: false },
-  { value: 3, disabled: false },
-  { value: 4, disabled: false },
-  { value: 6, disabled: false },
-];
+const OPTIONS: Cols[] = [2, 3, 4, 5, 6];
 
 export default function ColumnsSwitch({ value, onChange }: Props) {
   return (
     <span className="col-seg-inline" data-testid="columns-switch">
-      {OPTIONS.map((opt) => (
+      {OPTIONS.map((n) => (
         <button
-          key={opt.value}
+          key={n}
           type="button"
-          data-testid={`columns-${opt.value}`}
-          className={value === opt.value ? "on" : ""}
-          onClick={() => {
-            if (!opt.disabled) onChange(opt.value);
-          }}
-          disabled={opt.disabled}
-          title={opt.reason}
+          data-testid={`columns-${n}`}
+          className={value === n ? "on" : ""}
+          onClick={() => onChange(n)}
         >
-          {opt.value}
+          {n}
         </button>
       ))}
     </span>

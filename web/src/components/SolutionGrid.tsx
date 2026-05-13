@@ -3,7 +3,7 @@ import SolutionCard from "./SolutionCard";
 import { applyMoves } from "../state/applyMove";
 import type { MoveStr } from "../state/faceletMoves";
 
-export type Cols = 1 | 2 | 3 | 4 | 6;
+export type Cols = 1 | 2 | 3 | 4 | 5 | 6;
 export type RenderMode = "net" | "iso" | "dual";
 
 type Props = {
@@ -18,12 +18,16 @@ type Props = {
   isCubeSolved?: boolean;
 };
 
-// README's per-column cube preview pixel sizes (220 / 200 / 130 / 90).
+// Per-column cube preview pixel sizes (220 / 200 / 130 / 130 / 110 / 90).
+// cols=1 = cube mode (single big card), wired in C·P2; values here are
+// pre-cube-mode fallback so the grid still renders sanely if cube mode
+// gets selected mid-C·P1.
 const CUBE_SIZE_BY_COLS: Record<Cols, number> = {
   1: 220,
   2: 200,
   3: 130,
   4: 130,
+  5: 110,
   6: 90,
 };
 
@@ -33,6 +37,7 @@ const DUAL_SIZE_BY_COLS: Record<Cols, number> = {
   2: 160,
   3: 100,
   4: 90,
+  5: 75,
   6: 60,
 };
 

@@ -643,14 +643,6 @@ input.move-cell-input.move-cell-input-trailing {
   cursor: not-allowed;
 }
 
-/* Right-side label text inside section header (e.g. "render", "columns") */
-.lbl .right .seg-label {
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-
 /* Solved footer ------------------------------------------------------ */
 .summary {
   display: flex;

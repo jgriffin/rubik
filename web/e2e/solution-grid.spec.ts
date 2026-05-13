@@ -51,8 +51,11 @@ test.describe("solution grid — toggles + card selection", () => {
     );
   });
 
-  test("v2 toggles still disabled (1-column)", async ({ page }) => {
-    await expect(page.getByTestId("columns-1")).toBeDisabled();
+  test("cube mode button exists and is enabled", async ({ page }) => {
+    // C·P1: cube replaces the old (disabled) `1` column option.
+    // Single-cube view rendering is wired in C·P2; here we just
+    // verify the selector surface.
+    await expect(page.getByTestId("cube-mode-button")).toBeEnabled();
   });
 
   test("3D toggle swaps renderer between flat (rect[data-pos]) and twisty-player wrapper", async ({
