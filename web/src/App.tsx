@@ -206,28 +206,18 @@ export default function App() {
       />
 
       {/* Section iii — steps (cards visualize each move in section ii).
-          Right-side controls: 2D/3D toggle (left) | cube-mode button |
-          column-count selector. `cube` is a peer to the column counts
-          (cols=1 internally) — selecting it puts section iii into
-          single-cube mode (wired in C·P2). The word "columns" is
-          intentionally absent — `cube` reads as the special mode and
-          2-6 implicitly mean column counts. */}
+          Right-side controls: 2D/3D toggle (left) | view-layout selector
+          (cube | 2 | 3 | 4 | 5 | 6). `cube` and the column counts are
+          mutually exclusive layouts, so they live in one segmented
+          control (`ColumnsSwitch`). The word "columns" is intentionally
+          absent — `cube` reads as the special mode and 2-6 implicitly
+          mean column counts. */}
       <SectionHeader
         roman="iii."
         name="steps"
         right={
           <>
             <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
-            <span className="col-seg-inline">
-              <button
-                type="button"
-                data-testid="cube-mode-button"
-                className={cols === 1 ? "on" : ""}
-                onClick={() => setCols(1)}
-              >
-                cube
-              </button>
-            </span>
             <ColumnsSwitch value={cols} onChange={setCols} />
           </>
         }
