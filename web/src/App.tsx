@@ -129,7 +129,8 @@ export default function App() {
     () => applyMoves(scrambleState, moves),
     [scrambleState, moves],
   );
-  const canSolve = ready && !isSolving && currentState !== SOLVED_3X3;
+  const isCubeSolved = currentState === SOLVED_3X3;
+  const canSolve = ready && !isSolving && !isCubeSolved;
 
   const sectionFourScrambleAlg = scrambleMoves.join(" ");
   const sectionFourSolutionAlg = moves.join(" ");
@@ -202,6 +203,7 @@ export default function App() {
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
         canSolve={canSolve}
+        isCubeSolved={isCubeSolved}
         onSolve={handleSolve}
         isSolving={isSolving}
         disabled={!ready || isSolving}
@@ -228,8 +230,7 @@ export default function App() {
         renderMode={renderMode}
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
-        canSolve={canSolve}
-        onSolve={handleSolve}
+        isCubeSolved={isCubeSolved}
       />
 
       {/* Section iv — watch the solve (animated player). Renders only

@@ -22,6 +22,7 @@ type Props = {
   activeIdx?: number;
   onActiveChange?: (idx: number) => void;
   canSolve?: boolean;
+  isCubeSolved?: boolean;
   onSolve?: () => void;
   isSolving?: boolean;
   rowSize?: number;
@@ -40,6 +41,7 @@ export default function MovesGrid({
   activeIdx,
   onActiveChange,
   canSolve,
+  isCubeSolved,
   onSolve,
   isSolving,
   rowSize = 10,
@@ -54,12 +56,14 @@ export default function MovesGrid({
   const [, setSnapBumper] = useState(0);
 
   // Visible input cells = moves + 1 trailing empty (the "next move
-  // goes here" affordance). When `canSolve` is set, an additional
-  // cell after the trailing input renders as a Solve button (the
-  // always-available "solve from here" CTA the user can click any
-  // time the cube isn't already solved).
+  // goes here" affordance). An additional cell slot after the trailing
+  // input renders as an inline label — "solve" (clickable, accent) when
+  // the cube can be solved, or "solved" (ink) when it already is. No
+  // border on this label slot so it doesn't double up visually against
+  // the trailing dotted input cell.
   const cells: string[] = [...moves, ""];
-  const totalCells = cells.length + (canSolve ? 1 : 0);
+  const hasEndLabel = canSolve || isCubeSolved;
+  const totalCells = cells.length + (hasEndLabel ? 1 : 0);
 
   // Focus the pending cell after a commit that requested it. Sets
   // `programmaticFocusRef` so the onFocus handler skips select-all and
@@ -226,21 +230,35 @@ export default function MovesGrid({
     for (let c = 0; c < rowSize; c++) {
       const idx = r * rowSize + c;
 
-      // Solve button cell, if canSolve is set and this is its slot.
-      if (canSolve && idx === cells.length) {
-        cellEls.push(
-          <button
-            key={c}
-            type="button"
-            className="move-cell move-cell-solve"
-            data-testid="solve-button"
-            onClick={onSolve}
-            disabled={isSolving}
-            title="solve from current state"
-          >
-            {isSolving ? "…" : "solve"}
-          </button>,
-        );
+      // End-of-grid label slot. Either "solve" (orange, clickable) or
+      // "solved" (ink, plain text). No border — sits next to the
+      // trailing dotted input cell so the dotted box isn't doubled.
+      if (hasEndLabel && idx === cells.length) {
+        if (canSolve) {
+          cellEls.push(
+            <button
+              key={c}
+              type="button"
+              className="move-grid-end-label move-grid-end-solve"
+              data-testid="solve-button"
+              onClick={onSolve}
+              disabled={isSolving}
+              title="solve from current state"
+            >
+              {isSolving ? "…" : "solve"}
+            </button>,
+          );
+        } else {
+          cellEls.push(
+            <span
+              key={c}
+              className="move-grid-end-label move-grid-end-solved"
+              data-testid="solved-label"
+            >
+              solved
+            </span>,
+          );
+        }
         continue;
       }
 

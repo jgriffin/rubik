@@ -388,27 +388,39 @@ input.move-cell-input:disabled {
   pointer-events: none;
   visibility: hidden;
 }
-/* Trailing Solve button — same cell shell, accented label, click fires
- * solve from current state. */
-button.move-cell.move-cell-solve {
-  border-style: dashed;
+/* End-of-grid label slot — flat text, no border. "solve" is an orange
+ * clickable button; "solved" is plain ink text once the cube reaches
+ * the solved state. Sized to fit the same grid slot as a move-cell so
+ * the row rhythm stays even. */
+.move-grid-end-label {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  user-select: none;
+}
+button.move-grid-end-solve {
   color: var(--accent);
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 10.5px;
-  font-weight: 400;
-  padding: 0;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  transition: color 0.12s, opacity 0.12s;
 }
-button.move-cell.move-cell-solve:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--paper);
+button.move-grid-end-solve:hover:not(:disabled) {
+  color: var(--ink);
 }
-button.move-cell.move-cell-solve:disabled {
+button.move-grid-end-solve:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.move-grid-end-solved {
+  color: var(--ink);
 }
 
 /* Section iii — solution grid --------------------------------------- */
@@ -440,26 +452,16 @@ button.move-cell.move-cell-solve:disabled {
 .sol-cell.zero {
   border-style: dashed;
 }
-/* Empty-state Solve CTA card — sits next to sol-card-0 when section ii
- * has no moves but the cube is unsolved. Dotted outline keeps it
- * visually distinct from a real card; the accent label pulls the eye. */
-button.sol-cell.empty-state-solve {
-  border-style: dashed;
-  border-color: var(--rule);
+/* "solved" label — sits in the section iii grid where the next card
+ * would be, after the cube reaches solved. Plain ink text, no border. */
+.sol-cell-solved-label {
+  display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100px;
-}
-button.sol-cell.empty-state-solve:hover {
-  border-color: var(--accent);
-  background: var(--paper);
-}
-.empty-state-solve-label {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--accent);
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 22px;
+  color: var(--ink);
+  user-select: none;
 }
 .sol-cell .top {
   display: flex;
