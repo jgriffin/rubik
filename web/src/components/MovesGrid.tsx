@@ -412,7 +412,7 @@ export default function MovesGrid({
             {canSolve ? (
               <button
                 type="button"
-                className="trailing-end-label end-solve"
+                className="trailing-end-label end-solve text-action"
                 data-testid="solve-button"
                 onClick={onSolve}
                 disabled={isSolving}

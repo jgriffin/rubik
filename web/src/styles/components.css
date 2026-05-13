@@ -457,20 +457,12 @@ input.move-cell-input.move-cell-input-trailing {
   line-height: 1;
   user-select: none;
 }
-button.trailing-end-label.end-solve {
-  color: var(--accent);
-  cursor: pointer;
-  transition: color 0.12s, opacity 0.12s;
-}
-button.trailing-end-label.end-solve:hover:not(:disabled) {
-  color: var(--ink);
-}
-button.trailing-end-label.end-solve:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+/* .end-solve marker — typography + interaction live in .text-action
+ * (see Utilities at the bottom of this file); .trailing-end-label
+ * handles its bottom-anchored positioning inside the trailing cell. */
 .trailing-end-label.end-solved {
   color: var(--ink);
+  font-size: 11px;
 }
 
 /* Section iii — solution grid --------------------------------------- */
@@ -690,4 +682,54 @@ button.trailing-end-label.end-solve:disabled {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   margin-left: auto;
+}
+
+/* Utilities ========================================================= */
+
+/* `.text-action` — prominent text-styled call-to-action.
+ *
+ * Stays theme-orange across all states. Press feedback comes from
+ * scale + brightness (transforms, not color flips) — a color flip on
+ * press would suggest the action's meaning changed, which is wrong
+ * for buttons. The class is positioning-agnostic; compose with a
+ * position-specific class (e.g. `.trailing-end-label`) where the
+ * button sits inside a layout.
+ *
+ * Placed in the cascade at end-of-file so it overrides any earlier
+ * same-specificity typography rules on composed elements (e.g. the
+ * solve button has both `.trailing-end-label` and `.text-action` —
+ * .text-action's 16px / weight 600 win because they come later).
+ *
+ * Sibling text-button patterns in this stylesheet, for context:
+ *   `.link-btn`      — small utilitarian text-button (Clear, etc.).
+ *   `.cube-size-opt` — text toggle (selected vs not), wordmark register.
+ *   `.text-action`   — prominent action; THIS class.
+ * Reach for `.text-action` on any new prominent text-styled action
+ * surface (play, scrub, share, etc.) so they read consistently. */
+.text-action {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+  cursor: pointer;
+  user-select: none;
+  transform-origin: center;
+  transition: transform 0.1s ease-out, filter 0.12s, opacity 0.12s;
+}
+.text-action:hover:not(:disabled) {
+  transform: scale(1.06);
+  filter: brightness(1.12);
+}
+.text-action:active:not(:disabled) {
+  transform: scale(0.94);
+  filter: brightness(0.88);
+}
+.text-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
