@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseMoves, formatMoves, ParseMovesError } from "./parseMoves";
+import {
+  parseMoves,
+  parseMovesPartial,
+  formatMoves,
+  ParseMovesError,
+} from "./parseMoves";
 import type { MoveStr } from "./faceletMoves";
 
 describe("parseMoves — valid sequences", () => {
@@ -141,6 +146,58 @@ describe("parseMoves — rejection", () => {
 
   it("rejects a non-move word", () => {
     expectParseError("garbage", "garbage", 1);
+  });
+});
+
+describe("parseMovesPartial — valid input matches parseMoves", () => {
+  it("returns { moves: [], error: null } for empty input", () => {
+    expect(parseMovesPartial("")).toEqual({ moves: [], error: null });
+    expect(parseMovesPartial("   ")).toEqual({ moves: [], error: null });
+  });
+
+  it("returns full moves and null error for a valid sequence", () => {
+    const r = parseMovesPartial("R U R' U' F");
+    expect(r.moves).toEqual(["R", "U", "R'", "U'", "F"]);
+    expect(r.error).toBeNull();
+  });
+
+  it("matches parseMoves for any valid input", () => {
+    const inputs = ["R", "R U R'", "  R  U  R'  ", "U U' L L' F F'"];
+    for (const s of inputs) {
+      const partial = parseMovesPartial(s);
+      expect(partial.error).toBeNull();
+      expect(partial.moves).toEqual(parseMoves(s));
+    }
+  });
+});
+
+describe("parseMovesPartial — error returns valid prefix", () => {
+  it("returns [] + error when the first token is invalid", () => {
+    const r = parseMovesPartial("X");
+    expect(r.moves).toEqual([]);
+    expect(r.error).toBeInstanceOf(ParseMovesError);
+    expect(r.error?.token).toBe("X");
+    expect(r.error?.index).toBe(1);
+  });
+
+  it("commits a 2-move prefix when the 3rd token is invalid", () => {
+    const r = parseMovesPartial("R U Z");
+    expect(r.moves).toEqual(["R", "U"]);
+    expect(r.error?.token).toBe("Z");
+    expect(r.error?.index).toBe(3);
+  });
+
+  it("stops at the first invalid token even if later tokens would be valid", () => {
+    const r = parseMovesPartial("R U Z F");
+    expect(r.moves).toEqual(["R", "U"]);
+    expect(r.error?.token).toBe("Z");
+    expect(r.error?.index).toBe(3);
+  });
+
+  it("does not throw for any invalid input", () => {
+    expect(() => parseMovesPartial("R2")).not.toThrow();
+    expect(() => parseMovesPartial("garbage")).not.toThrow();
+    expect(() => parseMovesPartial("R 'U")).not.toThrow();
   });
 });
 

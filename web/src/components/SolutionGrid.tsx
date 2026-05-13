@@ -9,12 +9,13 @@ export type RenderMode = "net" | "iso" | "dual";
 type Props = {
   scrambleState: string;
   scrambleMoves: MoveStr[];
-  solution: string[] | null;
+  moves: MoveStr[];
   isSolving: boolean;
   cols: Cols;
   renderMode: RenderMode;
   activeIdx: number;
   onActiveChange: (idx: number) => void;
+  isCubeSolved?: boolean;
 };
 
 // README's per-column cube preview pixel sizes (220 / 200 / 130 / 90).
@@ -38,32 +39,31 @@ const DUAL_SIZE_BY_COLS: Record<Cols, number> = {
 export default function SolutionGrid({
   scrambleState,
   scrambleMoves,
-  solution,
+  moves,
   isSolving,
   cols,
   renderMode,
   activeIdx,
   onActiveChange,
+  isCubeSolved,
 }: Props) {
   // Joined scramble alg, used by twisty-player as the static-mode setup-alg.
-  // Each card receives the full `solution` array and slices for its step,
+  // Each card receives the full `moves` array and slices for its step,
   // so the prefix passed to twisty-player matches the per-card facelet
   // already computed below.
   const scrambleAlg = scrambleMoves.join(" ");
 
   // Memoize per-step facelet snapshots so changing activeIdx doesn't
-  // re-walk the whole solution.
+  // re-walk the whole moves array.
   const states = useMemo(() => {
     const out: string[] = [scrambleState];
-    if (solution) {
-      let s = scrambleState;
-      for (const m of solution) {
-        s = applyMoves(s, [m as MoveStr]);
-        out.push(s);
-      }
+    let s = scrambleState;
+    for (const m of moves) {
+      s = applyMoves(s, [m]);
+      out.push(s);
     }
     return out;
-  }, [scrambleState, solution]);
+  }, [scrambleState, moves]);
 
   const sizePx =
     renderMode === "dual" ? DUAL_SIZE_BY_COLS[cols] : CUBE_SIZE_BY_COLS[cols];
@@ -80,23 +80,23 @@ export default function SolutionGrid({
         moveLabel={null}
         facelet={states[0]}
         scrambleAlg={scrambleAlg}
-        solution={solution}
+        moves={moves}
         sizePx={sizePx}
         renderMode={renderMode}
         isStart
         isActive={activeIdx === 0}
         onClick={() => onActiveChange(0)}
       />
-      {solution?.map((m, i) => (
+      {moves.map((m, i) => (
         <SolutionCard
           key={i + 1}
           stepNum={i + 1}
           moveLabel={m}
           facelet={states[i + 1]}
           preFacelet={states[i]}
-          move={m as MoveStr}
+          move={m}
           scrambleAlg={scrambleAlg}
-          solution={solution}
+          moves={moves}
           sizePx={sizePx}
           renderMode={renderMode}
           isStart={false}
@@ -104,6 +104,14 @@ export default function SolutionGrid({
           onClick={() => onActiveChange(i + 1)}
         />
       ))}
+      {isCubeSolved && (
+        <span
+          className="sol-cell-solved-label"
+          data-testid="steps-solved-label"
+        >
+          solved
+        </span>
+      )}
       {isSolving && (
         <div className="sol-loading" data-testid="solution-loading">
           solving…

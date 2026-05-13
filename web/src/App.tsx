@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import SolveButton from "./components/SolveButton";
+import { useEffect, useMemo, useState } from "react";
 import Wordmark from "./components/Wordmark";
 import CubeSizeSwitch from "./components/CubeSizeSwitch";
 import SolvedFooter from "./components/SolvedFooter";
@@ -11,6 +10,7 @@ import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionG
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
 import SectionFour from "./components/SectionFour";
+import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
 
@@ -36,7 +36,7 @@ export default function App() {
   const [scrambleState, setScrambleState] = useState<string>(SOLVED_3X3);
   const [scrambleMoves, setScrambleMoves] = useState<MoveStr[]>([]);
   const [scrambleLength, setScrambleLength] = useState<number>(14);
-  const [solution, setSolution] = useState<string[] | null>(null);
+  const [moves, setMoves] = useState<MoveStr[]>([]);
   const [solved, setSolved] = useState<boolean | null>(null);
   const [solveStats, setSolveStats] = useState<SolveStats | null>(null);
   const [isSolving, setIsSolving] = useState(false);
@@ -53,7 +53,7 @@ export default function App() {
   }, []);
 
   function resetSolveState() {
-    setSolution(null);
+    setMoves([]);
     setSolved(null);
     setSolveStats(null);
     setActiveIdx(0);
@@ -72,12 +72,19 @@ export default function App() {
   }
 
   async function handleSolve() {
+    // Solve from the cube's *current* state (= scrambleState with the
+    // existing `moves` applied). Append solver moves to existing —
+    // trajectory tells the story start → user-tinkering → solve. Stale
+    // closure caveat: use the functional setMoves form so a race
+    // against in-flight edits doesn't drop appended moves (the editor
+    // is disabled while isSolving=true so this is belt-and-suspenders).
     setError(null);
     setIsSolving(true);
-    setActiveIdx(0);
+    const stateAtSolve = applyMoves(scrambleState, moves);
     try {
-      const r = await apiSolve({ state: scrambleState });
-      setSolution(r.moves);
+      const r = await apiSolve({ state: stateAtSolve });
+      const newMoves = r.moves as MoveStr[];
+      setMoves((prev) => [...prev, ...newMoves]);
       setSolved(r.solved);
       setSolveStats(r.stats);
     } catch (e) {
@@ -101,11 +108,32 @@ export default function App() {
     setScrambleMoves([]);
   }
 
+  function handleMovesEdit(next: MoveStr[]) {
+    // User edited section ii directly. Clear the solve verdict
+    // (`solved`/`solveStats` describe the last Solve, not a hand-typed
+    // sequence) and clamp `activeIdx` so a previously-selected late
+    // card doesn't outlive a delete.
+    setMoves(next);
+    setSolved(null);
+    setSolveStats(null);
+    setActiveIdx((i) => Math.min(i, next.length));
+  }
+
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
 
+  // The cube's *current* state — start state with section ii's moves
+  // applied. Drives the Solve affordance: visible only when the cube
+  // isn't already solved.
+  const currentState = useMemo(
+    () => applyMoves(scrambleState, moves),
+    [scrambleState, moves],
+  );
+  const isCubeSolved = currentState === SOLVED_3X3;
+  const canSolve = ready && !isSolving && !isCubeSolved;
+
   const sectionFourScrambleAlg = scrambleMoves.join(" ");
-  const sectionFourSolutionAlg = (solution ?? []).join(" ");
+  const sectionFourSolutionAlg = moves.join(" ");
 
   return (
     <main className="col">
@@ -144,27 +172,49 @@ export default function App() {
       />
       <StateGrid state={scrambleState} onStateChange={handleSetState} />
 
-      {/* Section ii — moves to apply (the current scramble) */}
+      {/* Section ii — moves to apply (editable; the source of truth).
+          Solve lives inside the grid as a trailing cell when the cube
+          isn't already solved (always-available solve-from-here). */}
       <SectionHeader
         roman="ii."
         name="moves to apply"
         right={
-          <span>
-            {scrambleMoves.length} {scrambleMoves.length === 1 ? "move" : "moves"}
-          </span>
+          <>
+            <button
+              type="button"
+              className="link-btn"
+              data-testid="clear-moves-button"
+              onClick={() => handleMovesEdit([])}
+              disabled={!ready || isSolving || moves.length === 0}
+              title="erase all moves"
+            >
+              clear
+            </button>
+            <span className="scramble-divider" />
+            <span>
+              {moves.length} {moves.length === 1 ? "move" : "moves"}
+            </span>
+          </>
         }
       />
-      <MovesGrid moves={scrambleMoves} />
+      <MovesGrid
+        moves={moves}
+        onMovesChange={handleMovesEdit}
+        activeIdx={activeIdx}
+        onActiveChange={setActiveIdx}
+        canSolve={canSolve}
+        isCubeSolved={isCubeSolved}
+        onSolve={handleSolve}
+        isSolving={isSolving}
+        disabled={!ready || isSolving}
+      />
 
-      {/* Section iii — solution (cards with column + render toggles) */}
+      {/* Section iii — steps (cards visualize each move in section ii) */}
       <SectionHeader
         roman="iii."
-        name="solution"
+        name="steps"
         right={
           <>
-            <SolveButton onSolve={handleSolve} disabled={!ready} isSolving={isSolving} />
-            <span className="scramble-divider" />
-            <span className="seg-label">render</span>
             <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
             <span className="seg-label">columns</span>
             <ColumnsSwitch value={cols} onChange={setCols} />
@@ -174,12 +224,13 @@ export default function App() {
       <SolutionGrid
         scrambleState={scrambleState}
         scrambleMoves={scrambleMoves}
-        solution={solution}
+        moves={moves}
         isSolving={isSolving}
         cols={cols}
         renderMode={renderMode}
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
+        isCubeSolved={isCubeSolved}
       />
 
       {/* Section iv — watch the solve (animated player). Renders only
@@ -198,7 +249,7 @@ export default function App() {
 
       <SolvedFooter
         solved={solved}
-        moveCount={solution?.length ?? 0}
+        moveCount={moves.length}
         metaText={metaText}
       />
 

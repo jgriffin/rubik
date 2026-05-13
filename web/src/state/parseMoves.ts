@@ -54,3 +54,32 @@ export function parseMoves(input: string): MoveStr[] {
 export function formatMoves(moves: MoveStr[]): string {
   return moves.join(" ");
 }
+
+export type ParseMovesPartial = {
+  moves: MoveStr[];
+  error: ParseMovesError | null;
+};
+
+/**
+ * Non-throwing variant of `parseMoves`: returns the longest valid prefix
+ * of tokens plus the first invalid token (if any) as an error object.
+ * Used by the editable MovesGrid's paste handler (partial / mid-typo
+ * input is normal; "commit valid prefix, surface first error" is the
+ * desired UX).
+ */
+export function parseMovesPartial(input: string): ParseMovesPartial {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    return { moves: [], error: null };
+  }
+  const tokens = trimmed.split(/\s+/);
+  const result: MoveStr[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!VALID_MOVES.has(token)) {
+      return { moves: result, error: new ParseMovesError(token, i + 1) };
+    }
+    result.push(token as MoveStr);
+  }
+  return { moves: result, error: null };
+}

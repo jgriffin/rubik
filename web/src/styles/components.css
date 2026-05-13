@@ -37,7 +37,49 @@
   gap: 14px;
 }
 
-/* Inline segmented control (cube size, render mode, column count) ---- */
+/* Cube size switch — elegant inline serif text echoing the wordmark.
+ * Primary mode selector (2x2 vs 3x3); active shows accent, inactive
+ * shows ink. A solid ink-colored vertical bar separates the two
+ * options; thin but visually present at this scale. */
+.cube-size-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144;
+  white-space: nowrap;
+}
+.cube-size-opt {
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  margin: 0;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.cube-size-opt:hover {
+  color: var(--accent);
+}
+.cube-size-opt.on {
+  color: var(--accent);
+}
+/* Vertical bar separator — explicit element rather than the `|` glyph
+ * so we can size and color it directly. */
+.cube-size-sep {
+  display: inline-block;
+  width: 2px;
+  height: 26px;
+  background: var(--ink);
+  user-select: none;
+}
+
+/* Inline segmented control (render mode, column count) ---- */
 .col-seg-inline {
   display: inline-flex;
   border: 1px solid var(--rule);
@@ -310,6 +352,96 @@
   border-style: dashed;
   opacity: 0.55;
 }
+/* Editable input variant — overrides the input's user-agent chrome
+ * (font reset, default intrinsic width) so it visually matches the
+ * static glyph cell, then layers focus/active states on top. */
+input.move-cell-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  font: inherit;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--ink);
+  caret-color: var(--accent);
+  cursor: text;
+  user-select: text;
+  transition: border-color 0.12s, background 0.12s;
+}
+input.move-cell-input::placeholder {
+  color: var(--dim);
+}
+input.move-cell-input:focus {
+  border-color: var(--accent);
+  border-style: solid;
+  opacity: 1;
+}
+input.move-cell-input.active:not(:focus) {
+  border-color: var(--accent);
+}
+input.move-cell-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.move-cell.unused {
+  pointer-events: none;
+  visibility: hidden;
+}
+/* Trailing input cell wrap — dashed border lives on this wrapper so
+ * the inner input has no double border. The input fills the top
+ * portion; a bottom-anchored "solve"/"solved" label sits inside the
+ * same dashed box. */
+.move-cell.move-cell-trailing-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+.move-cell.move-cell-trailing-wrap.active {
+  border-color: var(--accent);
+}
+input.move-cell-input.move-cell-input-trailing {
+  flex: 1 1 auto;
+  border: 0; /* wrapper owns the border */
+  width: 100%;
+  background: transparent;
+  /* Keep the input centered visually so a typed char appears mid-cell
+   * before commit; the bottom label sits below. */
+}
+.trailing-end-label {
+  flex: 0 0 auto;
+  align-self: center;
+  border: 0;
+  background: transparent;
+  padding: 0 0 4px;
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+button.trailing-end-label.end-solve {
+  color: var(--accent);
+  cursor: pointer;
+  transition: color 0.12s, opacity 0.12s;
+}
+button.trailing-end-label.end-solve:hover:not(:disabled) {
+  color: var(--ink);
+}
+button.trailing-end-label.end-solve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.trailing-end-label.end-solved {
+  color: var(--ink);
+}
 
 /* Section iii — solution grid --------------------------------------- */
 .sol-grid {
@@ -339,6 +471,20 @@
 }
 .sol-cell.zero {
   border-style: dashed;
+}
+/* "solved" label — sits in the section iii grid where the next card
+ * would be, after the cube reaches solved. Bottom-anchored ink text
+ * to match section ii's trailing solve/solved label position. */
+.sol-cell-solved-label {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  min-height: 100px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 22px;
+  color: var(--ink);
+  user-select: none;
 }
 .sol-cell .top {
   display: flex;

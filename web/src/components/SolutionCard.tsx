@@ -63,7 +63,7 @@ type CommonProps = {
   moveLabel: string | null;
   facelet: string;
   scrambleAlg: string;
-  solution: string[] | null;
+  moves: string[];
   sizePx: number;
   renderMode: RenderMode;
   isActive: boolean;
@@ -168,7 +168,7 @@ function StartCard({
   moveLabel,
   facelet,
   scrambleAlg,
-  solution,
+  moves,
   sizePx,
   renderMode,
   isActive,
@@ -179,7 +179,7 @@ function StartCard({
       <TwistyPlayerWrapper
         mode="static"
         scrambleAlg={scrambleAlg}
-        solutionAlg={(solution ?? []).slice(0, stepNum).join(" ")}
+        solutionAlg={moves.slice(0, stepNum).join(" ")}
         sizePx={sizePx}
         testId="twisty-cube"
       />
@@ -189,7 +189,7 @@ function StartCard({
         <TwistyPlayerWrapper
           mode="static"
           scrambleAlg={scrambleAlg}
-          solutionAlg={(solution ?? []).slice(0, stepNum).join(" ")}
+          solutionAlg={moves.slice(0, stepNum).join(" ")}
           sizePx={sizePx}
           testId="twisty-cube-pair"
         />
@@ -221,7 +221,7 @@ function NonStartCard({
   preFacelet,
   move,
   scrambleAlg,
-  solution,
+  moves,
   sizePx,
   renderMode,
   isActive,
@@ -358,7 +358,7 @@ function NonStartCard({
         renderMode={renderMode}
         sequence={seq}
         scrambleAlg={scrambleAlg}
-        solution={solution}
+        moves={moves}
         stepNum={stepNum}
         sizePx={sizePx}
       />
@@ -370,14 +370,14 @@ function NonStartSlot({
   renderMode,
   sequence,
   scrambleAlg,
-  solution,
+  moves,
   stepNum,
   sizePx,
 }: {
   renderMode: RenderMode;
   sequence: CubeSequence;
   scrambleAlg: string;
-  solution: string[] | null;
+  moves: string[];
   stepNum: number;
   sizePx: number;
 }) {
@@ -386,7 +386,7 @@ function NonStartSlot({
       <TwistyPlayerWrapper
         mode="static"
         scrambleAlg={scrambleAlg}
-        solutionAlg={(solution ?? []).slice(0, stepNum).join(" ")}
+        solutionAlg={moves.slice(0, stepNum).join(" ")}
         sizePx={sizePx}
         testId="twisty-cube"
       />
@@ -399,7 +399,7 @@ function NonStartSlot({
         <TwistyPlayerWrapper
           mode="static"
           scrambleAlg={scrambleAlg}
-          solutionAlg={(solution ?? []).slice(0, stepNum).join(" ")}
+          solutionAlg={moves.slice(0, stepNum).join(" ")}
           sizePx={sizePx}
           testId="twisty-cube-pair"
         />
