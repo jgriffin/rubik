@@ -53,26 +53,13 @@ Original three-block plan reshaped twice mid-milestone (Block A design pivot 202
 
 [2026-05-12, branch `m9.3-block-a-moves-editor`, 10 work commits.] Section ii ("moves to apply") rewritten as the editable surface — per-cell `<input>` grid with auto-advance, paste-spread, backspace-rewind, and a cell-mode-vs-text-mode selection model (full-selection = keyboard-navigation mode, collapsed/partial = caret edit). Section iii renamed "steps" and derives its cards from `moves` (no longer "the solution"). Solve consolidated into a bottom-anchored label inside the trailing dashed cell; matched by a "solved" label in the same slot + appended to section iii once the cube reaches solved. Render-mode reshaped from a 3-button segmented control to two independent 2D/3D toggles (both on = split). CubeSizeSwitch promoted to the wordmark's serif register. Solve semantics: from current state + append (was: from start + replace). Mid-block design pivot recorded as a feedback memory ("edit the existing surface, don't add a parallel input"). See LOG 2026-05-12 for the full file inventory and per-phase commit list.
 
-### Block B — Move-cell polish (cell-mode focus ring + solve as primary CTA) — current
+### Block B — Move-cell polish (cell-mode focus ring + solve as primary CTA) ✅ done
 
-Polishing on the foundation Block A built. Two pillars surfaced post-eyeball:
+[2026-05-12, branch `m9.3-block-b-move-cell-polish`, 5 work commits.] Two pillars shipped: (a) cell-mode visual differentiation via `data-cell-mode` attribute + hidden `::selection` + inset focus ring on wrapper (`:has()`); first-click reliability fixed with an `onClick`-after-mouse-chain force-select that wins the race against the browser's mouseup-drag-end. (b) Solve label promoted to a primary CTA — Fraunces 16px / weight 600 / theme-orange with `transform: scale` + `filter: brightness` press feedback (the previous orange→ink hover flip dropped because a color flip on press misrepresents the action's semantics). Codified as a `.text-action` utility class for future text-styled action surfaces. Side fix: off-by-one in the cell→card active sync — cell N corresponds to step N+1 (the state AFTER move N), now consistent with `SolutionGrid`'s step coordinates. See LOG 2026-05-12 for the full file inventory and per-phase commit list.
 
-- **Cell-mode visual differentiation.** Cell-mode and text-mode currently look identical except for the focused-cell highlight — and cell-mode shows the browser's inner text-selection blue on the token, which clutters the visual. Goal: an inset focus-ring on the cell when in cell mode (signals "keyboard mode, arrows behave differently") + hide the inner `::selection` rendering (DOM selection range still tracked so the existing detection logic and key handlers keep working). Drag-select inside the text in text mode still paints normally.
-- **Solve label as primary CTA + reusable text-as-button pattern.** The trailing "solve" label is theme-orange already (`var(--accent)`) but reads as muted because it's 12px regular weight, and its hover state goes orange → `var(--ink)` (the wrong direction: the action becomes a non-action color on press). Goal: bigger (16px), bold (weight 600), proper button-press feedback (scale + brightness, not color-change), and a reusable `.text-action` utility class so future text-styled actions follow the same convention. The post-state "solved" label drops a step in size to disambiguate from the action, but stays pure `var(--ink)` — user-emphasized as "real information, not muted."
+### Block C — Cube mode: single-cube view + 2D per-step animation + auto-play ✅ done
 
-Phases (each = one atomic commit):
-- **B·P0** — Open LOG block + this plan refresh.
-- **B·P1** — Cell-mode visual differentiation. `data-cell-mode` attribute on the focused input + CSS for hidden-`::selection` + inset focus ring.
-- **B·P2** — Solve label as primary CTA + `.text-action` utility class. `.end-solve` adopts `.text-action`; hover-to-ink rule dropped. `.end-solved` shrinks but stays visible-black.
-- **B·P3** — Eyeball + close.
-
-**Eyeball gate.** Click any cell → inset focus ring appears, no inner text highlight, arrows navigate between cells. Click into the text inside → text-mode (no ring, normal browser caret + drag-select). Hover the trailing "solve" label → scales subtly + brightens, stays orange (no longer goes black). Press it → scale-down + slight orange deepen → solve fires. After solve completes → "solved" appears in the same slot, smaller than solve was, still pure black (not muted).
-
-### Block C — Auto-play / progression mode (planned)
-
-User direction (2026-05-12): *"I'd like some sort of progression, kind of a play sort of functionality. You scramble, you solve, then I want a way to play through the moves, automatically advance between the moves to apply. Maybe with an animation in each one — we could do the play animation where it rotates back and then forward, but it'd be kind of nifty if we didn't have the transition. Let's try the auto play where it's basically just moving through steps and then maybe we do the move animation when we kind of select it in this play mode."*
-
-Open design points: cadence (fixed interval? user-controlled tempo slider?), controls (play/pause/scrub? keyboard space-bar?), interaction with manual edit (does typing pause auto-play?), animation strategy (no transition + active-step indicator only / reverse-then-forward per step / use the existing replay-with-reverse path from M9.2). Block opens with a small design pass before phasing.
+[2026-05-13, branch `m9.3-block-c-cube-mode`, 6 work commits.] Cube-mode rendering shipped with 2D per-step animation on forward `activeIdx` jumps + auto-play that advances `activeIdx` at a 500ms cadence riding the per-step animations. New `CubeStage` component owns cube-mode rendering; `SolutionGrid` early-returns to it for `cols===1`. Section iii's selector restructured to `2D 3D | cube | 2 3 4 5 6` (the word "columns" dropped, "1" replaced with `cube`, "5" added). Section iv (the M9.2 "watch the solve" twisty-player strip) deleted — cube mode supersedes its job. **C·P4 (3D per-step animation via twisty-player's native playback) descoped** mid-block per user direction "right now, lets just focus on the 2d step animations"; deferred to a future block, not blocking the M9.3 milestone arc. **Design pivot at C·P5 close**: C·P5's play button placement on the cube card itself was reshaped at the would-be eyeball — user wants section ii to be THE navigation/transport surface for the trajectory, not the cube card. Block D (about to open) picks up the relocation. See LOG 2026-05-13 for the full file inventory, per-phase commits, and load-bearing decisions.
 
 ### Block D — Auto-scramble + sharable URL + Block-A cleanup deferrals (planned)
 
@@ -83,6 +70,8 @@ The original "Block B — auto-scramble + auto-solve" plus the items that fell o
 - Reverse active-state sync: card click → cell focus (today only cell → card works one-way).
 - Card animation on cell click (imperative hook into the per-card sequence's `replayWithReverse`).
 - RTL test backfill for the edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
+
+> Note 2026-05-13: a new block-D will be inserted ahead of this one when the next block opens — "section ii as navigation/transport: start cell + play migration + cube-card press-and-hold" — pushing this block to E (and the existing Block E to F). The renumbering happens at the next block's D·P0 opener, not here.
 
 ### Block E — Mobile + keyboard shortcuts (planned, M9.3-closing)
 

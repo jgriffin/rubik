@@ -9,7 +9,6 @@ import MovesGrid from "./components/MovesGrid";
 import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionGrid";
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
-import SectionFour from "./components/SectionFour";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
@@ -132,9 +131,6 @@ export default function App() {
   const isCubeSolved = currentState === SOLVED_3X3;
   const canSolve = ready && !isSolving && !isCubeSolved;
 
-  const sectionFourScrambleAlg = scrambleMoves.join(" ");
-  const sectionFourSolutionAlg = moves.join(" ");
-
   return (
     <main className="col">
       <header className="head">
@@ -209,14 +205,19 @@ export default function App() {
         disabled={!ready || isSolving}
       />
 
-      {/* Section iii — steps (cards visualize each move in section ii) */}
+      {/* Section iii — steps (cards visualize each move in section ii).
+          Right-side controls: 2D/3D toggle (left) | view-layout selector
+          (cube | 2 | 3 | 4 | 5 | 6). `cube` and the column counts are
+          mutually exclusive layouts, so they live in one segmented
+          control (`ColumnsSwitch`). The word "columns" is intentionally
+          absent — `cube` reads as the special mode and 2-6 implicitly
+          mean column counts. */}
       <SectionHeader
         roman="iii."
         name="steps"
         right={
           <>
             <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
-            <span className="seg-label">columns</span>
             <ColumnsSwitch value={cols} onChange={setCols} />
           </>
         }
@@ -231,14 +232,6 @@ export default function App() {
         activeIdx={activeIdx}
         onActiveChange={setActiveIdx}
         isCubeSolved={isCubeSolved}
-      />
-
-      {/* Section iv — watch the solve (animated player). Renders only
-          once a solution exists; SectionFour itself returns null on
-          empty solutionAlg. */}
-      <SectionFour
-        scrambleAlg={sectionFourScrambleAlg}
-        solutionAlg={sectionFourSolutionAlg}
       />
 
       {error && (

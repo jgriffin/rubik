@@ -1,9 +1,10 @@
 import { useMemo, type CSSProperties } from "react";
+import CubeStage from "./CubeStage";
 import SolutionCard from "./SolutionCard";
 import { applyMoves } from "../state/applyMove";
 import type { MoveStr } from "../state/faceletMoves";
 
-export type Cols = 1 | 2 | 3 | 4 | 6;
+export type Cols = 1 | 2 | 3 | 4 | 5 | 6;
 export type RenderMode = "net" | "iso" | "dual";
 
 type Props = {
@@ -18,23 +19,29 @@ type Props = {
   isCubeSolved?: boolean;
 };
 
-// README's per-column cube preview pixel sizes (220 / 200 / 130 / 90).
-const CUBE_SIZE_BY_COLS: Record<Cols, number> = {
-  1: 220,
+// Per-column cube preview pixel sizes (column-grid mode only — cube mode
+// uses its own size set inline below). 200 / 130 / 130 / 110 / 90.
+const CUBE_SIZE_BY_COLS: Record<Exclude<Cols, 1>, number> = {
   2: 200,
   3: 130,
   4: 130,
+  5: 110,
   6: 90,
 };
 
 // Halved sizes for dual (split) mode — two renderers fit per card.
-const DUAL_SIZE_BY_COLS: Record<Cols, number> = {
-  1: 200,
+const DUAL_SIZE_BY_COLS: Record<Exclude<Cols, 1>, number> = {
   2: 160,
   3: 100,
   4: 90,
+  5: 75,
   6: 60,
 };
+
+// Cube-mode pixel sizes — one big card replacing the grid. Larger than
+// any column-grid size since the card stands alone.
+const CUBE_MODE_SIZE = 380;
+const CUBE_MODE_DUAL_SIZE = 300;
 
 export default function SolutionGrid({
   scrambleState,
@@ -64,6 +71,39 @@ export default function SolutionGrid({
     }
     return out;
   }, [scrambleState, moves]);
+
+  // Cube mode (cols=1): single big card driven by activeIdx. Per-step
+  // 2D animation on forward activeIdx jumps lives in `CubeStage`.
+  // C·P4 will add the matching 3D animation.
+  if (cols === 1) {
+    const sizePx = renderMode === "dual" ? CUBE_MODE_DUAL_SIZE : CUBE_MODE_SIZE;
+    return (
+      <div className="sol-cube-stage" data-testid="solution-grid">
+        <CubeStage
+          states={states}
+          moves={moves}
+          activeIdx={activeIdx}
+          onActiveChange={onActiveChange}
+          scrambleAlg={scrambleAlg}
+          renderMode={renderMode}
+          sizePx={sizePx}
+        />
+        {isCubeSolved && (
+          <span
+            className="sol-cell-solved-label"
+            data-testid="steps-solved-label"
+          >
+            solved
+          </span>
+        )}
+        {isSolving && (
+          <div className="sol-loading" data-testid="solution-loading">
+            solving…
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const sizePx =
     renderMode === "dual" ? DUAL_SIZE_BY_COLS[cols] : CUBE_SIZE_BY_COLS[cols];

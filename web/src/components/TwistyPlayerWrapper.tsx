@@ -6,9 +6,15 @@
 //
 //   - "static"   : tempo-scale=0, control-panel=none, pointer-events: none.
 //                  Renders the post-(setup+alg) state as a non-interactive
-//                  3D thumbnail. Used by section iii cards (M9.2 P1+).
-//   - "animated" : default control-panel=bottom-row, normal tempo. Used by
-//                  section iv "watch the solve" (M9.2 P3).
+//                  3D thumbnail. Used by section iii cards (M9.2 P1+) and
+//                  the C·P2 cube-mode stage.
+//   - "animated" : default control-panel=bottom-row, normal tempo. No
+//                  current consumer — section iv ("watch the solve") was
+//                  deleted in M9.3 Block C C·P2 when cube + 3D mode
+//                  superseded it. Kept in place because the M9.3 Block C
+//                  C·P3 per-step animation and C·P5 auto-play features
+//                  will reuse this path (twisty-player's native playback
+//                  API drives the cube card under cube + 3D mode).
 //
 // The static-mode recipe (`experimentalSetupAlg=<scramble>` +
 // `experimentalSetupAnchor="end"` + `alg=<solution[:N]>`) displays exactly

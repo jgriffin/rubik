@@ -1,34 +1,36 @@
 import type { Cols } from "./SolutionGrid";
 
+// One segmented control wrapping both `cube` (value=1, single-cube view)
+// and the column counts 2..6 — they're mutually exclusive view layouts,
+// so they share one `.col-seg-inline` block visually.
+
 type Props = {
   value: Cols;
   onChange: (c: Cols) => void;
 };
 
-const OPTIONS: Array<{ value: Cols; disabled: boolean; reason?: string }> = [
-  { value: 1, disabled: true, reason: "single-column row layout ships in v2" },
-  { value: 2, disabled: false },
-  { value: 3, disabled: false },
-  { value: 4, disabled: false },
-  { value: 6, disabled: false },
-];
+const COL_OPTIONS: Cols[] = [2, 3, 4, 5, 6];
 
 export default function ColumnsSwitch({ value, onChange }: Props) {
   return (
     <span className="col-seg-inline" data-testid="columns-switch">
-      {OPTIONS.map((opt) => (
+      <button
+        type="button"
+        data-testid="cube-mode-button"
+        className={value === 1 ? "on" : ""}
+        onClick={() => onChange(1)}
+      >
+        cube
+      </button>
+      {COL_OPTIONS.map((n) => (
         <button
-          key={opt.value}
+          key={n}
           type="button"
-          data-testid={`columns-${opt.value}`}
-          className={value === opt.value ? "on" : ""}
-          onClick={() => {
-            if (!opt.disabled) onChange(opt.value);
-          }}
-          disabled={opt.disabled}
-          title={opt.reason}
+          data-testid={`columns-${n}`}
+          className={value === n ? "on" : ""}
+          onClick={() => onChange(n)}
         >
-          {opt.value}
+          {n}
         </button>
       ))}
     </span>
