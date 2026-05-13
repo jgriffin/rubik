@@ -37,7 +37,45 @@
   gap: 14px;
 }
 
-/* Inline segmented control (cube size, render mode, column count) ---- */
+/* Cube size switch — elegant inline serif text echoing the wordmark.
+ * Primary mode selector (2x2 vs 3x3); active shows accent, inactive
+ * shows ink. Vertical bar separates the two options. */
+.cube-size-switch {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  font-variation-settings: "opsz" 144;
+  white-space: nowrap;
+}
+.cube-size-opt {
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  margin: 0;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.cube-size-opt:hover {
+  color: var(--accent);
+}
+.cube-size-opt.on {
+  color: var(--accent);
+  font-style: italic;
+}
+.cube-size-sep {
+  color: var(--rule);
+  font-size: 22px;
+  user-select: none;
+}
+
+/* Inline segmented control (render mode, column count) ---- */
 .col-seg-inline {
   display: inline-flex;
   border: 1px solid var(--rule);
