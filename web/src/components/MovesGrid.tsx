@@ -47,6 +47,10 @@ export default function MovesGrid({
 }: Props) {
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const pendingFocusRef = useRef<number | null>(null);
+  // Distinguishes programmatic focus (auto-advance after a commit;
+  // caret-at-end) from user-initiated focus (Tab / click; select-all so
+  // Backspace deletes the whole token).
+  const programmaticFocusRef = useRef(false);
   const [, setSnapBumper] = useState(0);
 
   // Visible input cells = moves + 1 trailing empty (the "next move
@@ -57,16 +61,22 @@ export default function MovesGrid({
   const cells: string[] = [...moves, ""];
   const totalCells = cells.length + (canSolve ? 1 : 0);
 
-  // Focus the pending cell after a commit that requested it.
+  // Focus the pending cell after a commit that requested it. Sets
+  // `programmaticFocusRef` so the onFocus handler skips select-all and
+  // positions the caret at end (auto-advance pattern).
   useEffect(() => {
     if (pendingFocusRef.current !== null) {
       const idx = pendingFocusRef.current;
       pendingFocusRef.current = null;
       const el = inputRefs.current[idx];
       if (el) {
+        programmaticFocusRef.current = true;
         el.focus();
         const len = el.value.length;
         el.setSelectionRange(len, len);
+        queueMicrotask(() => {
+          programmaticFocusRef.current = false;
+        });
       }
     }
   });
@@ -196,8 +206,17 @@ export default function MovesGrid({
     commit(next, i + pasted.length);
   }
 
-  function handleFocus(i: number) {
+  function handleFocus(i: number, target: HTMLInputElement) {
     onActiveChange?.(i);
+    // User-initiated focus (Tab / click): select-all so Backspace
+    // deletes the whole token. Programmatic auto-advance focus skips
+    // this — see the useEffect that sets `programmaticFocusRef`.
+    // Clicking an already-focused cell collapses the selection to a
+    // caret (native browser behavior) — that's the path for char-level
+    // editing.
+    if (!programmaticFocusRef.current) {
+      target.select();
+    }
   }
 
   const totalRows = Math.max(1, Math.ceil(totalCells / rowSize));
@@ -263,7 +282,7 @@ export default function MovesGrid({
           onChange={(e) => handleChange(idx, e.target.value)}
           onKeyDown={(e) => handleKeyDown(idx, e)}
           onPaste={(e) => handlePaste(idx, e)}
-          onFocus={() => handleFocus(idx)}
+          onFocus={(e) => handleFocus(idx, e.currentTarget)}
           spellCheck={false}
           autoComplete="off"
           disabled={disabled}
