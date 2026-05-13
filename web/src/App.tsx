@@ -101,6 +101,17 @@ export default function App() {
     setScrambleMoves([]);
   }
 
+  function handleMovesEdit(next: MoveStr[]) {
+    // User edited section ii directly. Clear the solve verdict
+    // (`solved`/`solveStats` describe the last Solve, not a hand-typed
+    // sequence) and clamp `activeIdx` so a previously-selected late
+    // card doesn't outlive a delete.
+    setMoves(next);
+    setSolved(null);
+    setSolveStats(null);
+    setActiveIdx((i) => Math.min(i, next.length));
+  }
+
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
 
@@ -144,17 +155,23 @@ export default function App() {
       />
       <StateGrid state={scrambleState} onStateChange={handleSetState} />
 
-      {/* Section ii — moves to apply (the current scramble) */}
+      {/* Section ii — moves to apply (editable; the source of truth) */}
       <SectionHeader
         roman="ii."
         name="moves to apply"
         right={
           <span>
-            {scrambleMoves.length} {scrambleMoves.length === 1 ? "move" : "moves"}
+            {moves.length} {moves.length === 1 ? "move" : "moves"}
           </span>
         }
       />
-      <MovesGrid moves={scrambleMoves} />
+      <MovesGrid
+        moves={moves}
+        onMovesChange={handleMovesEdit}
+        activeIdx={activeIdx}
+        onActiveChange={setActiveIdx}
+        disabled={!ready || isSolving}
+      />
 
       {/* Section iii — solution (cards with column + render toggles) */}
       <SectionHeader

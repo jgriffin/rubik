@@ -310,6 +310,39 @@
   border-style: dashed;
   opacity: 0.55;
 }
+/* Editable input variant — overrides the input's user-agent chrome so
+ * it visually matches the static glyph cell, then layers focus/active
+ * states on top. */
+input.move-cell-input {
+  padding: 0;
+  outline: none;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--ink);
+  caret-color: var(--accent);
+  cursor: text;
+  user-select: text;
+  transition: border-color 0.12s, background 0.12s;
+}
+input.move-cell-input::placeholder {
+  color: var(--dim);
+}
+input.move-cell-input:focus {
+  border-color: var(--accent);
+  border-style: solid;
+  opacity: 1;
+}
+input.move-cell-input.active:not(:focus) {
+  border-color: var(--accent);
+}
+input.move-cell-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.move-cell.unused {
+  pointer-events: none;
+  visibility: hidden;
+}
 
 /* Section iii — solution grid --------------------------------------- */
 .sol-grid {
