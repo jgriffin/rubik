@@ -1,7 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
-import Cube2D from "./Cube2D";
+import CubeStage from "./CubeStage";
 import SolutionCard from "./SolutionCard";
-import TwistyPlayerWrapper from "./TwistyPlayerWrapper";
 import { applyMoves } from "../state/applyMove";
 import type { MoveStr } from "../state/faceletMoves";
 
@@ -73,44 +72,21 @@ export default function SolutionGrid({
     return out;
   }, [scrambleState, moves]);
 
-  // Cube mode (cols=1): single big card driven by activeIdx. Renders
-  // applyMoves(scrambleState, moves.slice(0, activeIdx)) — the state at
-  // the currently-active step. C·P3/4 will add per-step animation on
-  // activeIdx change; for now it's a state-snap.
+  // Cube mode (cols=1): single big card driven by activeIdx. Per-step
+  // 2D animation on forward activeIdx jumps lives in `CubeStage`.
+  // C·P4 will add the matching 3D animation.
   if (cols === 1) {
-    const clampedIdx = Math.min(Math.max(activeIdx, 0), moves.length);
-    const stateAtIdx = states[clampedIdx];
-    const solutionAlg = moves.slice(0, clampedIdx).join(" ");
     const sizePx = renderMode === "dual" ? CUBE_MODE_DUAL_SIZE : CUBE_MODE_SIZE;
-
     return (
       <div className="sol-cube-stage" data-testid="solution-grid">
-        {renderMode === "iso" ? (
-          <TwistyPlayerWrapper
-            mode="static"
-            scrambleAlg={scrambleAlg}
-            solutionAlg={solutionAlg}
-            sizePx={sizePx}
-            testId="twisty-cube"
-          />
-        ) : renderMode === "dual" ? (
-          <div className="render-pair">
-            <Cube2D
-              facelet={stateAtIdx}
-              sizePx={sizePx}
-              testId="flat-cube-pair"
-            />
-            <TwistyPlayerWrapper
-              mode="static"
-              scrambleAlg={scrambleAlg}
-              solutionAlg={solutionAlg}
-              sizePx={sizePx}
-              testId="twisty-cube-pair"
-            />
-          </div>
-        ) : (
-          <Cube2D facelet={stateAtIdx} sizePx={sizePx} testId={null} />
-        )}
+        <CubeStage
+          states={states}
+          moves={moves}
+          activeIdx={activeIdx}
+          scrambleAlg={scrambleAlg}
+          renderMode={renderMode}
+          sizePx={sizePx}
+        />
         {isCubeSolved && (
           <span
             className="sol-cell-solved-label"
