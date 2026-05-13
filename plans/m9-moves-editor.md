@@ -57,40 +57,9 @@ Original three-block plan reshaped twice mid-milestone (Block A design pivot 202
 
 [2026-05-12, branch `m9.3-block-b-move-cell-polish`, 5 work commits.] Two pillars shipped: (a) cell-mode visual differentiation via `data-cell-mode` attribute + hidden `::selection` + inset focus ring on wrapper (`:has()`); first-click reliability fixed with an `onClick`-after-mouse-chain force-select that wins the race against the browser's mouseup-drag-end. (b) Solve label promoted to a primary CTA — Fraunces 16px / weight 600 / theme-orange with `transform: scale` + `filter: brightness` press feedback (the previous orange→ink hover flip dropped because a color flip on press misrepresents the action's semantics). Codified as a `.text-action` utility class for future text-styled action surfaces. Side fix: off-by-one in the cell→card active sync — cell N corresponds to step N+1 (the state AFTER move N), now consistent with `SolutionGrid`'s step coordinates. See LOG 2026-05-12 for the full file inventory and per-phase commit list.
 
-### Block C — Cube mode: single-cube view + per-step move animation + auto-play — current
+### Block C — Cube mode: single-cube view + 2D per-step animation + auto-play ✅ done
 
-Two-step design conversation 2026-05-12/13 reshaped this block away from the original "auto-play / progression mode" framing. Stepping through cards without animation is just a re-skin of click-to-highlight; the only thing that makes this block worth doing is the animation, and animation only reads as motion when there's ONE cube to put it on. So Block C builds the single-cube view first, the animation second, and play falls out as a thin layer on top.
-
-**Locked design** (resolved during the design conversation):
-
-- **Selector restructuring.** Section iii's column-count selector becomes `cube | 2 3 4 5 6` — the word "columns" is dropped entirely; 2–6 are visually grouped in a wrapping block (mirroring scramble's pattern); `cube` sits adjacent. The 2D/3D render-mode toggle pair shifts to the left of the header.
-- **Cube mode as alternative to columns.** Selecting `cube` replaces section iii's grid with ONE big card showing the state at `activeIdx` (`applyMoves(scrambleState, moves.slice(0, activeIdx))`). 2D/3D toggle is orthogonal — cube mode supports 2D-only, 3D-only, or split. Left-aligned in the section.
-- **Section iv (M9.2 twisty-player) deleted.** Cube + 3D + animation does the same job as section iv (`activeIdx`-driven instead of independent timeline scrubber). Two surfaces doing roughly the same thing is redundant; the showcase view *is* the player.
-- **Per-step animation.** Click section-ii cell N → cube snaps to state N-1, then animates move N forward. Multi-step jumps (paste, scrub backward) → snap, no animation. 3D rides twisty-player's native playback API. 2D needs hand-rolled CSS-transform animation on the rotating face's 4 stickers (2x2 — 3x3's 9-sticker case lives in M8). 2D is the bulk of the new code; gets its own phase.
-- **Play / auto-advance.** A play control on the cube card auto-advances `activeIdx` forward at a steady cadence, each step riding the per-step animation. Cadence hardcoded in v1 (matched to animation duration); tempo slider deferred until we know we want it. Play is only present in cube mode. Typing in section ii pauses. End-of-moves: stop, don't wrap.
-
-User direction quotes (2026-05-12/13):
-
-> *"the whole step-through thing is really kind of only interesting if there's animations. Otherwise we could just go look through each of these guys… we've got the click-to-show-the-move functionality. I mean, I guess it's kind of interesting when we select a move and then we highlight the step. Maybe it's interesting to do that reset and play animation just so you can kind of see what's happening."*
->
-> *"I think we've got to go back and first add the single cube view. So there's like a single cross and whatever is shown there represents whatever is highlighted in kind of the moves to apply area or something. And therefore, stepping through it kind of has this behavior where it just has this nice animation of going through all the steps."*
->
-> *"the single cube is an alternative to having columns and I don't even think column 1 is interesting. I say we just pull it out… 2D, 3D toggles, which let's shift those to the left. And then there are choices between single or columns 2 through 6… let's take out the word columns and we know that one applies to this single cube thing. And that two, three, four, five, six kind of implicitly go into this column mode."*
->
-> *"the single or the number one with both 2D and 3D showing all the animated moves is a particularly compelling view that maybe is kind of our real, one of our main views. It just looks cool if nothing else."*
->
-> *"we don't need this section 4. It falls below the fold anyways and like you're saying it's really the single 3D mode anyways. I don't love the word 'single', we can call it either 'cube' or '1'"*
-
-Phases (each = one atomic commit):
-- **C·P0** — Open LOG block + this plan refresh.
-- **C·P1** — Selector restructuring (`cube | 2 3 4 5 6`); drop "columns" word; visually group 2–6; shift 2D/3D toggles left. Clicking `cube` is wired but does nothing yet.
-- **C·P2** — Wire cube mode: section iii renders the single big card from `activeIdx`. Delete section iv. No animation yet — snap on activeIdx change.
-- **C·P3** — 3D per-step animation via twisty-player's native playback. Forward-by-1 → snap to N-1, animate move N. Multi-step / backward → snap.
-- **C·P4** — 2D per-step animation: CSS transform on the rotating face's 4 stickers. Match easing duration with 3D for split-mode sync. The animation-heavy phase.
-- **C·P5** — Play/pause control on the cube card. Hardcoded cadence; typing pauses; end-of-moves stops.
-- **C·P6** — Eyeball + close.
-
-**Eyeball gate.** Section iii header reads `2D 3D │ cube 2 3 4 5 6` (or similar) — no word "columns". Click `cube` → section iii collapses from N cards into ONE big card showing the current state. Section iv is gone. Toggle 2D/3D → card swaps render mode (split shows both). Click section-ii cell 3 → cube snaps to state-after-move-2, then animates move 3 forward; lands at state-after-move-3. Click cell 1 → backward jump, snap (no animation). Click Play → cube auto-advances cell-by-cell at a steady cadence with the per-step animation between each; stops at the trailing cell. Type a new move in any cell mid-play → play pauses. Switch back to `5` (columns) → grid returns, play control gone, section iv stays gone (deleted, not hidden).
+[2026-05-13, branch `m9.3-block-c-cube-mode`, 6 work commits.] Cube-mode rendering shipped with 2D per-step animation on forward `activeIdx` jumps + auto-play that advances `activeIdx` at a 500ms cadence riding the per-step animations. New `CubeStage` component owns cube-mode rendering; `SolutionGrid` early-returns to it for `cols===1`. Section iii's selector restructured to `2D 3D | cube | 2 3 4 5 6` (the word "columns" dropped, "1" replaced with `cube`, "5" added). Section iv (the M9.2 "watch the solve" twisty-player strip) deleted — cube mode supersedes its job. **C·P4 (3D per-step animation via twisty-player's native playback) descoped** mid-block per user direction "right now, lets just focus on the 2d step animations"; deferred to a future block, not blocking the M9.3 milestone arc. **Design pivot at C·P5 close**: C·P5's play button placement on the cube card itself was reshaped at the would-be eyeball — user wants section ii to be THE navigation/transport surface for the trajectory, not the cube card. Block D (about to open) picks up the relocation. See LOG 2026-05-13 for the full file inventory, per-phase commits, and load-bearing decisions.
 
 ### Block D — Auto-scramble + sharable URL + Block-A cleanup deferrals (planned)
 
@@ -101,6 +70,8 @@ The original "Block B — auto-scramble + auto-solve" plus the items that fell o
 - Reverse active-state sync: card click → cell focus (today only cell → card works one-way).
 - Card animation on cell click (imperative hook into the per-card sequence's `replayWithReverse`).
 - RTL test backfill for the edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
+
+> Note 2026-05-13: a new block-D will be inserted ahead of this one when the next block opens — "section ii as navigation/transport: start cell + play migration + cube-card press-and-hold" — pushing this block to E (and the existing Block E to F). The renumbering happens at the next block's D·P0 opener, not here.
 
 ### Block E — Mobile + keyboard shortcuts (planned, M9.3-closing)
 
