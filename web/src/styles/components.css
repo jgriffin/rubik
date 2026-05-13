@@ -392,16 +392,31 @@ input.move-cell-input:disabled {
  * attribute on the focused input from a global selectionchange listener
  * in MovesGrid. Full-selection / empty-cell = cell mode; collapsed or
  * partial selection = text mode. In cell mode we hide the browser's
- * inner text-selection rendering (the visual cue becomes the inset
- * focus ring below) and signal keyboard-focus mode via the ring. In
- * text mode none of these rules apply, so normal browser caret +
- * drag-select painting takes over. */
+ * inner text-selection rendering AND the blinking caret (keyboard-nav
+ * mode shouldn't show an insertion point) and signal keyboard-focus
+ * via an inset accent ring. In text mode none of these rules apply,
+ * so normal browser caret + drag-select painting takes over. */
 input.move-cell-input[data-cell-mode="true"]:focus::selection {
   background: transparent;
   color: inherit;
 }
 input.move-cell-input[data-cell-mode="true"]:focus {
   box-shadow: inset 0 0 0 2px var(--accent);
+  caret-color: transparent;
+}
+/* Trailing cell variant — the wrapper owns the cell's full height (the
+ * input only fills the top portion; the bottom holds the solve/solved
+ * label). Put the ring on the wrapper so it spans the whole cell, and
+ * suppress the input's own ring. Also lift wrapper opacity (`.empty`
+ * fades it to 0.55) so the focus ring and content read at full strength. */
+input.move-cell-input.move-cell-input-trailing[data-cell-mode="true"]:focus {
+  box-shadow: none;
+}
+.move-cell-trailing-wrap:has(input.move-cell-input[data-cell-mode="true"]:focus) {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  opacity: 1;
+  border-color: var(--accent);
+  border-style: solid;
 }
 .move-cell.unused {
   pointer-events: none;
