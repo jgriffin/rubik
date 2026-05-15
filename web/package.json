@@ -12,12 +12,13 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:real": "PLAYWRIGHT_REAL_BACKEND=1 playwright test",
-    "models:sync": "bash scripts/syncModel.sh",
+    "models:sync": "bash scripts/syncModel.sh && bash scripts/syncOrt.sh",
     "predev": "pnpm models:sync",
     "prebuild": "pnpm models:sync"
   },
   "dependencies": {
     "cubing": "^0.63.3",
+    "onnxruntime-web": "^1.26.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
