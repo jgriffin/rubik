@@ -70,6 +70,24 @@ Surfaced: 2026-05-08
 The "beam" part of the eval tooling is implicit now — solve-time beam search is the only eval shape we use. Rename the user-facing surface: `scripts/beam_eval_run.py` → `scripts/eval_run.py`, `scripts/beam_eval_model.py` → `scripts/eval_model.py`, `scripts/beam_eval_sweep.py` → `scripts/eval_sweep.py`, `scripts/render_beam_eval_report.py` → `scripts/render_eval_report.py`, `<run-dir>/results/beam_eval_<config>.jsonl` → `<run-dir>/results/eval_<config>.jsonl`, ditto `eval_trajectory_<config>.html`. Migration path: keep the old filenames as a back-compat read-fallback in the renderer for one cycle, then drop. Touches LOG.md historical references too — leave those as-is (pre-rename context).
 Surfaced: 2026-05-08
 
+### M9.3 deferred: auto-scramble + sharable URL + remaining moves-editor polish
+Was the originally-planned Block E of M9.3 (auto-scramble + URL + cleanups). Deferred 2026-05-14 to close M9.3 on Block E (cube-card press-and-hold). Scope:
+- Auto-scramble on mount when no URL state present.
+- Sharable state URL — scramble + moves serialized to URL params; restore on load.
+- Reverse active-state sync (card click → cell focus; today only cell → card works one-way).
+- Card animation on cell click (hook into per-card sequence's `replayWithReverse`).
+- RTL test backfill for the M9.3 edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
+- Drive-by: delete unused `SolveButton.tsx` (~20 lines).
+Surfaced: 2026-05-14
+
+### M9.3 deferred: 3D per-step animation via twisty-player
+Originally Block C·P4 of M9.3, descoped mid-block ("right now, lets just focus on the 2d step animations"), carried forward through Blocks D and E. Research twisty-player's native playback API for "play move N from state N-1 without rebuilding the player." Once landed, the Block E press-and-hold gesture extends to 3D mode too.
+Surfaced: 2026-05-14
+
+### M9.3 deferred: mobile responsiveness + keyboard shortcuts
+Was the originally-planned Block F of M9.3 (final polish). Deferred 2026-05-14 to close M9.3 on press-and-hold. Per-cell input grid + 3D view need a mobile pass. Keyboard shortcuts: Cmd-K to focus first empty cell, Enter-to-solve, Shift-Enter for scramble. Final UAT pass.
+Surfaced: 2026-05-14
+
 ### M9 backlog: palette picker UI + chromePalette preset
 The palette-unification block on 2026-05-10 retired the chrome palette from the active surface (matching cubing.js stock so 2D + 3D unify) but preserved it as `chromePalette` in `web/src/components/palettes.ts` alongside the active `wcaPalette`. The picker work: a small dropdown / segmented switch in the section iii or header chrome that swaps the active palette by name, plus a thin React context so `FlatCubeRenderer` reads the current palette instead of importing `COLOR_FOR_LETTER` directly. Twisty-player can't follow until cubing.js lands `TwistyPlayerConfig.faceColors` upstream — once the picker exists, "wca" is the only setting that keeps 2D + 3D matched; "chrome" (or any other preset) re-introduces the divergence we explicitly chose to remove. Decide picker UX with that asymmetry in mind.
 Surfaced: 2026-05-10
