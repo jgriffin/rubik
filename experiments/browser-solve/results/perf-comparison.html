@@ -16,15 +16,15 @@
 </head>
 <body>
 <h1>M11 Block D — 3x3 solve latency: FastAPI/MPS vs ONNX/WebGPU vs ONNX/WASM</h1>
-<div class="meta">generated 2026-05-15 22:23 UTC · N=10 corpus rows × widths {32, 64, 128, 256} × 3 solvers</div>
+<div class="meta">generated 2026-05-15 22:36 UTC · N=10 corpus rows × widths {32, 64, 128, 256} × 3 solvers</div>
 <svg viewBox="0 0 760 460" width="760" height="460" xmlns="http://www.w3.org/2000/svg" style="display:block;max-width:100%;height:auto;"><rect x="0" y="0" width="760" height="460" fill="white" />
 <rect x="70" y="40" width="660" height="360" fill="none" stroke="#333" stroke-width="1" />
-<line x1="70" y1="340.3" x2="730" y2="340.3" stroke="#ddd" stroke-width="0.5" />
-<text x="62" y="344.3" text-anchor="end" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">100</text>
-<line x1="70" y1="225.2" x2="730" y2="225.2" stroke="#ddd" stroke-width="0.5" />
-<text x="62" y="229.2" text-anchor="end" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">1k</text>
-<line x1="70" y1="110.0" x2="730" y2="110.0" stroke="#ddd" stroke-width="0.5" />
-<text x="62" y="114.0" text-anchor="end" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">10k</text>
+<line x1="70" y1="340.4" x2="730" y2="340.4" stroke="#ddd" stroke-width="0.5" />
+<text x="62" y="344.4" text-anchor="end" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">100</text>
+<line x1="70" y1="225.4" x2="730" y2="225.4" stroke="#ddd" stroke-width="0.5" />
+<text x="62" y="229.4" text-anchor="end" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">1k</text>
+<line x1="70" y1="110.4" x2="730" y2="110.4" stroke="#ddd" stroke-width="0.5" />
+<text x="62" y="114.4" text-anchor="end" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">10k</text>
 <line x1="108.8" y1="40" x2="108.8" y2="400" stroke="#ddd" stroke-width="0.5" />
 <text x="108.8" y="418" text-anchor="middle" font-size="11" fill="#444" font-family="ui-monospace, Menlo, monospace">32</text>
 <line x1="302.9" y1="40" x2="302.9" y2="400" stroke="#ddd" stroke-width="0.5" />
@@ -36,18 +36,24 @@
 <text x="400.0" y="442" text-anchor="middle" font-size="12" fill="#222">beam width (log₂)</text>
 <text x="18" y="220.0" text-anchor="middle" font-size="12" fill="#222" transform="rotate(-90 18 220.0)">median wall (ms, log₁₀)</text>
 <text x="400.0" y="22" text-anchor="middle" font-size="14" fill="#111" font-weight="600">M11 Block D — 3x3 solve latency vs beam width</text>
-<path d="M 108.8 359.5 L 302.9 342.8 L 497.1 320.7 L 691.2 295.1 L 691.2 326.4 L 497.1 351.5 L 302.9 371.3 L 108.8 388.8 Z" fill="#1f77b4" fill-opacity="0.12" stroke="none" />
-<path d="M 108.8 382.0 L 302.9 365.0 L 497.1 344.0 L 691.2 318.1" fill="none" stroke="#1f77b4" stroke-width="2" />
+<path d="M 108.8 359.6 L 302.9 342.9 L 497.1 320.8 L 691.2 295.2 L 691.2 326.5 L 497.1 351.5 L 302.9 371.4 L 108.8 388.9 Z" fill="#1f77b4" fill-opacity="0.12" stroke="none" />
+<path d="M 108.8 382.0 L 302.9 365.1 L 497.1 344.0 L 691.2 318.2" fill="none" stroke="#1f77b4" stroke-width="2" />
 <circle cx="108.8" cy="382.0" r="4" fill="#1f77b4" />
-<circle cx="302.9" cy="365.0" r="4" fill="#1f77b4" />
+<circle cx="302.9" cy="365.1" r="4" fill="#1f77b4" />
 <circle cx="497.1" cy="344.0" r="4" fill="#1f77b4" />
-<circle cx="691.2" cy="318.1" r="4" fill="#1f77b4" />
-<path d="M 108.8 153.0 L 302.9 118.4 L 497.1 85.9 L 691.2 49.1 L 691.2 83.9 L 497.1 120.1 L 302.9 155.8 L 108.8 189.9 Z" fill="#2ca02c" fill-opacity="0.12" stroke="none" />
-<path d="M 108.8 181.9 L 302.9 146.8 L 497.1 111.2 L 691.2 75.5" fill="none" stroke="#2ca02c" stroke-width="2" />
-<circle cx="108.8" cy="181.9" r="4" fill="#2ca02c" />
-<circle cx="302.9" cy="146.8" r="4" fill="#2ca02c" />
-<circle cx="497.1" cy="111.2" r="4" fill="#2ca02c" />
-<circle cx="691.2" cy="75.5" r="4" fill="#2ca02c" />
+<circle cx="691.2" cy="318.2" r="4" fill="#1f77b4" />
+<path d="M 108.8 295.0 L 302.9 271.0 L 497.1 246.5 L 691.2 212.6 L 691.2 247.4 L 497.1 280.8 L 302.9 312.8 L 108.8 341.9 Z" fill="#2ca02c" fill-opacity="0.12" stroke="none" />
+<path d="M 108.8 332.6 L 302.9 303.7 L 497.1 271.9 L 691.2 238.1" fill="none" stroke="#2ca02c" stroke-width="2" />
+<circle cx="108.8" cy="332.6" r="4" fill="#2ca02c" />
+<circle cx="302.9" cy="303.7" r="4" fill="#2ca02c" />
+<circle cx="497.1" cy="271.9" r="4" fill="#2ca02c" />
+<circle cx="691.2" cy="238.1" r="4" fill="#2ca02c" />
+<path d="M 108.8 150.7 L 302.9 116.7 L 497.1 83.3 L 691.2 49.1 L 691.2 84.5 L 497.1 117.8 L 302.9 153.4 L 108.8 188.1 Z" fill="#d62728" fill-opacity="0.12" stroke="none" />
+<path d="M 108.8 178.9 L 302.9 144.5 L 497.1 108.6 L 691.2 75.4" fill="none" stroke="#d62728" stroke-width="2" />
+<circle cx="108.8" cy="178.9" r="4" fill="#d62728" />
+<circle cx="302.9" cy="144.5" r="4" fill="#d62728" />
+<circle cx="497.1" cy="108.6" r="4" fill="#d62728" />
+<circle cx="691.2" cy="75.4" r="4" fill="#d62728" />
 <rect x="542" y="43" width="186" height="62" fill="white" fill-opacity="0.85" stroke="#ccc" stroke-width="0.5" />
 <rect x="550" y="49" width="14" height="3" fill="#1f77b4" />
 <circle cx="557" cy="50.5" r="3" fill="#1f77b4" />
@@ -64,7 +70,7 @@
     <tr><th>solver</th><th>width</th><th>n</th><th>median</th><th>p10</th><th>p90</th></tr>
   </thead>
   <tbody>
-    <tr><td>FastAPI / MPS</td><td>32</td><td>10</td><td>44</td><td>38</td><td>68</td></tr><tr><td>FastAPI / MPS</td><td>64</td><td>10</td><td>61</td><td>54</td><td>95</td></tr><tr><td>FastAPI / MPS</td><td>128</td><td>10</td><td>93</td><td>80</td><td>148</td></tr><tr><td>FastAPI / MPS</td><td>256</td><td>10</td><td>156</td><td>132</td><td>247</td></tr><tr><td>ONNX / WebGPU</td><td>32</td><td>10</td><td>2376</td><td>2027</td><td>4237</td></tr><tr><td>ONNX / WebGPU</td><td>64</td><td>10</td><td>4798</td><td>4008</td><td>8467</td></tr><tr><td>ONNX / WebGPU</td><td>128</td><td>10</td><td>9768</td><td>8182</td><td>16196</td></tr><tr><td>ONNX / WebGPU</td><td>256</td><td>10</td><td>19974</td><td>16857</td><td>33820</td></tr><tr><td>ONNX / WASM</td><td>32</td><td>1</td><td>2487</td><td>2487</td><td>2487</td></tr><tr><td>ONNX / WASM</td><td>64</td><td>—</td><td>—</td><td>—</td><td>—</td></tr><tr><td>ONNX / WASM</td><td>128</td><td>—</td><td>—</td><td>—</td><td>—</td></tr><tr><td>ONNX / WASM</td><td>256</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td>FastAPI / MPS</td><td>32</td><td>10</td><td>44</td><td>38</td><td>68</td></tr><tr><td>FastAPI / MPS</td><td>64</td><td>10</td><td>61</td><td>54</td><td>95</td></tr><tr><td>FastAPI / MPS</td><td>128</td><td>10</td><td>93</td><td>80</td><td>148</td></tr><tr><td>FastAPI / MPS</td><td>256</td><td>10</td><td>156</td><td>132</td><td>247</td></tr><tr><td>ONNX / WebGPU</td><td>32</td><td>10</td><td>117</td><td>97</td><td>248</td></tr><tr><td>ONNX / WebGPU</td><td>64</td><td>10</td><td>208</td><td>174</td><td>401</td></tr><tr><td>ONNX / WebGPU</td><td>128</td><td>10</td><td>394</td><td>330</td><td>655</td></tr><tr><td>ONNX / WebGPU</td><td>256</td><td>10</td><td>775</td><td>644</td><td>1294</td></tr><tr><td>ONNX / WASM</td><td>32</td><td>10</td><td>2540</td><td>2111</td><td>4468</td></tr><tr><td>ONNX / WASM</td><td>64</td><td>10</td><td>5056</td><td>4232</td><td>8815</td></tr><tr><td>ONNX / WASM</td><td>128</td><td>10</td><td>10380</td><td>8620</td><td>17230</td></tr><tr><td>ONNX / WASM</td><td>256</td><td>10</td><td>20178</td><td>16821</td><td>34139</td></tr>
   </tbody>
 </table>
 <p class="meta">Read <code>results.md</code> for run conditions + speedup ratios; <code>../intuition.md</code> for hypotheses.</p>
