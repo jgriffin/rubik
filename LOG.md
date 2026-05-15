@@ -4,6 +4,22 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-15 — M11 Block A: ONNX export + Python-side parity gate 🟡 in-progress
+**Goal:** Export the current 3x3 champion ValueNet (`experiments/davi-3x3/runs/20260508T084940Z_ln_kmax30_100k/net_final.pt`) to ONNX and prove numerical equivalence against the PyTorch forward on a state corpus. First block of M11 — opens the milestone toward a browser-side solver via `onnxruntime-web` running behind a `Solver` abstraction with a UI toggle vs the existing FastAPI/MPS path.
+**Milestone:** First block of M11 ([plan](plans/m11-onnx-browser.md)). Branch `m11-block-a-onnx-export` off main HEAD `f35e0bd` (M9.3 Block E merge).
+**Approach:** Three phases, each = one atomic commit.
+- **A·P0 — Open LOG block + write milestone plan + ROADMAP update.** This entry + `plans/m11-onnx-browser.md` (milestone scope, locked decisions, phases A–E, repo layout) + ROADMAP insertion of M11 between M9 (done) and M10 (stretch).
+- **A·P1 — Export script + parity test.** Add `onnx` + `onnxruntime` to dev deps via `uv add --dev`. `scripts/export_onnx_3x3.py` loads the champion `.pt`, calls `torch.onnx.export(...)` with dynamic batch dim, writes `<run-dir>/net_final.onnx`. `tests/onnx_parity_test_3x3.py` loads both the PyTorch model and the `.onnx` via `onnxruntime` (CPU EP), feeds N=1000 random states, asserts `max|Δ|` and `mean|Δ|` within tight tolerance. Record file size, opset, and parity numbers for the close.
+- **A·P2 — Eyeball + close + merge.** Run the parity test green; capture the empirical numbers (file size, opset, max delta, mean delta); close LOG block with Outcome + Commits; merge to main with `--no-ff`.
+
+**Eyeball gate.** `uv run python scripts/export_onnx_3x3.py` writes a `.onnx` file next to the champion `.pt`. `uv run pytest tests/onnx_parity_test_3x3.py -v` passes. Numerical delta tolerance to be set empirically in A·P1 — target `max|Δ| < 1e-4` as a starting bar; loosen with rationale if FP precision drift makes that too tight, tighten if outputs are essentially identical.
+
+**Phase A scope note.** Block A is intentionally Python-only. No JS, no browser, no beam-search changes. The output is a portable `.onnx` file that's known-equivalent to the PyTorch forward. Block B (TypeScript beam-search port) and Block C (`Solver` abstraction + browser wiring + UI toggle) are downstream, each their own block.
+
+**Next:** A·P1 — write the export script + parity test, run, capture results.
+**In progress:**
+- A·P0 ✅ (pending commit) — LOG opener + `plans/m11-onnx-browser.md` + ROADMAP M11 entry.
+
 ## 2026-05-14 — Block E: cube-card press-and-hold rewind/release (M9.3-closing) ✅ done — Cube-mode 2D cube now hosts the M9.2 press-and-hold gesture (pointerdown reverses to state[activeIdx-1] and holds; release plays forward back). `CubeStage`'s manual-mode `ManualAnim` restructured from `{snap, forward, backward}` to `{snap, playForward, primed}` so the seq stays in forward-form at rest; standalone backward animation dropped (press-and-hold is the reverse-animation primitive now). `useLayoutEffect` decides between `seq.play()` and `seq.seek(totalDurationMs)` so primed-state seq rebuilds (backward clicks, initial mount with activeIdx > 0) don't flash startFacelet before settling at end. State transitions converted to "store info from prior renders" pattern to satisfy `react-hooks/set-state-in-effect`. M9.3 closes with this block; M9 closes with M9.3.
 **Goal:** Port the M9.2 `SolutionCard` press-and-hold gesture (pointerdown rewinds-and-holds; release plays forward) to the cube-mode single big cube card, 2D only. Originally Block D·P3, deferred when Block D's scope narrowed to section ii navigation + play/pause migration + single-sequence flash fix. Closes M9.3 and therefore M9.
 **Milestone:** Closing block of M9.3 ([plan](plans/m9-moves-editor.md)). Originally-planned Blocks E (auto-scramble + URL + cleanups) and F (mobile + keyboard) deferred to ROADMAP backlog 2026-05-14. Branch `m9.3-block-e-press-and-hold` off main HEAD `c5a4143` (Block D merge).
