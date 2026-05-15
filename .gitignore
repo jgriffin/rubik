@@ -74,6 +74,9 @@ experiments/*/cache/
 
 # Project: cached ground-truth artifacts (V* table, etc.)
 data/
+# M11 Block B parity corpus: small, deterministic reference for the Node
+# parity gate. Lives under tests/data/ so it ships with the repo.
+!tests/data/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -86,6 +89,10 @@ web/node_modules
 web/dist
 web/playwright-report
 web/test-results
+
+# M11 Block B: parity-report.json is regenerable from the corpus + ONNX,
+# the corpus itself (tests/data/m11_parity_corpus_3x3.json) is checked in.
+web/scripts/parity-report.json
 
 # Local dev runtime (bin/site)
 .dev/
