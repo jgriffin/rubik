@@ -11,7 +11,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:real": "PLAYWRIGHT_REAL_BACKEND=1 playwright test"
+    "test:e2e:real": "PLAYWRIGHT_REAL_BACKEND=1 playwright test",
+    "models:sync": "bash scripts/syncModel.sh",
+    "predev": "pnpm models:sync",
+    "prebuild": "pnpm models:sync"
   },
   "dependencies": {
     "cubing": "^0.63.3",

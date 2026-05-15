@@ -2,6 +2,10 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Staged model artifacts (sourced from experiments/davi-3x3/runs/...) —
+# 61 MB blob; never committed. Re-staged via `pnpm models:sync`.
+public/models/
 playwright-report
 test-results
 .playwright

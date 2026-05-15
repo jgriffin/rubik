@@ -12,7 +12,8 @@ import ColumnsSwitch from "./components/ColumnsSwitch";
 import PlayPauseButton from "./components/PlayPauseButton";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
-import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
+import { apiHealth, apiScramble, type Health, type SolveStats } from "./api/client";
+import { ApiSolver } from "./solver/ApiSolver";
 
 const SOLVED_3X3 =
   "U".repeat(9) +
@@ -56,6 +57,13 @@ export default function App() {
   // produced as a visible flicker.
   const [isPlaying, setIsPlaying] = useState(false);
 
+  // Active solver — for P1 always ApiSolver. P3 will add a SolverSwitch +
+  // OnnxSolver alternative behind the same interface.
+  const solver = useMemo(
+    () => new ApiSolver(health?.model_path ?? null),
+    [health?.model_path],
+  );
+
   useEffect(() => {
     apiHealth()
       .then(setHealth)
@@ -94,7 +102,7 @@ export default function App() {
     setIsSolving(true);
     const stateAtSolve = applyMoves(scrambleState, moves);
     try {
-      const r = await apiSolve({ state: stateAtSolve });
+      const r = await solver.solve({ state: stateAtSolve });
       const newMoves = r.moves as MoveStr[];
       setMoves((prev) => [...prev, ...newMoves]);
       setSolved(r.solved);
