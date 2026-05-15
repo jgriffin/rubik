@@ -18,7 +18,7 @@ ahead, `SPEC.md` for the full project spec. Process docs at
 
 **Next:** A·P1 — write the export script + parity test, run, capture results.
 **In progress:**
-- A·P0 ✅ (pending commit) — LOG opener + `plans/m11-onnx-browser.md` + ROADMAP M11 entry.
+- A·P0 ✅ (`abc5931`) — LOG opener + `plans/m11-onnx-browser.md` + ROADMAP M11 entry.
 
 ## 2026-05-14 — Block E: cube-card press-and-hold rewind/release (M9.3-closing) ✅ done — Cube-mode 2D cube now hosts the M9.2 press-and-hold gesture (pointerdown reverses to state[activeIdx-1] and holds; release plays forward back). `CubeStage`'s manual-mode `ManualAnim` restructured from `{snap, forward, backward}` to `{snap, playForward, primed}` so the seq stays in forward-form at rest; standalone backward animation dropped (press-and-hold is the reverse-animation primitive now). `useLayoutEffect` decides between `seq.play()` and `seq.seek(totalDurationMs)` so primed-state seq rebuilds (backward clicks, initial mount with activeIdx > 0) don't flash startFacelet before settling at end. State transitions converted to "store info from prior renders" pattern to satisfy `react-hooks/set-state-in-effect`. M9.3 closes with this block; M9 closes with M9.3.
 **Goal:** Port the M9.2 `SolutionCard` press-and-hold gesture (pointerdown rewinds-and-holds; release plays forward) to the cube-mode single big cube card, 2D only. Originally Block D·P3, deferred when Block D's scope narrowed to section ii navigation + play/pause migration + single-sequence flash fix. Closes M9.3 and therefore M9.
