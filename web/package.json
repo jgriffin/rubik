@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:real": "PLAYWRIGHT_REAL_BACKEND=1 playwright test",
-    "models:sync": "bash scripts/syncModel.sh && bash scripts/syncOrt.sh",
+    "models:sync": "bash scripts/syncModel.sh",
     "predev": "pnpm models:sync",
     "prebuild": "pnpm models:sync"
   },
@@ -38,6 +38,7 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
+    "vite-plugin-static-copy": "^4.1.0",
     "vitest": "^4.1.5"
   }
 }

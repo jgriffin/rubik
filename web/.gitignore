@@ -6,10 +6,6 @@ dist-ssr
 # Staged model artifacts (sourced from experiments/davi-3x3/runs/...) —
 # 61 MB blob; never committed. Re-staged via `pnpm models:sync`.
 public/models/
-# Staged onnxruntime-web runtime assets (.wasm + .mjs workers) — copied
-# from node_modules on `pnpm models:sync`; downstream of `pnpm install`,
-# not source.
-public/ort/
 playwright-report
 test-results
 .playwright
