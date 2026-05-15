@@ -9,6 +9,7 @@ import MovesGrid from "./components/MovesGrid";
 import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionGrid";
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
+import PlayPauseButton from "./components/PlayPauseButton";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
@@ -248,8 +249,6 @@ export default function App() {
         canSolve={canSolve}
         isCubeSolved={isCubeSolved}
         isStartSolved={isStartSolved}
-        isPlaying={isPlaying}
-        onTogglePlay={handleTogglePlay}
         onSolve={handleSolve}
         isSolving={isSolving}
         disabled={!ready || isSolving}
@@ -267,6 +266,12 @@ export default function App() {
         name="steps"
         right={
           <>
+            <PlayPauseButton
+              isPlaying={isPlaying}
+              onToggle={handleTogglePlay}
+              disabled={!ready || isSolving || moves.length === 0}
+            />
+            <span className="scramble-divider" />
             <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
             <ColumnsSwitch value={cols} onChange={setCols} />
           </>

@@ -1,29 +1,25 @@
 // CubeStage — single-cube view for `cube` mode (cols=1).
 //
 // Renders one big cube (2D, 3D, or split) whose displayed state is
-// driven by `activeIdx` from the editor. On a forward `activeIdx`
-// jump (user clicks a later cell, or the moves array grows, or App's
-// auto-play timer advances activeIdx), the 2D path animates the move
-// that lands on the new state: snaps the cube to state[activeIdx-1],
-// plays move[activeIdx-1] forward, lands at state[activeIdx]. Backward
-// or same jumps snap with no animation.
+// driven by `activeIdx` from the editor. On an `activeIdx` change of
+// ±1 (user click, arrow-key nav, or App's auto-play timer), the 2D
+// path animates the single move that bridges the two states:
+//   - Forward jump (idx grows): snap to state[newIdx-1], animate
+//     move[newIdx-1] forward, land at state[newIdx].
+//   - Backward jump (idx shrinks): snap to state[newIdx+1], animate
+//     inverse(move[newIdx]) forward, land at state[newIdx].
+// Multi-step jumps of either direction follow the same shape — snap
+// to the adjacent state, animate the single inverse-or-forward move.
 //
 // Animation lives on the 2D path only — `Cube2D` already owns the
 // per-move SVG kinematics via `CubeSequence` + `useCubeSequence`. The
 // 3D path stays static; per-step 3D animation via `<twisty-player>`'s
 // native playback is deferred.
 //
-// Forward-jump-of-any-size policy: clicking cell 5 from cell 2 still
-// animates move 5 only (skips through state[3], state[4] visually —
-// snaps to state[4] and plays move 5). The auto-play timer (in App)
-// advances strictly +1 per tick so chained multi-move playback is the
-// natural side effect of that cadence riding this animation.
-//
-// Play/pause control: the button itself lives in MovesGrid's leading
-// [start] cell (section ii is the trajectory's transport surface). App
-// owns `isPlaying` state and the auto-advance timer; CubeStage only
-// reads activeIdx and animates the per-step move. Decoupling state
-// (App) from animation (here) keeps section ii authoritative.
+// Play/pause: App owns `isPlaying` and the auto-advance timer. The
+// button itself lives in section iii's header next to the render-mode
+// and view-layout switches. CubeStage just reads activeIdx and animates
+// — playback ownership stays decoupled from animation primitives.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Cube2D from "./Cube2D";
@@ -42,6 +38,24 @@ type Props = {
   sizePx: number;
 };
 
+// Inverse of a QTM move (R ↔ R', U ↔ U', …). Used when activeIdx steps
+// backward — we feed the kinematics engine the inverse and play it
+// forward, so state[N] → inverse(move[N-1]) → state[N-1] runs through
+// the same animation primitive as the forward path. Keeps the inverse
+// logic local to where it's consumed; M9.3 is QTM-only so a one-liner
+// suffices.
+function inverseMove(m: MoveStr): MoveStr {
+  return (m.endsWith("'") ? (m.slice(0, -1) as MoveStr) : (`${m}'` as MoveStr));
+}
+
+// AnimSpec captures everything needed to animate a single step in
+// either direction. `null` means snap (no animation needed). Tracked
+// in component state so the spec survives renders triggered by
+// unrelated props until the animation completes.
+type AnimSpec =
+  | { dir: "forward"; landIdx: number }
+  | { dir: "backward"; landIdx: number };
+
 export default function CubeStage({
   states,
   moves,
@@ -50,30 +64,36 @@ export default function CubeStage({
   renderMode,
   sizePx,
 }: Props) {
-  // `animIdx` = the activeIdx of the currently-animating move (i.e. the
-  // step the animation lands on), or null when not animating. Decoupled
-  // from `activeIdx` so animations survive subsequent ref updates.
-  const [animIdx, setAnimIdx] = useState<number | null>(null);
+  // The active animation, or null when idle. Decoupled from `activeIdx`
+  // so the animation isn't torn down by unrelated state updates.
+  const [animSpec, setAnimSpec] = useState<AnimSpec | null>(null);
   const prevActiveIdxRef = useRef(activeIdx);
 
   useEffect(() => {
     const prev = prevActiveIdxRef.current;
-    // Forward jump → animate the move that lands at the new activeIdx.
-    // Backward / no-change → snap (clear any in-flight animation).
-    if (activeIdx > prev && activeIdx > 0 && activeIdx <= moves.length) {
-      setAnimIdx(activeIdx);
-    } else if (activeIdx !== prev) {
-      setAnimIdx(null);
-    }
     prevActiveIdxRef.current = activeIdx;
+    if (activeIdx === prev) return;
+
+    if (activeIdx > prev && activeIdx > 0 && activeIdx <= moves.length) {
+      // Forward (any step size). Animate the move landing at activeIdx.
+      setAnimSpec({ dir: "forward", landIdx: activeIdx });
+    } else if (activeIdx < prev && activeIdx >= 0 && activeIdx < moves.length) {
+      // Backward (any step size). Animate inverse(move[activeIdx])
+      // from state[activeIdx+1] → state[activeIdx]. The inverse runs
+      // forward through the same animation primitive.
+      setAnimSpec({ dir: "backward", landIdx: activeIdx });
+    } else {
+      setAnimSpec(null);
+    }
   }, [activeIdx, moves.length]);
 
   // Spec the sequence consumes. Animating branch: single-move spec
-  // (state[idx-1] → state[idx]). Snap branch: empty-moves spec which
-  // Cube2D's animated path silently falls back to static rendering of
-  // startFacelet for, so we don't have to flip modes at the call site.
+  // (forward = move[landIdx-1] from state[landIdx-1]; backward =
+  // inverse(move[landIdx]) from state[landIdx+1]). Snap branch:
+  // empty-moves spec — Cube2D's animated path silently renders
+  // startFacelet statically, so we don't flip modes at the call site.
   const spec = useMemo(() => {
-    if (animIdx == null || animIdx <= 0 || animIdx > moves.length) {
+    if (animSpec == null) {
       const idx = Math.max(0, Math.min(activeIdx, states.length - 1));
       return {
         startFacelet: states[idx],
@@ -81,12 +101,22 @@ export default function CubeStage({
         msPerMove: ANIM_MS_PER_MOVE,
       };
     }
+    if (animSpec.dir === "forward") {
+      const i = animSpec.landIdx;
+      return {
+        startFacelet: states[i - 1],
+        moves: [moves[i - 1]],
+        msPerMove: ANIM_MS_PER_MOVE,
+      };
+    }
+    // backward
+    const i = animSpec.landIdx;
     return {
-      startFacelet: states[animIdx - 1],
-      moves: [moves[animIdx - 1]],
+      startFacelet: states[i + 1],
+      moves: [inverseMove(moves[i])],
       msPerMove: ANIM_MS_PER_MOVE,
     };
-  }, [animIdx, activeIdx, states, moves]);
+  }, [animSpec, activeIdx, states, moves]);
 
   const seq = useCubeSequence(spec);
 

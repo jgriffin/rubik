@@ -138,11 +138,21 @@
   gap: 8px;
 }
 
+/* Section iii's play/pause control. Sits at the left of the right-aligned
+   header group, next to the render-mode + view-layout switches. Inherits
+   .text-action typography (Fraunces 16/600 orange); min-width reserves
+   the wider of "play"/"pause" so the label swap doesn't shift downstream
+   controls. */
+.play-pause-btn {
+  min-width: 44px;
+  text-align: center;
+}
+
 /* Cube-mode stage — single big card replacing the column grid when the
    `cube` mode button is selected. Column flex (rather than the column
    grid's row flex) so dual-mode's `.render-pair` row layout sits inside
-   a left-aligned column container. Play/pause now lives in section ii's
-   start cell, not here. */
+   a left-aligned column container. Play/pause lives in section iii's
+   header, not here. */
 .sol-cube-stage {
   display: flex;
   flex-direction: column;
@@ -468,13 +478,6 @@ input.move-cell-input.move-cell-input-trailing {
 .trailing-end-label.end-solved {
   color: var(--ink);
   font-size: 11px;
-}
-/* .end-play marker — typography + interaction live in .text-action
- * (same as .end-solve); .trailing-end-label handles bottom-anchored
- * positioning inside the start cell. Min-width reserves the wider of
- * "play" / "pause" so the label swap doesn't shift the cell width. */
-.trailing-end-label.end-play {
-  min-width: 44px;
 }
 
 /* Leading [start] cell — section ii's navigation anchor at activeIdx=0

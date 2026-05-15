@@ -7,9 +7,14 @@
 // Animation duration per move on the 2D cube path. Read by CubeStage's
 // useCubeSequence spec; also read by App's auto-play timer so each
 // step's animation has time to complete before the next is scheduled.
-export const ANIM_MS_PER_MOVE = 400;
+// Tuned for "you can follow the moves" — at 400ms the eye lags the
+// animation; 700ms feels deliberate without dragging.
+export const ANIM_MS_PER_MOVE = 700;
 
-// Dwell between consecutive auto-play steps — a brief "settle" pause
-// after a step's animation finishes before the next step is scheduled.
-// Total per-step duration = ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS.
-export const PLAY_STEP_DWELL_MS = 100;
+// Dwell between consecutive auto-play steps — a "settle" pause after
+// a step's animation finishes before the next step is scheduled. The
+// pattern the user asked for is animate → pause → animate → pause, so
+// the dwell needs to feel like a deliberate beat, not an artifact.
+// Total per-step duration = ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS
+// (700 + 350 = 1050ms per move during auto-play).
+export const PLAY_STEP_DWELL_MS = 350;

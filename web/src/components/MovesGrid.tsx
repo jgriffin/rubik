@@ -39,8 +39,6 @@ type Props = {
   canSolve?: boolean;
   isCubeSolved?: boolean;
   isStartSolved?: boolean;
-  isPlaying?: boolean;
-  onTogglePlay?: () => void;
   onSolve?: () => void;
   isSolving?: boolean;
   rowSize?: number;
@@ -61,8 +59,6 @@ export default function MovesGrid({
   canSolve,
   isCubeSolved,
   isStartSolved,
-  isPlaying,
-  onTogglePlay,
   onSolve,
   isSolving,
   rowSize = 10,
@@ -418,11 +414,9 @@ export default function MovesGrid({
         // column-flex wrapper with "starting state" filling the top
         // and a bottom-anchored slot that shows "solved" when the
         // scramble state is already the solved cube (symmetric with
-        // the trailing cell's solved label); otherwise empty,
-        // reserved for the play/pause control that lands in a later
-        // commit. Out-of-band from `cells` and `inputRefs` — its own
-        // ref + key handler bridge arrow-key nav to/from the move
-        // cells.
+        // the trailing cell's solved label); otherwise empty.
+        // Out-of-band from `cells` and `inputRefs` — its own ref + key
+        // handler bridge arrow-key nav to/from the move cells.
         //
         // WebKit doesn't focus <button> on mouse click, so onClick
         // explicitly focuses the ref — without it the wrapper picks
@@ -455,18 +449,7 @@ export default function MovesGrid({
               * state is already solved (a common case after Clear);
               * otherwise a hidden &nbsp; that reserves line-height so
               * the top label sits at a stable vertical position. */}
-            {moves.length > 0 ? (
-              <button
-                type="button"
-                className="trailing-end-label end-play text-action"
-                data-testid="play-pause-button"
-                onClick={onTogglePlay}
-                disabled={disabled}
-                aria-label={isPlaying ? "pause" : "play"}
-              >
-                {isPlaying ? "pause" : "play"}
-              </button>
-            ) : isStartSolved ? (
+            {isStartSolved ? (
               <span
                 className="trailing-end-label end-solved"
                 data-testid="start-solved-label"
