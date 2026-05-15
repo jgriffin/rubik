@@ -4,7 +4,7 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
-## 2026-05-15 — M11 Block B: TypeScript beam search + Node-side parity 🟡 in-progress
+## 2026-05-15 — M11 Block B: TypeScript beam search + Node-side parity ✅ done — 50-scramble depth-14 corpus runs at **100% per-row agreement** between Python beam (CPU) and TS beam (`onnxruntime-node` CPU EP). Both paths solve the same 47/50 scrambles with mean_solve_len 14.3. `web/src/solver/{beam.ts, moveTables.ts, facelet.ts}` are the new TS surface; the beam takes a `ValueFn = (states: Uint8Array[]) => Promise<Float32Array>` so Block C plugs `onnxruntime-web` in without touching the algorithm. Move table codegen'd from `MOVE_PERM_3X3` via `scripts/codegen_move_table_3x3.py` (Python is the source of truth — re-running the script is the drift gate). Dedup key uses `String.fromCharCode.apply(null, state)` (Latin-1-packed bytes — byte-equality, no `Buffer`/`btoa` polyfill, identical Node + browser). Node parity wall: 31.2s / 50 scrambles ≈ 620 ms/scramble at width=128 on CPU EP — establishes the WASM-baseline ceiling for Block D's perf characterization.
 **Goal:** Port `src/rubik/search/beam.py`'s `beam_solve_batch` to TypeScript and prove it produces aggregate-equivalent solutions to the Python path on a fixed scramble corpus, with the value forward provided by `onnxruntime-node`. Second block of M11 — produces a TS beam search + runtime-agnostic `ValueFn` injection that Block C will wire into the browser behind a `Solver` abstraction.
 **Milestone:** Second block of M11 ([plan](plans/m11-onnx-browser.md)). Branch `m11-block-b-ts-beam-search` off main HEAD `7165ef0` (Block A merge).
 **Approach:** Five phases, each = one atomic commit.
@@ -26,7 +26,51 @@ ahead, `SPEC.md` for the full project spec. Process docs at
   - Caveat: PyTorch's `torch.randint` / `torch.multinomial` are not bit-reproducible across language bindings. Instead, the Python reference run writes the scramble corpus (`{facelet, move_seq, solve_len_py, solve_moves_py}` for each row) to `tests/data/m11_parity_corpus_3x3.json`. The Node runner reads the corpus, runs TS beam on each facelet, compares aggregate metrics.
 
 **Phases shipped:**
-- B·P0 ✅ — this opener. — Champion 3x3 ValueNet (15.3M params, 61.5 MB FP32) exports cleanly to ONNX at opset 18 via PyTorch 2.11's dynamo exporter. `onnx.checker.check_model` PASSED. Numerical parity on N=1000 depth-14 scrambles (CPU PyTorch vs onnxruntime CPU EP): `max|Δ|=2.10e-05` and `mean|Δ|=3.79e-06`, ~5× under thresholds (1e-04 / 1e-05). Artifact splits into `net_final.onnx` (graph 59.5 KB) + `net_final.onnx.data` (external weights 61.4 MB) — flagged for Block C deployment decision (ship co-located, or inline at packaging time). First block of M11 complete; foundation set for Block B (TypeScript beam-search port) and Block C (Solver abstraction + browser wire-up + UI toggle).
+- B·P0 ✅ (`53f8b23`) — LOG opener (this entry).
+- B·P1 ✅ (`6c8aa44`) — `scripts/codegen_move_table_3x3.py` reads `MOVE_PERM_3X3` and writes `web/src/solver/moveTables.ts` (typed `Uint8Array(648)`, one commented row per move). Idempotence verified by re-running. Adds `web/` devDeps: `onnxruntime-node@1.26.0`, `tsx@4.22.0`.
+- B·P2 ✅ (`1f736ef`) — `web/src/solver/beam.ts` ports the N=1 beam loop with the `ValueFn` injection. `web/src/solver/facelet.ts` provides the kociemba ↔ internal-state conversion (Block C will need this too). 273 vitest pass / 6 skipped. lint + tsc + build clean.
+- B·P3 ✅ (`b375b72`) — `scripts/parity_python_reference_3x3.py` runs the Python beam on CPU over a seeded 50-scramble depth-14 corpus and writes `tests/data/m11_parity_corpus_3x3.json`. `web/scripts/parityNode.ts` loads `net_final.onnx` via `onnxruntime-node` and runs the TS beam over the identical corpus. Parity gate (solve_rate within ±5pp, mean_solve_len within ±1.5, per-row agreement ≥80%) green with significant headroom: TS 47/50 vs PY 47/50, mean_solve_len 14.3 / 14.3, **per-row agreement 100%**. Node wall 31.2s vs Python wall 13.3s (note: Python is at MPS in normal mode but forced to CPU here for the parity — Node baseline is comparable, slightly slower).
+- B·P4 ✅ — this Outcome + merge to main with `--no-ff`.
+
+**Outcome:**
+
+- **Block goal met.** The Python beam survives the port to TypeScript with full per-row equivalence at the parity-corpus scale. The TS beam is decoupled from the runtime via the `ValueFn` injection — Block C drops in `onnxruntime-web` without touching the algorithm code.
+
+- **File inventory:**
+  - NEW `scripts/codegen_move_table_3x3.py` — Python-side codegen reading `MOVE_PERM_3X3` from `rubik.cube.env`. Idempotent; re-running it is the drift gate.
+  - NEW `scripts/parity_python_reference_3x3.py` — generates the seeded corpus + runs Python beam on CPU + writes `tests/data/m11_parity_corpus_3x3.json`.
+  - NEW `web/src/solver/moveTables.ts` — generated. 648-byte `Uint8Array` inlined; `N_MOVES_3X3 = 12`, `N_STICKERS_3X3 = 54`.
+  - NEW `web/src/solver/beam.ts` — N=1 beam port. `applyMove` / `applyAllMoves` / `isSolved` / `stateKey` / `beamSolve`. Top-k via lexicographic `[value, index]` sort to match `torch.topk`'s low-index tiebreak. Short-beam padding mirrors the Python "repeat best survivor" path. `nExpansions` counts `beam.length × n_moves` per step (pre-dedup), matching Python semantics.
+  - NEW `web/src/solver/beam.test.ts` — vitest covering identities (R then R'), child distinctness, solved-recognition, 1- and 2-move scrambles with synthetic monotone `ValueFn`.
+  - NEW `web/src/solver/facelet.ts` — `faceletToState` / `stateToFacelet`. Pure permutation between kociemba `URFDLB` face order and internal `ULFRBD`. Will be the shared utility Block C consumes.
+  - NEW `web/src/solver/facelet.test.ts` — round-trip + solved-state shape.
+  - NEW `web/scripts/parityNode.ts` — loads `.onnx` via `onnxruntime-node` CPU EP, runs TS beam over the corpus, asserts the aggregate gate. Run with `pnpm tsx web/scripts/parityNode.ts` from the repo root.
+  - NEW `tests/data/m11_parity_corpus_3x3.json` — checked-in deterministic reference (50 rows × ~250 bytes each).
+  - MODIFIED `web/package.json` + `web/pnpm-lock.yaml` — added `onnxruntime-node` (~30 MB Node CPU runtime) and `tsx` (TS executor) to devDependencies.
+  - MODIFIED `web/tsconfig.node.json` — `include` extended to cover `scripts/**/*.ts` so `tsc -b --noEmit` typechecks `parityNode.ts`.
+  - MODIFIED `.gitignore` — added `web/scripts/parity-report.json` (regenerable artifact); `!tests/data/` negation so the parity corpus survives the broader `data/` ignore.
+
+- **Decisions worth recording:**
+
+  - **`String.fromCharCode.apply(null, state)` over base64 for the dedup key.** First attempt used `Buffer.from(state).toString("base64")`, which broke under the app's `tsconfig.app.json` (no `node` types — `Buffer` is server-only in the build). The fix isn't to ship a `Buffer` polyfill for the browser; the fix is to use a Latin-1 packed string. `String.fromCharCode.apply(null, state)` packs each byte (0..255) into one char of a 54-char string; two states with identical bytes produce identical strings, two states with different bytes produce different strings. No allocation overhead beyond the string itself; no encoding/decoding step; works identically Node + browser. Faster than base64 too. Block C ready.
+
+  - **`ValueFn` injection over baked-in `onnxruntime` import.** The beam doesn't know how its inputs get scored — it just calls `valueFn(states)`. Block B's parity runner wires `onnxruntime-node`; Block C's browser path will wire `onnxruntime-web`. Same beam code, two runtimes. This is the same pattern the Python beam uses with `net(states)` — the algorithm is agnostic to where the forward runs.
+
+  - **Lexicographic `[value, index]` tiebreak.** `torch.topk(largest=False)` on the Python side is documented as not guaranteed-stable across MPS calls, but in practice low-index wins on equal values. To make the TS beam deterministic AND match Python where it matters, the top-k sort comparator is `(a, b) => a.value - b.value || a.index - b.index`. This is the cheapest deterministic tiebreak and it aligns with the within-row dedup convention (lowest-index representative).
+
+  - **CPU-forced Python reference, not MPS.** The Python reference run forces `device=torch.device("cpu")` so the FP32 op-ordering noise between PyTorch and onnxruntime-node is the only source of drift. The MPS forward would add MPS-vs-CPU drift on top, which would conflate two different drift sources in the parity numbers. The price is a slower reference (13.3s instead of MPS's ~1-2s for this size), but parity-test time is not a binding cost. Production solves still run MPS in `inference.py`.
+
+  - **Per-row agreement, not just aggregate.** The plan called for aggregate-equivalence per the project convention. The actual numbers came in at 100% per-row agreement — both paths solve exactly the same 47 of 50, with mean_solve_len matching to 0.1 moves. This is *stronger* than the gate required and worth recording: at the corpus size + tolerance chosen, the TS beam is observably indistinguishable from the Python beam. If a future arch tweak or quantization step *does* introduce per-row disagreement, the per-row metric flags it before the aggregate metric goes red.
+
+  - **Node baseline ≈ 620 ms/scramble at width=128 CPU EP.** This is the floor for Block D's WASM-tier perf characterization (browser WASM EP should be in the same ballpark, perhaps slightly slower due to no native SIMD). WebGPU EP is the unknown. Useful number to anchor the Block D experiments against.
+
+- **Tests:** vitest 273 pass / 6 skipped; eslint clean; `tsc -b --noEmit` clean; `pnpm build` clean (pre-existing chunk-size advisory only — unrelated). `uv run pytest -q` 707 pass / 1 slow deselected (the Block A parity test).
+
+- **Known follow-ups (none blocking; carry into Block C / D):**
+  - **Cross-scramble batching for Block D.** The current TS beam is N=1. Block D's perf characterization may want to compare against Python beam at N>1 for fairness — at which point the TS beam either grows an N>1 path or the Block D harness runs N independent N=1 solves and reports per-solve latency. The latter matches what a real browser demo does (one user, one cube). Decide at Block D scope time.
+  - **Move-table codegen as a CI gate.** Today the codegen idempotence is a manual check (run the script, see no diff). A pre-commit hook or a pytest test that runs the codegen and asserts `git diff --quiet web/src/solver/moveTables.ts` would catch drift automatically. Defer to a chore block; not Block B's job.
+
+**Commits:** `53f8b23` (B·P0) · `6c8aa44` (B·P1) · `1f736ef` (B·P2) · `b375b72` (B·P3) · `<close commit>` (this Outcome) · merge to main `--no-ff` on close. — Champion 3x3 ValueNet (15.3M params, 61.5 MB FP32) exports cleanly to ONNX at opset 18 via PyTorch 2.11's dynamo exporter. `onnx.checker.check_model` PASSED. Numerical parity on N=1000 depth-14 scrambles (CPU PyTorch vs onnxruntime CPU EP): `max|Δ|=2.10e-05` and `mean|Δ|=3.79e-06`, ~5× under thresholds (1e-04 / 1e-05). Artifact splits into `net_final.onnx` (graph 59.5 KB) + `net_final.onnx.data` (external weights 61.4 MB) — flagged for Block C deployment decision (ship co-located, or inline at packaging time). First block of M11 complete; foundation set for Block B (TypeScript beam-search port) and Block C (Solver abstraction + browser wire-up + UI toggle).
 **Goal:** Export the current 3x3 champion ValueNet (`experiments/davi-3x3/runs/20260508T084940Z_ln_kmax30_100k/net_final.pt`) to ONNX and prove numerical equivalence against the PyTorch forward on a state corpus. First block of M11 — opens the milestone toward a browser-side solver via `onnxruntime-web` running behind a `Solver` abstraction with a UI toggle vs the existing FastAPI/MPS path.
 **Milestone:** First block of M11 ([plan](plans/m11-onnx-browser.md)). Branch `m11-block-a-onnx-export` off main HEAD `f35e0bd` (M9.3 Block E merge).
 **Approach:** Three phases, each = one atomic commit.
