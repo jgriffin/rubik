@@ -129,6 +129,11 @@ export default function App() {
     [scrambleState, moves],
   );
   const isCubeSolved = currentState === SOLVED_3X3;
+  // The starting state itself is solved (common case after Clear, when
+  // no scramble has been generated). Drives the "solved" label in section
+  // ii's leading [start] cell — symmetric with the trailing cell's
+  // "solved" label when the end state is solved.
+  const isStartSolved = scrambleState === SOLVED_3X3;
   const canSolve = ready && !isSolving && !isCubeSolved;
 
   return (
@@ -200,6 +205,7 @@ export default function App() {
         onActiveChange={setActiveIdx}
         canSolve={canSolve}
         isCubeSolved={isCubeSolved}
+        isStartSolved={isStartSolved}
         onSolve={handleSolve}
         isSolving={isSolving}
         disabled={!ready || isSolving}

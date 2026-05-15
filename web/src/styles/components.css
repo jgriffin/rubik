@@ -508,17 +508,23 @@ input.move-cell-input.move-cell-input-trailing {
   flex: 1 1 auto;
   width: 100%;
   margin: 0;
-  padding: 0;
+  padding: 0 4px;
   border: 0;
   background: transparent;
   font-family: "Fraunces", Georgia, serif;
-  font-size: 18px;
-  font-weight: 400;
-  line-height: 1;
+  /* "starting state" wraps to two lines in a square cell; lighter weight
+   * + smaller size keeps it readable as a label (not a primary glyph). */
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.15;
   color: var(--ink);
   cursor: pointer;
   user-select: none;
   outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 .move-cell-start-button:disabled {
   opacity: 0.4;

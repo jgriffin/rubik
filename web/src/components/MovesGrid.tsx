@@ -38,6 +38,7 @@ type Props = {
   onActiveChange?: (idx: number) => void;
   canSolve?: boolean;
   isCubeSolved?: boolean;
+  isStartSolved?: boolean;
   onSolve?: () => void;
   isSolving?: boolean;
   rowSize?: number;
@@ -57,6 +58,7 @@ export default function MovesGrid({
   onActiveChange,
   canSolve,
   isCubeSolved,
+  isStartSolved,
   onSolve,
   isSolving,
   rowSize = 10,
@@ -409,11 +411,19 @@ export default function MovesGrid({
       if (pos === 0) {
         // [start] cell — non-editable navigation anchor at activeIdx=0
         // (scramble state). Mirrors the trailing-cell wrap pattern: a
-        // column-flex wrapper with the "start" label filling the top
-        // and an empty bottom-anchored slot reserved for the play/pause
-        // control that D·P2 will install. Out-of-band from `cells` and
-        // `inputRefs` — its own ref + key handler bridge arrow-key nav
-        // to/from the move cells.
+        // column-flex wrapper with "starting state" filling the top
+        // and a bottom-anchored slot that shows "solved" when the
+        // scramble state is already the solved cube (symmetric with
+        // the trailing cell's solved label); otherwise empty,
+        // reserved for the play/pause control that lands in a later
+        // commit. Out-of-band from `cells` and `inputRefs` — its own
+        // ref + key handler bridge arrow-key nav to/from the move
+        // cells.
+        //
+        // WebKit doesn't focus <button> on mouse click, so onClick
+        // explicitly focuses the ref — without it the wrapper picks
+        // up .active but the button has no focus and onKeyDown never
+        // fires, so ArrowRight can't bridge to cell 0.
         const isStartActive = activeIdx === 0;
         cellEls.push(
           <div
@@ -426,24 +436,36 @@ export default function MovesGrid({
               type="button"
               className="move-cell-start-button"
               data-testid="move-cell-start"
-              aria-label="start: scramble state"
-              onClick={() => onActiveChange?.(0)}
+              aria-label="starting state"
+              onClick={(e) => {
+                e.currentTarget.focus();
+                onActiveChange?.(0);
+              }}
               onFocus={() => onActiveChange?.(0)}
               onKeyDown={handleStartKeyDown}
               disabled={disabled}
             >
-              start
+              starting state
             </button>
-            {/* Bottom-anchored action slot — empty in D·P1; D·P2 will
-              * mount the play/pause control here. The &nbsp; reserves
-              * line-height so the "start" text sits at its final
-              * vertical position now (no reflow when play arrives). */}
-            <span
-              className="trailing-end-label move-cell-start-slot"
-              aria-hidden="true"
-            >
-              {" "}
-            </span>
+            {/* Bottom-anchored slot. "solved" label when the scramble
+              * state is already solved (a common case after Clear);
+              * otherwise a hidden &nbsp; that reserves line-height so
+              * the top label sits at a stable vertical position. */}
+            {isStartSolved ? (
+              <span
+                className="trailing-end-label end-solved"
+                data-testid="start-solved-label"
+              >
+                solved
+              </span>
+            ) : (
+              <span
+                className="trailing-end-label move-cell-start-slot"
+                aria-hidden="true"
+              >
+                {" "}
+              </span>
+            )}
           </div>,
         );
         continue;
