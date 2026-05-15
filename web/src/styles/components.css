@@ -138,27 +138,26 @@
   gap: 8px;
 }
 
+/* Section iii's play/pause control. Sits at the left of the right-aligned
+   header group, next to the render-mode + view-layout switches. Inherits
+   .text-action typography (Fraunces 16/600 orange); min-width reserves
+   the wider of "play"/"pause" so the label swap doesn't shift downstream
+   controls. */
+.play-pause-btn {
+  min-width: 44px;
+  text-align: center;
+}
+
 /* Cube-mode stage — single big card replacing the column grid when the
-   `cube` mode button is selected. Column flex so the play button sits
-   above the cube; dual-mode's `.render-pair` keeps its row layout
-   inside this column. Left-aligned. */
+   `cube` mode button is selected. Column flex (rather than the column
+   grid's row flex) so dual-mode's `.render-pair` row layout sits inside
+   a left-aligned column container. Play/pause lives in section iii's
+   header, not here. */
 .sol-cube-stage {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
   margin: 12px 0 24px;
-}
-
-/* Play button above the cube. `.text-action`'s 16px / weight 600 / orange
-   typography is inherited; this rule just makes the button align with
-   the cube's left edge and reserves consistent text width so the label
-   swap (play ↔ pause) doesn't cause horizontal jitter. */
-.cube-play-btn {
-  /* min-width sized for the longer of the two labels at the rendered
-     16px so swapping doesn't visually nudge the cube down. */
-  min-width: 56px;
-  text-align: left;
 }
 
 /* Link-style text button (clear, etc.) ------------------------------- */
@@ -479,6 +478,63 @@ input.move-cell-input.move-cell-input-trailing {
 .trailing-end-label.end-solved {
   color: var(--ink);
   font-size: 11px;
+}
+
+/* Leading [start] cell — section ii's navigation anchor at activeIdx=0
+ * (scramble state). Mirrors the trailing-cell wrap pattern so the row
+ * reads as `[start] [R] [U] ... [solve]` with matching internal layout:
+ * column flex with the "start" label filling the top main area and a
+ * bottom-anchored slot for the play/pause control (D·P2 mounts it).
+ * The focus ring lives on the wrapper via `:has(button:focus)` so it
+ * spans the full cell height, paralleling the trailing wrap. */
+.move-cell.move-cell-start-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+.move-cell.move-cell-start-wrap.active {
+  border-color: var(--accent);
+}
+.move-cell-start-wrap:has(button.move-cell-start-button:focus) {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+.move-cell-start-button {
+  flex: 1 1 auto;
+  width: 100%;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font-family: "Fraunces", Georgia, serif;
+  /* "starting state" wraps to two lines in a square cell; lighter weight
+   * + smaller size keeps it readable as a label (not a primary glyph). */
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.15;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.move-cell-start-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Empty placeholder for the play/pause slot D·P2 will fill. The
+ * &nbsp; inside reserves one line of line-height so the "start" text
+ * sits at its final vertical position now, with no reflow when the
+ * play button arrives. */
+.move-cell-start-slot {
+  visibility: hidden;
 }
 
 /* Section iii — solution grid --------------------------------------- */

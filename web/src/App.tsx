@@ -9,6 +9,7 @@ import MovesGrid from "./components/MovesGrid";
 import SolutionGrid, { type Cols, type RenderMode } from "./components/SolutionGrid";
 import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
+import PlayPauseButton from "./components/PlayPauseButton";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
@@ -44,6 +45,16 @@ export default function App() {
   const [cubeSize, setCubeSize] = useState<2 | 3>(3);
   const [renderMode, setRenderMode] = useState<RenderMode>("net");
   const [cols, setCols] = useState<Cols>(3);
+  // Trajectory transport. The play/pause button (section iii header)
+  // toggles this. The actual playback timing lives inside a multi-move
+  // `CubeSequence` owned by `CubeStage` — when `isPlaying` flips true,
+  // CubeStage builds one sequence covering all remaining moves and
+  // ticks `activeIdx` forward via `handleAutoAdvance` as each move
+  // begins; the per-move `gapMs` dwell handles the inter-move pause.
+  // No App-level timer involved — keeping the sequence canonical
+  // avoids the inter-step DOM swap that the setTimeout-driven design
+  // produced as a visible flicker.
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     apiHealth()
@@ -56,6 +67,7 @@ export default function App() {
     setSolved(null);
     setSolveStats(null);
     setActiveIdx(0);
+    setIsPlaying(false);
   }
 
   async function handleScramble() {
@@ -78,6 +90,7 @@ export default function App() {
     // against in-flight edits doesn't drop appended moves (the editor
     // is disabled while isSolving=true so this is belt-and-suspenders).
     setError(null);
+    setIsPlaying(false);
     setIsSolving(true);
     const stateAtSolve = applyMoves(scrambleState, moves);
     try {
@@ -110,12 +123,50 @@ export default function App() {
   function handleMovesEdit(next: MoveStr[]) {
     // User edited section ii directly. Clear the solve verdict
     // (`solved`/`solveStats` describe the last Solve, not a hand-typed
-    // sequence) and clamp `activeIdx` so a previously-selected late
-    // card doesn't outlive a delete.
+    // sequence), clamp `activeIdx` so a previously-selected late card
+    // doesn't outlive a delete, and pause auto-play — the user has
+    // taken manual control of the editor, playback should yield.
     setMoves(next);
     setSolved(null);
     setSolveStats(null);
     setActiveIdx((i) => Math.min(i, next.length));
+    setIsPlaying(false);
+  }
+
+  function handleTogglePlay() {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    // At end-of-moves, rewind to start before kicking off — playing
+    // from the end position would immediately stop. Re-watching the
+    // whole sequence is the natural "play" interaction here.
+    if (activeIdx >= moves.length) {
+      setActiveIdx(0);
+    }
+    setIsPlaying(true);
+  }
+
+  // activeIdx change variants.
+  // - `handleUserActiveChange`: cell clicks / arrow-key nav / card
+  //   clicks. The user has taken manual control of the trajectory, so
+  //   auto-play should yield. Wired to MovesGrid + SolutionGrid.
+  // - `handleAutoAdvance`: CubeStage's multi-move play sequence ticks
+  //   the active state forward as each move's animation begins. We
+  //   don't pause on this path — it IS the playback.
+  // Splitting the two avoids the "user clicked but playback overwrote"
+  // race the setTimeout-based design had. The auto-advance + dwell
+  // cadence now lives inside the play sequence itself (gapMs), not in
+  // a competing App-level timer.
+  function handleUserActiveChange(idx: number) {
+    if (isPlaying) setIsPlaying(false);
+    setActiveIdx(idx);
+  }
+  function handleAutoAdvance(idx: number) {
+    setActiveIdx(idx);
+  }
+  function handlePlayEnd() {
+    setIsPlaying(false);
   }
 
   const ready = health !== null && health.warmup_done;
@@ -129,6 +180,11 @@ export default function App() {
     [scrambleState, moves],
   );
   const isCubeSolved = currentState === SOLVED_3X3;
+  // The starting state itself is solved (common case after Clear, when
+  // no scramble has been generated). Drives the "solved" label in section
+  // ii's leading [start] cell — symmetric with the trailing cell's
+  // "solved" label when the end state is solved.
+  const isStartSolved = scrambleState === SOLVED_3X3;
   const canSolve = ready && !isSolving && !isCubeSolved;
 
   return (
@@ -197,9 +253,10 @@ export default function App() {
         moves={moves}
         onMovesChange={handleMovesEdit}
         activeIdx={activeIdx}
-        onActiveChange={setActiveIdx}
+        onActiveChange={handleUserActiveChange}
         canSolve={canSolve}
         isCubeSolved={isCubeSolved}
+        isStartSolved={isStartSolved}
         onSolve={handleSolve}
         isSolving={isSolving}
         disabled={!ready || isSolving}
@@ -217,6 +274,12 @@ export default function App() {
         name="steps"
         right={
           <>
+            <PlayPauseButton
+              isPlaying={isPlaying}
+              onToggle={handleTogglePlay}
+              disabled={!ready || isSolving || moves.length === 0}
+            />
+            <span className="scramble-divider" />
             <RenderModeSwitch value={renderMode} onChange={setRenderMode} />
             <ColumnsSwitch value={cols} onChange={setCols} />
           </>
@@ -230,7 +293,10 @@ export default function App() {
         cols={cols}
         renderMode={renderMode}
         activeIdx={activeIdx}
-        onActiveChange={setActiveIdx}
+        onActiveChange={handleUserActiveChange}
+        isPlaying={isPlaying}
+        onAutoAdvance={handleAutoAdvance}
+        onPlayEnd={handlePlayEnd}
         isCubeSolved={isCubeSolved}
       />
 

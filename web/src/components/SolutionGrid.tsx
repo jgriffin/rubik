@@ -16,6 +16,9 @@ type Props = {
   renderMode: RenderMode;
   activeIdx: number;
   onActiveChange: (idx: number) => void;
+  isPlaying?: boolean;
+  onAutoAdvance?: (idx: number) => void;
+  onPlayEnd?: () => void;
   isCubeSolved?: boolean;
 };
 
@@ -52,6 +55,9 @@ export default function SolutionGrid({
   renderMode,
   activeIdx,
   onActiveChange,
+  isPlaying,
+  onAutoAdvance,
+  onPlayEnd,
   isCubeSolved,
 }: Props) {
   // Joined scramble alg, used by twisty-player as the static-mode setup-alg.
@@ -83,7 +89,9 @@ export default function SolutionGrid({
           states={states}
           moves={moves}
           activeIdx={activeIdx}
-          onActiveChange={onActiveChange}
+          isPlaying={isPlaying ?? false}
+          onAutoAdvance={onAutoAdvance ?? (() => {})}
+          onPlayEnd={onPlayEnd ?? (() => {})}
           scrambleAlg={scrambleAlg}
           renderMode={renderMode}
           sizePx={sizePx}
