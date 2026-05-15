@@ -160,6 +160,34 @@
   margin: 12px 0 24px;
 }
 
+/* Press-and-hold host for the 2D cube in cube mode. Invisible button
+   chrome wrapping the Cube2D SVG so pointer + keyboard gestures have
+   an accessibility-correct host. The button is always focusable; the
+   actual gesture availability is reflected via aria-disabled (set when
+   activeIdx === 0 — no previous move to rewind to). Cursor signals
+   interactivity only when the gesture would do something. */
+.cube-stage-press {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: block;
+  cursor: pointer;
+  /* Prevent the browser's default touch-handling (scroll, double-tap
+     zoom) from competing with our pointer-driven gesture. */
+  touch-action: none;
+  /* Block accidental text selection during a long press. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cube-stage-press[aria-disabled="true"] {
+  cursor: default;
+}
+.cube-stage-press:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Link-style text button (clear, etc.) ------------------------------- */
 .link-btn {
   background: transparent;
