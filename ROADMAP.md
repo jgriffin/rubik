@@ -20,10 +20,10 @@ mode produces them; we don't pre-create stubs).
   - 3x3 DAVI scaffold + T0 capacity calibration (M8 phases 1+2, "does 3x3 train?") — ✅ done (LOG 2026-05-06)
   - 3x3 DAVI champion cycles (M8 phase 3+) — *active; two attempts completed*: (a) full_train K=20 from random init reached d=14=0.78 at step 16k before early-stop misfired; (b) warm_continue K=20 from step 16k regressed to d=14=0.24 over 100k steps (slow-drift collapse, see LOG 2026-05-07). Next experiment: warm-continue with K_max raised to 25 or 30 to test "escape the local max" hypothesis.
   - 3x3 beam search + perf verification (10M transitions/sec target) — *upcoming*
-- **M9** — Web UI + solver demo — *next, planned* ([plan](plans/m9-ui.md))
-  - M9.1 Solver demo MVP (FastAPI + React/Vite + flat 2D render; scramble → solve → step-through) — *active*
-  - M9.2 3D rendering via cubing.js `<twisty-player>`
-  - M9.3 Interactive moves editor — recast from "Alt input + polish" 2026-05-12 ([plan](plans/m9-moves-editor.md)). Make the app feel like an interactive playground rather than a one-shot solver demo: editable moves field becomes the source of truth, cards derive from it live, Solve writes to moves (not cards), auto-scramble + auto-solve on load. Subsumes the original M9.3 scope (paste notation, manual color entry, share URL, mobile) — those become flavor features that fall out of the editor surface naturally.
+- **M9** — Web UI + solver demo — ✅ done ([plan](plans/m9-ui.md))
+  - M9.1 Solver demo MVP (FastAPI + React/Vite + flat 2D render; scramble → solve → step-through) — ✅ done
+  - M9.2 3D rendering via cubing.js `<twisty-player>` — ✅ done (Block B / TwistyAnimatedCube deferred to backlog as "M9.3 deferred: 3D per-step animation"; static-3D path shipped)
+  - M9.3 Interactive moves editor — ✅ done 2026-05-14 ([plan](plans/m9-moves-editor.md)). Five blocks shipped: A (section ii editable source of truth), B (cell-mode polish + solve as primary CTA), C (cube mode + 2D per-step animation + auto-play), D (section ii nav surface — start cell + play/pause migration + single-sequence flash fix), E (cube-card press-and-hold rewind/release). Originally-planned Blocks E (auto-scramble + URL + cleanups) and F (mobile + keyboard) deferred to backlog — see "M9.3 deferred" entries below.
 - **M10 (stretch)** — CV input: photos of a physical cube → state → solver
 
 > **Sequencing note (revised 2026-05-06).** Original plan was 2x2 end-to-end (env → train → search → perf-2) before 3x3. We hit diminishing returns on the 2x2 training side after M5 cycle-4: M6 has a documented deep-depth gap, M5-followup has three plausible levers, but each costs hours per cycle and the marginal scientific yield is shrinking. Pivoting to 3x3 now — broader information per hour, exercises the `CubeSpec` bet at the training/search level (it already paid off at the env level in M8 bringup), and the 2x2 followup work stays revisitable. The 2x2 V\* oracle remains a unique asset for ground-truth eval, just not the active surface.
@@ -69,6 +69,24 @@ Surfaced: 2026-05-08
 ### Drive-by: rename `beam_eval_*` → `eval_*` (drop redundant prefix)
 The "beam" part of the eval tooling is implicit now — solve-time beam search is the only eval shape we use. Rename the user-facing surface: `scripts/beam_eval_run.py` → `scripts/eval_run.py`, `scripts/beam_eval_model.py` → `scripts/eval_model.py`, `scripts/beam_eval_sweep.py` → `scripts/eval_sweep.py`, `scripts/render_beam_eval_report.py` → `scripts/render_eval_report.py`, `<run-dir>/results/beam_eval_<config>.jsonl` → `<run-dir>/results/eval_<config>.jsonl`, ditto `eval_trajectory_<config>.html`. Migration path: keep the old filenames as a back-compat read-fallback in the renderer for one cycle, then drop. Touches LOG.md historical references too — leave those as-is (pre-rename context).
 Surfaced: 2026-05-08
+
+### M9.3 deferred: auto-scramble + sharable URL + remaining moves-editor polish
+Was the originally-planned Block E of M9.3 (auto-scramble + URL + cleanups). Deferred 2026-05-14 to close M9.3 on Block E (cube-card press-and-hold). Scope:
+- Auto-scramble on mount when no URL state present.
+- Sharable state URL — scramble + moves serialized to URL params; restore on load.
+- Reverse active-state sync (card click → cell focus; today only cell → card works one-way).
+- Card animation on cell click (hook into per-card sequence's `replayWithReverse`).
+- RTL test backfill for the M9.3 edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
+- Drive-by: delete unused `SolveButton.tsx` (~20 lines).
+Surfaced: 2026-05-14
+
+### M9.3 deferred: 3D per-step animation via twisty-player
+Originally Block C·P4 of M9.3, descoped mid-block ("right now, lets just focus on the 2d step animations"), carried forward through Blocks D and E. Research twisty-player's native playback API for "play move N from state N-1 without rebuilding the player." Once landed, the Block E press-and-hold gesture extends to 3D mode too.
+Surfaced: 2026-05-14
+
+### M9.3 deferred: mobile responsiveness + keyboard shortcuts
+Was the originally-planned Block F of M9.3 (final polish). Deferred 2026-05-14 to close M9.3 on press-and-hold. Per-cell input grid + 3D view need a mobile pass. Keyboard shortcuts: Cmd-K to focus first empty cell, Enter-to-solve, Shift-Enter for scramble. Final UAT pass.
+Surfaced: 2026-05-14
 
 ### M9 backlog: palette picker UI + chromePalette preset
 The palette-unification block on 2026-05-10 retired the chrome palette from the active surface (matching cubing.js stock so 2D + 3D unify) but preserved it as `chromePalette` in `web/src/components/palettes.ts` alongside the active `wcaPalette`. The picker work: a small dropdown / segmented switch in the section iii or header chrome that swaps the active palette by name, plus a thin React context so `FlatCubeRenderer` reads the current palette instead of importing `COLOR_FOR_LETTER` directly. Twisty-player can't follow until cubing.js lands `TwistyPlayerConfig.faceColors` upstream — once the picker exists, "wca" is the only setting that keeps 2D + 3D matched; "chrome" (or any other preset) re-introduces the divergence we explicitly chose to remove. Decide picker UX with that asymmetry in mind.

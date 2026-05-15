@@ -3,13 +3,25 @@
 // Two playback modes, gated on `isPlaying`:
 //
 //   Manual mode (isPlaying=false). The cube reacts to one-off
-//   `activeIdx` changes (user clicks a cell, arrow-key nav, sequence-
-//   just-ended landing position). A single-move spec drives the 2D
-//   kinematics primitive: forward step → animate move[landIdx-1] from
-//   state[landIdx-1]; backward step → animate inverse(move[landIdx])
-//   from state[landIdx+1]; multi-step jumps snap to the adjacent
-//   state then animate the single bridging move (forward or inverse).
-//   This is the original block-D animation behavior.
+//   `activeIdx` changes. A single-move forward-form spec drives the
+//   2D kinematics primitive:
+//
+//     playForward: cube animates state[landIdx-1] → state[landIdx].
+//                  Used on activeIdx increases (single-step or jump).
+//     primed:      cube sits at state[landIdx] (= end of the same
+//                  forward-form spec). Used on backward steps (snap to
+//                  landing state without animation) AND as the resting
+//                  state after a playForward animation completes. The
+//                  seq is at timestamp=totalDurationMs and is therefore
+//                  ready for the press-and-hold gesture:
+//                    pointerdown → seq.replayWithReverseHold() →
+//                                  reverses to state[landIdx-1] and
+//                                  holds at the pre-state.
+//                    pointerup   → seq.releaseHold() → forward to
+//                                  state[landIdx].
+//     snap:        activeIdx === 0 (no previous move). Cube renders
+//                  state[0] from an empty-moves spec; pointer handlers
+//                  are no-ops.
 //
 //   Play mode (isPlaying=true). One sequence covering all moves from
 //   the play-start position through the end of the trajectory, with
@@ -30,15 +42,23 @@
 // single-sequence design keeps the same SVG tree mounted through the
 // entire play run, eliminating the inter-step DOM swap.
 //
+// Why useLayoutEffect for seek-to-end on primed: when the spec rebuilds
+// (e.g. backward click changes landIdx), a fresh CubeSequence is born
+// at timestamp=0, which would paint state[landIdx-1] for one frame
+// before the effect seeks to end. useLayoutEffect runs the seek
+// synchronously before the browser paints, so the first paint shows
+// state[landIdx]. Same flash-suppression strategy as Block D iter-2's
+// single-sequence playback, applied to the primed-state transition.
+//
 // Animation lives on the 2D path only. The 3D path stays static this
 // phase; per-step 3D animation via `<twisty-player>`'s native playback
-// is deferred.
+// is deferred. Press-and-hold is correspondingly 2D-only.
 //
 // Play start: handleTogglePlay in App rewinds activeIdx to 0 first if
 // at end-of-moves, so playStartIdx is always < moves.length when a
 // play spec is built.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Cube2D from "./Cube2D";
 import TwistyPlayerWrapper from "./TwistyPlayerWrapper";
 import { useCubeSequence } from "../hooks/useCubeSequence";
@@ -58,22 +78,13 @@ type Props = {
   sizePx: number;
 };
 
-// Inverse of a QTM move (R ↔ R', U ↔ U', …). Used when activeIdx steps
-// backward in manual mode — feed the kinematics engine the inverse
-// played forward, so state[N] → inverse(move[N-1]) → state[N-1] runs
-// through the same animation primitive as the forward path. M9.3 is
-// QTM-only so a one-liner suffices.
-function inverseMove(m: MoveStr): MoveStr {
-  return (m.endsWith("'") ? (m.slice(0, -1) as MoveStr) : (`${m}'` as MoveStr));
-}
-
-// Manual-mode animation spec: capture direction + landing index so a
-// single useMemo can produce the right startFacelet + (possibly
-// inverted) move slice.
+// Manual-mode animation kind. Forward-form spec is shared between
+// playForward and primed (same startFacelet + move) — they differ only
+// in initial seq position (idle vs ended), driven by useLayoutEffect.
 type ManualAnim =
   | { kind: "snap" }
-  | { kind: "forward"; landIdx: number }
-  | { kind: "backward"; landIdx: number };
+  | { kind: "playForward"; landIdx: number }
+  | { kind: "primed"; landIdx: number };
 
 export default function CubeStage({
   states,
@@ -86,74 +97,79 @@ export default function CubeStage({
   renderMode,
   sizePx,
 }: Props) {
-  // -------- Manual mode bookkeeping --------
-  // `manualAnim` is the current single-step animation in manual mode.
-  // null/`snap` means render static at activeIdx.
-  const [manualAnim, setManualAnim] = useState<ManualAnim>({ kind: "snap" });
-  const prevActiveIdxRef = useRef(activeIdx);
-
-  // Detect activeIdx changes for manual-mode animation. Skips entirely
-  // while playing — the play sequence is the authoritative driver
-  // then, and any activeIdx changes during play are reflections of
-  // the sequence's own ticks (via `onAutoAdvance`).
-  useEffect(() => {
-    const prev = prevActiveIdxRef.current;
-    prevActiveIdxRef.current = activeIdx;
-    if (isPlaying) {
-      // While playing, activeIdx is owned by the sequence — don't
-      // run the manual-mode diff machine.
-      return;
-    }
-    if (activeIdx === prev) return;
-
-    if (activeIdx > prev && activeIdx > 0 && activeIdx <= moves.length) {
-      setManualAnim({ kind: "forward", landIdx: activeIdx });
-    } else if (
-      activeIdx < prev &&
-      activeIdx >= 0 &&
-      activeIdx < moves.length
-    ) {
-      setManualAnim({ kind: "backward", landIdx: activeIdx });
-    } else {
-      setManualAnim({ kind: "snap" });
-    }
-  }, [activeIdx, moves.length, isPlaying]);
-
-  // -------- Play mode bookkeeping --------
-  // playStartIdx is the activeIdx captured at the moment isPlaying
-  // flipped to true. The play sequence is built from this; subsequent
-  // activeIdx changes during play come from the sequence and don't
-  // re-trigger spec rebuild.
-  //
-  // We derive it via the "store information from previous renders"
-  // pattern: a parallel state mirrors the play state, and when the
-  // mirror disagrees we snapshot the current activeIdx. This lands
-  // the snapshot the same render `isPlaying` flips, not one effect
-  // tick later (which would cause a one-frame mismatch between the
-  // play button reading "pause" and the sequence still being built
-  // from a stale playStartIdx).
+  // -------- Manual + play bookkeeping (store-info-from-prior-renders) --------
+  // React's `react-hooks/set-state-in-effect` rule (and the underlying
+  // guidance) prohibits state updates inside effect bodies for state
+  // transitions driven by prop changes. The pattern here mirrors
+  // `prevIsPlaying`/`playStartIdx` from Block D iter-2: track previous
+  // values in state, compare-and-set during render. setState during
+  // render is supported by React (it's the documented "store info from
+  // prior renders" pattern) and produces the same render-phase update
+  // ordering as a synchronous effect, without the cascading-render
+  // warning.
+  const [manualAnim, setManualAnim] = useState<ManualAnim>(
+    activeIdx > 0
+      ? { kind: "primed", landIdx: activeIdx }
+      : { kind: "snap" },
+  );
+  const [prevActiveIdx, setPrevActiveIdx] = useState(activeIdx);
   const [prevIsPlaying, setPrevIsPlaying] = useState(isPlaying);
   const [playStartIdx, setPlayStartIdx] = useState<number | null>(
     isPlaying ? activeIdx : null,
   );
+
+  // Play-mode transitions take precedence: when isPlaying flips, we
+  // explicitly set manualAnim + playStartIdx + sync the prevActiveIdx
+  // mirror so the activeIdx-change branch below doesn't re-fire on the
+  // next render with a stale prev value.
   if (prevIsPlaying !== isPlaying) {
     setPrevIsPlaying(isPlaying);
+    setPrevActiveIdx(activeIdx);
     if (isPlaying) {
       setPlayStartIdx(activeIdx);
-      // Entering play also clears manual animation so the spec
-      // selector below picks the play branch on the next render.
+      // Park manualAnim in snap so the spec selector below takes the
+      // play branch (and the manual seq doesn't simultaneously try to
+      // play a single-move spec underneath the play sequence).
       setManualAnim({ kind: "snap" });
     } else {
       setPlayStartIdx(null);
+      // Exit play: settle to primed at current activeIdx so
+      // press-and-hold is immediately usable on the last move.
+      setManualAnim(
+        activeIdx > 0
+          ? { kind: "primed", landIdx: Math.min(activeIdx, moves.length) }
+          : { kind: "snap" },
+      );
+    }
+  } else if (prevActiveIdx !== activeIdx) {
+    // activeIdx changed outside of a play transition. Skip if currently
+    // playing — the play sequence is the authoritative driver during
+    // playback and updates activeIdx via onAutoAdvance.
+    setPrevActiveIdx(activeIdx);
+    if (!isPlaying) {
+      if (activeIdx === 0) {
+        setManualAnim({ kind: "snap" });
+      } else if (
+        activeIdx > prevActiveIdx &&
+        activeIdx <= moves.length
+      ) {
+        // Forward step (single or jump): animate state[landIdx-1] →
+        // state[landIdx].
+        setManualAnim({ kind: "playForward", landIdx: activeIdx });
+      } else {
+        // Backward step or any other activeIdx > 0 transition: snap to
+        // primed at landing state. No standalone backward animation —
+        // the press-and-hold gesture is the reverse-animation primitive.
+        const landIdx = Math.min(activeIdx, moves.length);
+        setManualAnim({ kind: "primed", landIdx });
+      }
     }
   }
 
   // -------- Spec selection --------
-  // Play spec: one sequence over moves[playStartIdx..end]. Manual spec:
-  // single-move or empty. Two useMemos with disjoint deps so the play
-  // spec stays referentially stable as activeIdx ticks during play
-  // (no rebuild of the sequence between moves — that was the source
-  // of the inter-step flash).
+  // Two useMemos with disjoint deps so the play spec stays referentially
+  // stable as activeIdx ticks during play (no rebuild of the sequence
+  // between moves — that was the source of the inter-step flash).
   const playSpec = useMemo(() => {
     if (
       !isPlaying ||
@@ -171,6 +187,13 @@ export default function CubeStage({
     };
   }, [isPlaying, playStartIdx, moves, states]);
 
+  // Manual-spec rebuild key. playForward and primed at the same landIdx
+  // share the same spec content (forward-form { state[landIdx-1] →
+  // moves[landIdx-1] }), so they collapse to the same key — the seq
+  // doesn't rebuild on a playForward → primed transition. Only landIdx
+  // changes (or snap ↔ non-snap) trigger a rebuild.
+  const manualSpecKey =
+    manualAnim.kind === "snap" ? "snap" : `fwd:${manualAnim.landIdx}`;
   const manualSpec = useMemo(() => {
     if (isPlaying) return null;
     if (manualAnim.kind === "snap") {
@@ -181,27 +204,20 @@ export default function CubeStage({
         msPerMove: ANIM_MS_PER_MOVE,
       };
     }
-    if (manualAnim.kind === "forward") {
-      const i = manualAnim.landIdx;
-      return {
-        startFacelet: states[i - 1],
-        moves: [moves[i - 1]],
-        msPerMove: ANIM_MS_PER_MOVE,
-      };
-    }
-    // backward
     const i = manualAnim.landIdx;
     return {
-      startFacelet: states[i + 1],
-      moves: [inverseMove(moves[i])],
+      startFacelet: states[i - 1],
+      moves: [moves[i - 1]],
       msPerMove: ANIM_MS_PER_MOVE,
     };
-  }, [isPlaying, manualAnim, activeIdx, states, moves]);
+    // Intentionally omit manualAnim.kind from deps via manualSpecKey:
+    // playForward and primed with the same landIdx produce the same
+    // spec content, so the seq stays referentially stable across that
+    // transition. The play-vs-seek branch is decided by the
+    // useLayoutEffect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, manualSpecKey, activeIdx, states, moves]);
 
-  // Pick whichever spec is active. The non-null branch is referentially
-  // stable across renders that don't cross modes, so the seq returned
-  // by useCubeSequence is stable too. A "neither" fallback covers the
-  // (impossible-in-practice) case of both being null.
   const spec = playSpec ?? manualSpec ?? {
     startFacelet: states[0] ?? "",
     moves: [] as MoveStr[],
@@ -210,21 +226,32 @@ export default function CubeStage({
 
   const seq = useCubeSequence(spec);
 
-  // Kick off play after the sequence mounts. For play spec, this fires
-  // once per play run. For manual single-step spec, once per direction
-  // change. For empty-moves snap spec, the moves.length guard skips
-  // play() — Cube2D renders the startFacelet statically.
-  useEffect(() => {
-    if (spec.moves.length > 0) {
-      seq.play();
+  // -------- Initial seq state: play forward, or seek-to-end for primed --------
+  // For playForward: call seq.play() — the rAF loop kicks off forward
+  // playback.
+  // For primed: call seq.seek(seq.totalDurationMs) — the seq lands at
+  // end immediately, displaying state[landIdx]. useLayoutEffect (not
+  // useEffect) runs synchronously before the browser paints, so a
+  // freshly-rebuilt seq doesn't flash its timestamp=0 startFacelet
+  // (state[landIdx-1]) before the seek.
+  // For play mode (multi-move): the same auto-play branch.
+  useLayoutEffect(() => {
+    if (isPlaying) {
+      if (spec.moves.length > 0) seq.play();
+      return;
     }
-  }, [seq, spec.moves.length]);
+    if (manualAnim.kind === "playForward" && spec.moves.length > 0) {
+      seq.play();
+    } else if (manualAnim.kind === "primed" && spec.moves.length > 0) {
+      seq.seek(seq.totalDurationMs);
+    }
+    // snap: nothing — seq renders startFacelet statically from
+    // timestamp=0 (Cube2D's empty-moves path).
+  }, [seq, spec.moves.length, manualAnim.kind, isPlaying]);
 
   // -------- Play-mode → activeIdx sync --------
   // While playing, each move-boundary crossing in the sequence ticks
-  // activeIdx forward via onAutoAdvance. We track the last reported
-  // move index per playStartIdx so subscribe-fires that don't cross
-  // a boundary (every rAF tick) are no-ops on this path.
+  // activeIdx forward via onAutoAdvance.
   const lastReportedMoveIdxRef = useRef(-1);
   useEffect(() => {
     if (!isPlaying || playStartIdx === null) {
@@ -237,10 +264,6 @@ export default function CubeStage({
       onAutoAdvance(playStartIdx + cur + 1);
     }
     if (seq.status === "ended") {
-      // Land at the very end. The last onAutoAdvance fire above
-      // already set activeIdx = playStartIdx + (moves.length - 1) + 1
-      // = end, so just signal end-of-play here and let App flip
-      // isPlaying back to false.
       onPlayEnd();
     }
   }, [
@@ -252,14 +275,105 @@ export default function CubeStage({
     onPlayEnd,
   ]);
 
+  // -------- Press-and-hold gesture (2D only) --------
+  // Mirrors the M9.2 SolutionCard NonStartCard pointer-handler pattern.
+  // Active whenever we're in manual mode AND there's a previous move
+  // to rewind to (kind !== "snap") AND we have a usable spec. Works in
+  // both playForward (animation in flight or just ended) and primed
+  // (snapped to landing or post-play settled) — the seq's
+  // replayWithReverseHold handles the interruption matrix uniformly:
+  //   playing mid-flight  → reverse from current ts to 0 (scaled).
+  //   ended               → full reverse leg → held pause at 0.
+  // releaseHold resumes forward play, landing back at end (state[landIdx]).
+  //
+  // pointerHandledRef dedupes the synthetic click event that some
+  // browsers fire after pointerup, mirroring SolutionCard. Keyboard
+  // activation (Space/Enter on focused button) fires click WITHOUT
+  // any pointerdown/up, so the ref stays false and the click branch
+  // runs replayWithReverse() as the keyboard-friendly cue.
+  const canPressAndHold =
+    !isPlaying && manualAnim.kind !== "snap" && spec.moves.length > 0;
+  const pointerHandledRef = useRef(false);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!canPressAndHold) return;
+    pointerHandledRef.current = true;
+    const target = e.currentTarget;
+    if (typeof target.setPointerCapture === "function") {
+      try {
+        target.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore: pointerId may have been auto-released.
+      }
+    }
+    seq.replayWithReverseHold();
+  };
+
+  const handlePointerUp = () => {
+    if (!pointerHandledRef.current) return;
+    seq.releaseHold();
+  };
+
+  const handlePointerCancel = () => {
+    if (!pointerHandledRef.current) return;
+    seq.releaseHold();
+  };
+
+  const handlePointerLeave = () => {
+    if (!pointerHandledRef.current) return;
+    seq.releaseHold();
+  };
+
+  const handleClick = () => {
+    // Pointer path already drove the choreography — consume the
+    // synthetic click and bail.
+    if (pointerHandledRef.current) {
+      pointerHandledRef.current = false;
+      return;
+    }
+    // Keyboard activation (Space/Enter): finite-pause replay-with-reverse
+    // as the snappy keyboard cue. Same primitive the column-mode cards
+    // use for their keyboard fallback.
+    if (canPressAndHold) {
+      seq.replayWithReverse();
+    }
+  };
+
   // -------- Rendering --------
-  // 2D — always sequence-mode; Cube2D's empty-moves path handles snap.
-  const cube2D = (
+  // 2D — sequence-mode. Wrap in a <button> so pointer + keyboard
+  // gestures have an accessibility-correct host. Disabled state when
+  // press-and-hold isn't available (activeIdx === 0 or mid-animation):
+  // pointer/click handlers are gated by `canPressAndHold` internally,
+  // and `aria-disabled` reflects intent to assistive tech without
+  // suppressing focusability (so keyboard users can still tab through
+  // and read "currently no rewind available").
+  const cube2DInner = (
     <Cube2D
       sequence={seq}
       sizePx={sizePx}
       testId={renderMode === "dual" ? "flat-cube-pair" : null}
     />
+  );
+
+  const cube2D = (
+    <button
+      type="button"
+      className="cube-stage-press"
+      data-testid="cube-stage-press"
+      aria-label={
+        canPressAndHold
+          ? "Press and hold to rewind the current move"
+          : "Cube"
+      }
+      aria-disabled={canPressAndHold ? undefined : true}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onPointerLeave={handlePointerLeave}
+      onClick={handleClick}
+    >
+      {cube2DInner}
+    </button>
   );
 
   // 3D — static (per-step animation deferred).

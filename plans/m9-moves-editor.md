@@ -61,42 +61,37 @@ Original three-block plan reshaped twice mid-milestone (Block A design pivot 202
 
 [2026-05-13, branch `m9.3-block-c-cube-mode`, 6 work commits.] Cube-mode rendering shipped with 2D per-step animation on forward `activeIdx` jumps + auto-play that advances `activeIdx` at a 500ms cadence riding the per-step animations. New `CubeStage` component owns cube-mode rendering; `SolutionGrid` early-returns to it for `cols===1`. Section iii's selector restructured to `2D 3D | cube | 2 3 4 5 6` (the word "columns" dropped, "1" replaced with `cube`, "5" added). Section iv (the M9.2 "watch the solve" twisty-player strip) deleted — cube mode supersedes its job. **C·P4 (3D per-step animation via twisty-player's native playback) descoped** mid-block per user direction "right now, lets just focus on the 2d step animations"; deferred to a future block, not blocking the M9.3 milestone arc. **Design pivot at C·P5 close**: C·P5's play button placement on the cube card itself was reshaped at the would-be eyeball — user wants section ii to be THE navigation/transport surface for the trajectory, not the cube card. Block D picks up the relocation. See LOG 2026-05-13 for the full file inventory, per-phase commits, and load-bearing decisions.
 
-### Block D — Section ii as navigation/transport: start cell + play migration + cube-card press-and-hold — current
+### Block D — Section ii as navigation/transport: start cell + play migration + flash fix ✅ done
 
-User direction at C·P5 close: *"in order to make the moves to apply area work as a navigation mechanism. I think we need an initial block for the starting state there. And then, I was kind of thinking that play exists more on the moves to apply section than on the player, than on the card itself. Like the idea, I think, is that I want to think about driving stuff from the moves to apply."* Plus: *"I still want the behavior of looking at a card and when you click it rolls back and when you release it animates forward. I like that but you're right all the play pause stuff should happen externally. You know lifted up to be controlled by the move cells."*
+[2026-05-13, branch `m9.3-block-d-section-ii-transport`, merged at `c5a4143`.] Section ii's [start] cell shipped with "starting state" label + conditional "solved" label + WebKit click-focus fix. Play/pause migrated out of CubeStage but landed in section iii's header (not the start cell as originally planned — eyeball: "in a pretty weird place"). Single-sequence playback architecture replaced the setTimeout-driven step rebuild that was causing inter-step flashing; backward animation added (inverse-move spec played forward); cadence tuned to 700ms anim + 350ms dwell. **D·P3 (cube-card press-and-hold) deferred** — separable concern, replaced in scope by the section-iii play button + backward-animation work that emerged from eyeball feedback. Picked up as Block E. See LOG 2026-05-13 for the full file inventory, per-phase commits, and design pivots.
 
-This block locks in **section ii as the SOLE navigation/transport surface**. Three coordinated changes:
+### Block E — Cube-card press-and-hold rewind/release (M9.3-closing) — planned
 
-1. **Start cell at index -1 of `MovesGrid`.** A new cell prepended to the move-cell row, symmetric with the trailing solve cell — a non-editable navigation anchor that maps to `activeIdx=0`. Top main area renders the word "start" in the move-glyph serif register. Clickable body → `onActiveChange(0)`. Participates in arrow-key navigation (arrow-left from cell 0 focuses start). Same dimensions as other cells, but the input element is replaced with a clickable button (no typing into start).
+Picks up the press-and-hold gesture deferred from Block D·P3. The seq primitives (`replayWithReverseHold` / `releaseHold` in `cubeSequence.ts`) already exist from M9.2 and are already used by the column-mode `SolutionCard` cards. This block ports the gesture to the cube-mode single big cube (2D path only — 3D animation is post-M9 backlog).
 
-2. **Auto-play migration from cube card to start cell.** `isPlaying` state + auto-advance setTimeout + pause-on-moves-edit logic lifts from `CubeStage` (where C·P5 put it) up to App. Threaded down to `MovesGrid` so the start cell can host the play/pause button in its bottom-anchored action slot — parallels how solve sits bottom-anchored in the trailing cell. `.text-action` styling for both, making start + trailing into matched action-bearing navigation anchors that bracket the trajectory. `CubeStage` loses its play button and its play state entirely; becomes animation-only. `App.handleMovesEdit` calls `setIsPlaying(false)` directly (event-handler setState, lint-clean — replaces CubeStage's "store info from previous renders" useState idiom).
-
-3. **Press-and-hold rewind/release on the cube card (2D, cube mode).** Port the M9.2 `SolutionCard` NonStartCard pointer-handler pattern (pointerdown → `seq.replayWithReverseHold()`; pointerup/cancel/leave → `seq.releaseHold()`; click for keyboard fallback → `seq.replayWithReverse()`) to `CubeStage`'s 2D Cube2D wrapper. When `activeIdx > 0`, pressing the cube reverses to `state[activeIdx-1]` and holds; release plays forward back to `state[activeIdx]`. When `activeIdx === 0`, pointer events are no-ops (nothing to rewind). Reuses the SAME `useCubeSequence` instance that drives forward-jump animation today — CubeStage's spec restructures so it's always "the move LANDING at activeIdx" whenever `activeIdx > 0` (`preFacelet=state[activeIdx-1]`, `moves=[moves[activeIdx-1]]`), independent of forward/snap distinction. 2D-only this block; 3D press-and-hold lives with the future 3D-animation block.
+When `activeIdx > 0`, pressing the cube-mode card starts a reverse leg to `state[activeIdx-1]` and holds; release plays forward back to `state[activeIdx]`. When `activeIdx === 0`, pointer events are no-ops (nothing to rewind). Click is a keyboard fallback that fires `replayWithReverse` (full reverse-then-forward in one shot).
 
 Phases (each = one atomic commit):
-- **D·P0** — Open LOG block + this plan refresh.
-- **D·P1** — Start cell + navigation wire. Add `[start]` cell to `MovesGrid`. Click → `onActiveChange(0)`. Arrow-key nav participation. Bottom-anchored action slot empty (play wiring lands in D·P2).
-- **D·P2** — Play/pause migration. Lift `isPlaying` + auto-advance + pause-on-edit to App; thread props down; render the play/pause button in the start cell's bottom slot using `.text-action`; remove `cube-play-btn` + the CSS for it from CubeStage. Disabled when `moves.length === 0`.
-- **D·P3** — Cube-card press-and-hold rewind/release. Port SolutionCard NonStartCard pointer handlers to CubeStage's 2D path. Restructure the seq spec to be "the move LANDING at activeIdx" (regardless of forward/snap) whenever `activeIdx > 0` so press-and-hold targets the right move.
-- **D·P4** — Eyeball + close.
+- **E·P0** — Open LOG block + this plan refresh + roadmap backlog deferrals for the dropped scope (auto-scramble + URL, 3D animation, mobile, keyboard shortcuts, cleanups).
+- **E·P1** — Port `SolutionCard` NonStartCard pointer-handler pattern to `CubeStage`'s 2D Cube2D wrapper. Wire pointerdown → `seq.replayWithReverseHold()`; pointerup/cancel/leave → `seq.releaseHold()`; click → `seq.replayWithReverse()` as keyboard fallback. CubeStage's manual-mode seq spec (post-Block-D-iter-2) already targets "the move landing at activeIdx" — reuse the same `useCubeSequence` instance.
+- **E·P2** — Eyeball + close + merge to main with `--no-ff`. M9.3 closes with this block; M9 closes with M9.3.
 
-**Eyeball gate.** Section ii reads `[start] [R] [U] [F] [L] [D] [trailing-solve]`. Click `start` → cube snaps to scramble state, start cell visually active. Click `F` (cell 2 = move 3) → cube animates `state[2] → state[3]` (forward animation as before). Click bottom-anchored `play` inside start → cube auto-advances through the sequence at 500ms/step, section ii's active highlight steps cell-by-cell, button reads `pause` while playing. Click `pause` → autoplay stops. Click `play` again → resumes from current `activeIdx`. Reach end-of-moves → button reverts to `play`; clicking play again rewinds to start and replays. Type a new move mid-playback → play pauses. With cube mode + 2D selected, press-and-hold on the cube card → cube reverses to `state[activeIdx-1]` and holds; release → animates forward to `state[activeIdx]`. (3D still snaps because per-step 3D animation is deferred to a future block.)
+**Eyeball gate.** Cube mode + 2D + `activeIdx > 0`: press-and-hold the cube card → cube reverses to `state[activeIdx-1]` and holds; release → animates forward to `state[activeIdx]`. Click (no hold) → cube does the full reverse-then-forward animation in one shot. `activeIdx === 0`: pointer events do nothing (no rewind possible from start state). Auto-play (section iii) still works as in Block D; pressing during auto-play should pause + rewind (use the existing `handleUserActiveChange` pause pathway).
 
-### Block E — Auto-scramble + sharable URL + cleanup deferrals (planned, was Block D)
+### Deferred to post-M9.3 backlog
 
-Renumbered from Block D 2026-05-13 to accommodate the new Block D (section-ii-as-transport). Scope unchanged from the original Block D:
+Pushed to ROADMAP backlog 2026-05-14 so M9 can close on Block E. The originally-planned successor blocks (old E = auto-scramble + URL + cleanups; old F = mobile + keyboard) are not in M9.3 scope anymore:
 
-- Auto-scramble on mount (no URL state) — `App.tsx` first-paint effect, ~10 lines.
-- Sharable state URL — serialize scramble + moves into URL params; restore on load.
-- Drive-by: delete unused `SolveButton.tsx` (~20 lines).
-- Reverse active-state sync: card click → cell focus (today only cell → card works one-way).
-- Card animation on cell click (imperative hook into the per-card sequence's `replayWithReverse`).
-- RTL test backfill for the edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
-- Trailing-cell `activeIdx` out-of-range bug (pre-existing from Block A; flagged at Block C close).
+- **Auto-scramble + sharable URL** (was Block E core). Auto-scramble on mount + serialize scramble + moves to URL params with restore on load.
+- **3D per-step animation via `<twisty-player>`** (originally Block C·P4, carried forward through Blocks D and E). Once landed, Block E's press-and-hold gesture extends to 3D mode too.
+- **Reverse active-state sync** + **card animation on cell click** (was Block E cleanup). Today: cell click → card highlight works one-way; card click → cell focus doesn't.
+- **RTL test backfill** for the M9.3 edit-surface behaviors (auto-advance, paste-spread, cell-mode↔text-mode, Escape).
+- **Drive-by: delete unused `SolveButton.tsx`** (~20 lines).
+- **Mobile responsiveness + keyboard shortcuts** (was Block F). Per-cell input grid + 3D view need a mobile pass; keyboard shortcuts (Cmd-K to focus first empty cell, Enter-to-solve, Shift-Enter for scramble); final UAT.
 
-### Block F — Mobile + keyboard shortcuts (planned, M9.3-closing; was Block E)
-
-Renumbered from Block E 2026-05-13. The original "Block C — polish + make it fun" residual. Mobile responsiveness checkpoint (the per-cell input grid + 3D view need a mobile pass). Keyboard shortcuts (Cmd-K to focus the first empty cell? Enter-to-solve? Shift-Enter for scramble?). Final UAT pass before milestone close.
+**Marked resolved without action 2026-05-14** (carried forward from Block D outcome, judged acceptable as-shipped):
+- **Trailing-cell `activeIdx` out-of-range** (focusing the trailing cell calls `onActiveChange(moves.length + 1)`, beyond valid range). Did not surface as a user-visible problem across Blocks A-D; closing without a fix.
+- **Pause-mid-move boundary snap** (clicking pause flips `isPlaying=false`, CubeStage tears down the play sequence, manual mode snaps to `state[activeIdx]` instead of seeking the sequence to the nearest move boundary). Reads as the cube completing the in-flight move instantly. Accepted as acceptable UX.
 
 ## Open questions
 
