@@ -28,11 +28,17 @@ import { N_STICKERS_3X3 } from "./moveTables";
 import type { Solver, SolverInfo, ExecutionProvider } from "./Solver";
 import type { SolveRequest, SolveResponse } from "../api/client";
 
-// Where syncOrt.sh stages the .wasm + .mjs workers. ort.env.wasm.wasmPaths
-// is a prefix that ORT joins with the bundled filenames.
+// Where vite-plugin-static-copy stages onnxruntime-web's runtime .wasm
+// + .mjs workers. ort.env.wasm.wasmPaths is a prefix that ORT joins
+// with the bundled filenames.
 const ORT_WASM_PREFIX = "/ort/";
 // Where syncModel.sh stages net_final.onnx (+ external data blob).
 const MODEL_URL = "/models/net_final.onnx";
+const MODEL_EXTERNAL_DATA_URL = "/models/net_final.onnx.data";
+// What the ONNX graph references for its external data — the filename
+// is baked into the .onnx by torch.onnx.export's external-data writer.
+// ort-web matches by this `path`, not by URL.
+const MODEL_EXTERNAL_DATA_PATH = "net_final.onnx.data";
 
 // Read ?ep=webgpu / ?ep=wasm at construction time. Returns null if
 // param absent or value unrecognized — caller falls back to auto-detect.
@@ -99,9 +105,17 @@ export class OnnxSolver implements Solver {
   }
 
   private async _init(): Promise<void> {
+    // ort-web doesn't auto-fetch the external-data sidecar — the graph
+    // references it by filename ("net_final.onnx.data") and the runtime
+    // throws "Module.MountedFiles is not available" without the explicit
+    // descriptor. `path` MUST match what the .onnx graph baked in;
+    // `data` is the URL we'll actually fetch.
     const sessionOpts: ort.InferenceSession.SessionOptions = {
       executionProviders:
         this._ep === "onnx-webgpu" ? ["webgpu"] : ["wasm"],
+      externalData: [
+        { data: MODEL_EXTERNAL_DATA_URL, path: MODEL_EXTERNAL_DATA_PATH },
+      ],
     };
     try {
       this._session = await ort.InferenceSession.create(

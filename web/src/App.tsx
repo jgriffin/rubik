@@ -130,6 +130,20 @@ export default function App() {
     [solver, tick],
   );
 
+  // Surface solver-load errors. The OnnxSolver's session create can
+  // reject after the user flips the switch — without explicit surfacing
+  // the rejection gets eaten by the fire-and-forget ready() call below
+  // and the UI sits forever on "loading model…".
+  const [solverError, setSolverError] = useState<string | null>(null);
+  // Clear the prior solver's error when the active instance changes —
+  // "store info from prior renders" pattern (per project convention)
+  // to satisfy react-hooks/set-state-in-effect.
+  const [prevSolverForError, setPrevSolverForError] = useState(solver);
+  if (prevSolverForError !== solver) {
+    setPrevSolverForError(solver);
+    setSolverError(null);
+  }
+
   // Drive readiness + polling. The cleanup disposes the previous
   // solver on swap.
   useEffect(() => {
@@ -139,8 +153,13 @@ export default function App() {
     };
     // Kick ready() so OnnxSolver starts downloading right away —
     // users who flip to the onnx switch want the download to start
-    // before they click Solve.
-    void solver.ready().then(bump);
+    // before they click Solve. Catch rejections to surface them, since
+    // a hung ready() otherwise leaves the UI on "loading model…".
+    void solver.ready().then(bump).catch((e) => {
+      if (cancelled) return;
+      setSolverError(String(e?.message ?? e));
+      bump();
+    });
     // While not-yet-ready, poll at 250 ms so the elapsed-load
     // counter ticks. Once ready, stop polling.
     const poll = window.setInterval(() => {
@@ -442,8 +461,17 @@ export default function App() {
       {/* Solver-load status. Surfaces while the active solver is
           downloading / initializing (ONNX path only — ApiSolver is
           ready immediately). Hidden once ready so it doesn't clutter
-          the page during normal use. */}
-      {!solverInfo.ready && (
+          the page during normal use. Error variant takes precedence
+          over the elapsed-load counter. */}
+      {solverError && (
+        <pre
+          data-testid="solver-error"
+          style={{ color: "crimson", fontSize: 11, marginTop: "0.5rem", whiteSpace: "pre-wrap" }}
+        >
+          solver load failed: {solverError}
+        </pre>
+      )}
+      {!solverError && !solverInfo.ready && (
         <p
           data-testid="solver-loading"
           style={{ color: "var(--dim)", fontSize: 11, marginTop: "0.5rem" }}
