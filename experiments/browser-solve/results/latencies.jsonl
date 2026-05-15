@@ -1,0 +1,45 @@
+{"solver": "fastapi", "width": 32, "row_idx": 0, "facelet": "FDLUULRLDBFDFRBRRDUULBFURFDFRBLDDBURLBBRLLLDUFFUDBBFRU", "wall_ms": 44, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 1, "facelet": "LUULUUDLUBBBLRDBDDLURLFBRRRFFDDDFDBLUFFULDRRULFFBBRBRF", "wall_ms": 78, "solve_len": -1, "solved": false}
+{"solver": "fastapi", "width": 32, "row_idx": 2, "facelet": "ULLBUDDFFULFBRBBUBBURFFUFFRRLDRDRFFLBRLLLRLDDUURDBBUDD", "wall_ms": 43, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 3, "facelet": "UBLBULFLDBUDURRUDBRDLLFFLLFUBRDDFBFRBDDBLFLRFFRRUBUDRU", "wall_ms": 43, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 4, "facelet": "FURFUDFLBLRBFRRUDUUBDBFRFLLRUFUDLDFBDDRBLDBBDUFLUBRLLR", "wall_ms": 44, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 5, "facelet": "FDBFURFRUBULFRUFLFLDRLFULFDDDRRDBRLLURULLUDBBUBRBBFDDB", "wall_ms": 67, "solve_len": -1, "solved": false}
+{"solver": "fastapi", "width": 32, "row_idx": 6, "facelet": "LFLLUULRUBFDFRRUURDDRDFDRLLBFFUDLRRFBBBBLLUBDFRUUBDDBF", "wall_ms": 38, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 7, "facelet": "LRBUUUULBDFDBRLLBRBBRLFDRLUFFBDDRUFFFBRULDLRULFDUBRDDF", "wall_ms": 43, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 8, "facelet": "DDLUUURUURRFFRRFBBDFFLFDBBLRUDFDLLDLRLFLLFBRUUBBBBDURD", "wall_ms": 44, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 32, "row_idx": 9, "facelet": "BUDBULBBURDRFRBFFDRRFRFLLLUDBLFDRBUFUUURLURDBFFLDBDLLD", "wall_ms": 37, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 0, "facelet": "FDLUULRLDBFDFRBRRDUULBFURFDFRBLDDBURLBBRLLLDUFFUDBBFRU", "wall_ms": 61, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 1, "facelet": "LUULUUDLUBBBLRDBDDLURLFBRRRFFDDDFDBLUFFULDRRULFFBBRBRF", "wall_ms": 95, "solve_len": -1, "solved": false}
+{"solver": "fastapi", "width": 64, "row_idx": 2, "facelet": "ULLBUDDFFULFBRBBUBBURFFUFFRRLDRDRFFLBRLLLRLDDUURDBBUDD", "wall_ms": 61, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 3, "facelet": "UBLBULFLDBUDURRUDBRDLLFFLLFUBRDDFBFRBDDBLFLRFFRRUBUDRU", "wall_ms": 61, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 4, "facelet": "FURFUDFLBLRBFRRUDUUBDBFRFLLRUFUDLDFBDDRBLDBBDUFLUBRLLR", "wall_ms": 62, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 5, "facelet": "FDBFURFRUBULFRUFLFLDRLFULFDDDRRDBRLLURULLUDBBUBRBBFDDB", "wall_ms": 96, "solve_len": -1, "solved": false}
+{"solver": "fastapi", "width": 64, "row_idx": 6, "facelet": "LFLLUULRUBFDFRRUURDDRDFDRLLBFFUDLRRFBBBBLLUBDFRUUBDDBF", "wall_ms": 54, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 7, "facelet": "LRBUUUULBDFDBRLLBRBBRLFDRLUFFBDDRUFFFBRULDLRULFDUBRDDF", "wall_ms": 62, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 8, "facelet": "DDLUUURUURRFFRRFBBDFFLFDBBLRUDFDLLDLRLFLLFBRUUBBBBDURD", "wall_ms": 61, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 64, "row_idx": 9, "facelet": "BUDBULBBURDRFRBFFDRRFRFLLLUDBLFDRBUFUUURLURDBFFLDBDLLD", "wall_ms": 52, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 0, "facelet": "FDLUULRLDBFDFRBRRDUULBFURFDFRBLDDBURLBBRLLLDUFFUDBBFRU", "wall_ms": 93, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 1, "facelet": "LUULUUDLUBBBLRDBDDLURLFBRRRFFDDDFDBLUFFULDRRULFFBBRBRF", "wall_ms": 148, "solve_len": 22, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 2, "facelet": "ULLBUDDFFULFBRBBUBBURFFUFFRRLDRDRFFLBRLLLRLDDUURDBBUDD", "wall_ms": 93, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 3, "facelet": "UBLBULFLDBUDURRUDBRDLLFFLLFUBRDDFBFRBDDBLFLRFFRRUBUDRU", "wall_ms": 93, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 4, "facelet": "FURFUDFLBLRBFRRUDUUBDBFRFLLRUFUDLDFBDDRBLDBBDUFLUBRLLR", "wall_ms": 93, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 5, "facelet": "FDBFURFRUBULFRUFLFLDRLFULFDDDRRDBRLLURULLUDBBUBRBBFDDB", "wall_ms": 148, "solve_len": 22, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 6, "facelet": "LFLLUULRUBFDFRRUURDDRDFDRLLBFFUDLRRFBBBBLLUBDFRUUBDDBF", "wall_ms": 80, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 7, "facelet": "LRBUUUULBDFDBRLLBRBBRLFDRLUFFBDDRUFFFBRULDLRULFDUBRDDF", "wall_ms": 94, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 8, "facelet": "DDLUUURUURRFFRRFBBDFFLFDBBLRUDFDLLDLRLFLLFBRUUBBBBDURD", "wall_ms": 93, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 128, "row_idx": 9, "facelet": "BUDBULBBURDRFRBFFDRRFRFLLLUDBLFDRBUFUUURLURDBFFLDBDLLD", "wall_ms": 80, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 0, "facelet": "FDLUULRLDBFDFRBRRDUULBFURFDFRBLDDBURLBBRLLLDUFFUDBBFRU", "wall_ms": 156, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 1, "facelet": "LUULUUDLUBBBLRDBDDLURLFBRRRFFDDDFDBLUFFULDRRULFFBBRBRF", "wall_ms": 249, "solve_len": 22, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 2, "facelet": "ULLBUDDFFULFBRBBUBBURFFUFFRRLDRDRFFLBRLLLRLDDUURDBBUDD", "wall_ms": 156, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 3, "facelet": "UBLBULFLDBUDURRUDBRDLLFFLLFUBRDDFBFRBDDBLFLRFFRRUBUDRU", "wall_ms": 156, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 4, "facelet": "FURFUDFLBLRBFRRUDUUBDBFRFLLRUFUDLDFBDDRBLDBBDUFLUBRLLR", "wall_ms": 156, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 5, "facelet": "FDBFURFRUBULFRUFLFLDRLFULFDDDRRDBRLLURULLUDBBUBRBBFDDB", "wall_ms": 247, "solve_len": -1, "solved": false}
+{"solver": "fastapi", "width": 256, "row_idx": 6, "facelet": "LFLLUULRUBFDFRRUURDDRDFDRLLBFFUDLRRFBBBBLLUBDFRUUBDDBF", "wall_ms": 132, "solve_len": 12, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 7, "facelet": "LRBUUUULBDFDBRLLBRBBRLFDRLUFFBDDRUFFFBRULDLRULFDUBRDDF", "wall_ms": 155, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 8, "facelet": "DDLUUURUURRFFRRFBBDFFLFDBBLRUDFDLLDLRLFLLFBRUUBBBBDURD", "wall_ms": 155, "solve_len": 14, "solved": true}
+{"solver": "fastapi", "width": 256, "row_idx": 9, "facelet": "BUDBULBBURDRFRBFFDRRFRFLLLUDBLFDRBUFUUURLURDBFFLDBDLLD", "wall_ms": 132, "solve_len": 12, "solved": true}
+{"solver":"onnx-wasm","width":128,"row_idx":0,"facelet":"FDLUULRLDBFDFRBRRDUULBFURFDFRBLDDBURLBBRLLLDUFFUDBBFRU","wall_ms":9996,"solve_len":14,"solved":true}
+{"solver":"onnx-wasm","width":128,"row_idx":1,"facelet":"LUULUUDLUBBBLRDBDDLURLFBRRRFFDDDFDBLUFFULDRRULFFBBRBRF","wall_ms":17084,"solve_len":22,"solved":true}
+{"solver":"onnx-wasm","width":128,"row_idx":2,"facelet":"ULLBUDDFFULFBRBBUBBURFFUFFRRLDRDRFFLBRLLLRLDDUURDBBUDD","wall_ms":10045,"solve_len":14,"solved":true}
+{"solver":"onnx-wasm","width":128,"row_idx":3,"facelet":"UBLBULFLDBUDURRUDBRDLLFFLLFUBRDDFBFRBDDBLFLRFFRRUBUDRU","wall_ms":10102,"solve_len":14,"solved":true}
+{"solver":"onnx-wasm","width":128,"row_idx":4,"facelet":"FURFUDFLBLRBFRRUDUUBDBFRFLLRUFUDLDFBDDRBLDBBDUFLUBRLLR","wall_ms":10338,"solve_len":14,"solved":true}

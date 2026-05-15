@@ -65,6 +65,24 @@ function readSolverKindFromStorage(): SolverKind {
   return "api";
 }
 
+// `?width=N` URL param hook — lets the M11 D measurement harness vary
+// beam_width per solve without recompiling. Parsed at module load (a
+// page navigation per width is the measurement protocol). Clamped to
+// [1, 1024] and silently defaults to undefined on bad input so the
+// solver falls back to its own default (128). Not exposed in the UI.
+function readBeamWidthFromUrl(): number | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = new URLSearchParams(window.location.search).get("width");
+    if (raw == null) return undefined;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 1024) return undefined;
+    return n;
+  } catch {
+    return undefined;
+  }
+}
+
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -98,6 +116,10 @@ export default function App() {
   const [solverKind, setSolverKind] = useState<SolverKind>(() =>
     readSolverKindFromStorage(),
   );
+
+  // Beam-width override from `?width=N` URL param (M11 D harness).
+  // Captured once at construction; unaffected by user interactions.
+  const beamWidthOverride = useMemo(() => readBeamWidthFromUrl(), []);
 
   // Build the active Solver instance. Keyed on solverKind ONLY — the
   // OnnxSolver does a 61 MB download on first ready(), so we cannot let
@@ -222,7 +244,10 @@ export default function App() {
     setIsSolving(true);
     const stateAtSolve = applyMoves(scrambleState, moves);
     try {
-      const r = await solver.solve({ state: stateAtSolve });
+      const r = await solver.solve({
+        state: stateAtSolve,
+        ...(beamWidthOverride != null ? { beam_width: beamWidthOverride } : {}),
+      });
       const newMoves = r.moves as MoveStr[];
       setMoves((prev) => [...prev, ...newMoves]);
       setSolved(r.solved);
