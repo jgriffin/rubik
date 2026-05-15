@@ -414,11 +414,9 @@ export default function MovesGrid({
         // column-flex wrapper with "starting state" filling the top
         // and a bottom-anchored slot that shows "solved" when the
         // scramble state is already the solved cube (symmetric with
-        // the trailing cell's solved label); otherwise empty,
-        // reserved for the play/pause control that lands in a later
-        // commit. Out-of-band from `cells` and `inputRefs` — its own
-        // ref + key handler bridge arrow-key nav to/from the move
-        // cells.
+        // the trailing cell's solved label); otherwise empty.
+        // Out-of-band from `cells` and `inputRefs` — its own ref + key
+        // handler bridge arrow-key nav to/from the move cells.
         //
         // WebKit doesn't focus <button> on mouse click, so onClick
         // explicitly focuses the ref — without it the wrapper picks

@@ -138,27 +138,26 @@
   gap: 8px;
 }
 
+/* Section iii's play/pause control. Sits at the left of the right-aligned
+   header group, next to the render-mode + view-layout switches. Inherits
+   .text-action typography (Fraunces 16/600 orange); min-width reserves
+   the wider of "play"/"pause" so the label swap doesn't shift downstream
+   controls. */
+.play-pause-btn {
+  min-width: 44px;
+  text-align: center;
+}
+
 /* Cube-mode stage — single big card replacing the column grid when the
-   `cube` mode button is selected. Column flex so the play button sits
-   above the cube; dual-mode's `.render-pair` keeps its row layout
-   inside this column. Left-aligned. */
+   `cube` mode button is selected. Column flex (rather than the column
+   grid's row flex) so dual-mode's `.render-pair` row layout sits inside
+   a left-aligned column container. Play/pause lives in section iii's
+   header, not here. */
 .sol-cube-stage {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
   margin: 12px 0 24px;
-}
-
-/* Play button above the cube. `.text-action`'s 16px / weight 600 / orange
-   typography is inherited; this rule just makes the button align with
-   the cube's left edge and reserves consistent text width so the label
-   swap (play ↔ pause) doesn't cause horizontal jitter. */
-.cube-play-btn {
-  /* min-width sized for the longer of the two labels at the rendered
-     16px so swapping doesn't visually nudge the cube down. */
-  min-width: 56px;
-  text-align: left;
 }
 
 /* Link-style text button (clear, etc.) ------------------------------- */

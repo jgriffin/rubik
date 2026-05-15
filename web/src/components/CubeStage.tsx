@@ -1,26 +1,48 @@
 // CubeStage — single-cube view for `cube` mode (cols=1).
 //
-// Renders one big cube (2D, 3D, or split) whose displayed state is
-// driven by `activeIdx` from the editor. On a forward `activeIdx`
-// jump (user clicks a later cell, or the moves array grows), the 2D
-// path animates the move that lands on the new state: snaps the cube
-// to state[activeIdx-1], plays move[activeIdx-1] forward, lands at
-// state[activeIdx]. Backward / same jumps snap with no animation.
+// Two playback modes, gated on `isPlaying`:
 //
-// Animation lives on the 2D path only — `Cube2D` already owns the
-// per-move SVG kinematics via `CubeSequence` + `useCubeSequence`. The
-// 3D path stays static this phase; per-step 3D animation via
-// `<twisty-player>`'s native playback lands in C·P4.
+//   Manual mode (isPlaying=false). The cube reacts to one-off
+//   `activeIdx` changes (user clicks a cell, arrow-key nav, sequence-
+//   just-ended landing position). A single-move spec drives the 2D
+//   kinematics primitive: forward step → animate move[landIdx-1] from
+//   state[landIdx-1]; backward step → animate inverse(move[landIdx])
+//   from state[landIdx+1]; multi-step jumps snap to the adjacent
+//   state then animate the single bridging move (forward or inverse).
+//   This is the original block-D animation behavior.
 //
-// Forward-jump-of-any-size policy: clicking cell 5 from cell 2 still
-// animates move 5 (skips through state[3], state[4] visually — snaps
-// to state[4] and plays move 5). Multi-move chained playback for
-// large jumps is a Block C C·P5 (play/pause) concern, not this phase.
+//   Play mode (isPlaying=true). One sequence covering all moves from
+//   the play-start position through the end of the trajectory, with
+//   `gapMs` providing the inter-move settle pause. The sequence is
+//   created once when play starts and ticks through naturally; its
+//   `currentMoveIndex` is subscribed to here, and each move-boundary
+//   crossing fires `onAutoAdvance(playStartIdx + curIdx + 1)` to bump
+//   App's `activeIdx`. On sequence end, `onPlayEnd()` flips App's
+//   `isPlaying` back to false. Section ii's cell highlights step in
+//   lockstep with the animation because activeIdx is the canonical
+//   source for cell highlighting AND the sequence's bookmark.
+//
+// Why one sequence per play run: the old per-step rebuild caused a
+// visible flash between each move's animation. Each rebuild produced
+// a fresh `CubeSequence` whose idle initial frame rendered
+// `<StaticInner>` (a different SVG structure from `<SvgFromRenderPlan>`)
+// for ~1 reconciliation tick before `seq.play()` advanced state. The
+// single-sequence design keeps the same SVG tree mounted through the
+// entire play run, eliminating the inter-step DOM swap.
+//
+// Animation lives on the 2D path only. The 3D path stays static this
+// phase; per-step 3D animation via `<twisty-player>`'s native playback
+// is deferred.
+//
+// Play start: handleTogglePlay in App rewinds activeIdx to 0 first if
+// at end-of-moves, so playStartIdx is always < moves.length when a
+// play spec is built.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Cube2D from "./Cube2D";
 import TwistyPlayerWrapper from "./TwistyPlayerWrapper";
 import { useCubeSequence } from "../hooks/useCubeSequence";
+import { ANIM_MS_PER_MOVE, PLAY_STEP_DWELL_MS } from "./cubeStageConstants";
 import type { MoveStr } from "../state/faceletMoves";
 import type { RenderMode } from "./SolutionGrid";
 
@@ -28,94 +50,130 @@ type Props = {
   states: string[];
   moves: MoveStr[];
   activeIdx: number;
-  onActiveChange: (idx: number) => void;
+  isPlaying: boolean;
+  onAutoAdvance: (idx: number) => void;
+  onPlayEnd: () => void;
   scrambleAlg: string;
   renderMode: RenderMode;
   sizePx: number;
 };
 
-// Animation duration per move (ms). SolutionCard uses 600ms; cube mode
-// runs a touch quicker so the playback keeps up with rapid cell clicks
-// and the auto-play cadence doesn't feel sluggish.
-const ANIM_MS_PER_MOVE = 400;
+// Inverse of a QTM move (R ↔ R', U ↔ U', …). Used when activeIdx steps
+// backward in manual mode — feed the kinematics engine the inverse
+// played forward, so state[N] → inverse(move[N-1]) → state[N-1] runs
+// through the same animation primitive as the forward path. M9.3 is
+// QTM-only so a one-liner suffices.
+function inverseMove(m: MoveStr): MoveStr {
+  return (m.endsWith("'") ? (m.slice(0, -1) as MoveStr) : (`${m}'` as MoveStr));
+}
 
-// Dwell between the end of one auto-play step's animation and the start
-// of the next. 100ms reads as a brief "settle" pause without dragging
-// the playback. Total per-step duration = ANIM_MS_PER_MOVE + this.
-const PLAY_STEP_DWELL_MS = 100;
+// Manual-mode animation spec: capture direction + landing index so a
+// single useMemo can produce the right startFacelet + (possibly
+// inverted) move slice.
+type ManualAnim =
+  | { kind: "snap" }
+  | { kind: "forward"; landIdx: number }
+  | { kind: "backward"; landIdx: number };
 
 export default function CubeStage({
   states,
   moves,
   activeIdx,
-  onActiveChange,
+  isPlaying,
+  onAutoAdvance,
+  onPlayEnd,
   scrambleAlg,
   renderMode,
   sizePx,
 }: Props) {
-  // `animIdx` = the activeIdx of the currently-animating move (i.e. the
-  // step the animation lands on), or null when not animating. Decoupled
-  // from `activeIdx` so animations survive subsequent ref updates.
-  const [animIdx, setAnimIdx] = useState<number | null>(null);
+  // -------- Manual mode bookkeeping --------
+  // `manualAnim` is the current single-step animation in manual mode.
+  // null/`snap` means render static at activeIdx.
+  const [manualAnim, setManualAnim] = useState<ManualAnim>({ kind: "snap" });
   const prevActiveIdxRef = useRef(activeIdx);
 
-  // Auto-play: advance `activeIdx` forward at a steady cadence riding
-  // the per-step animation. Local-only state — switching to columns
-  // mode unmounts CubeStage and resets play.
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  // Pause on any moves-array change. The user typed / pasted / deleted
-  // a move — they've taken manual control of the editor, so auto-play
-  // should yield. The "store information from previous renders" pattern
-  // (storing the prior moves identity via useState rather than useRef)
-  // lets the pause land the SAME render the moves changed in (no effect-
-  // tick delay), and setState-in-render is the React-blessed idiom for
-  // resetting state on a prop change. `moves` is a fresh array reference
-  // on each user edit, stable across unrelated re-renders.
-  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
-  const [prevMoves, setPrevMoves] = useState(moves);
-  if (prevMoves !== moves) {
-    setPrevMoves(moves);
-    if (isPlaying) setIsPlaying(false);
-  }
-
-  // Auto-advance timer. When `isPlaying`, schedule the next step
-  // (activeIdx + 1) after one full step duration (anim + dwell). Each
-  // activeIdx change re-fires this effect and schedules the next step.
-  // The end-of-moves stop is folded into the timer callback so its
-  // setState lands inside an event, not directly in the effect body.
-  // Manual cell clicks that land forward continue the playback chain
-  // naturally; backward clicks also continue forward from the new
-  // position (since the chain's only invariant is "advance by +1 each
-  // tick"). Typing pauses via the moves-change branch above.
-  useEffect(() => {
-    if (!isPlaying || activeIdx >= moves.length) return;
-    const timer = setTimeout(() => {
-      const nextIdx = activeIdx + 1;
-      onActiveChange(nextIdx);
-      if (nextIdx >= moves.length) setIsPlaying(false);
-    }, ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS);
-    return () => clearTimeout(timer);
-  }, [isPlaying, activeIdx, moves.length, onActiveChange]);
-
+  // Detect activeIdx changes for manual-mode animation. Skips entirely
+  // while playing — the play sequence is the authoritative driver
+  // then, and any activeIdx changes during play are reflections of
+  // the sequence's own ticks (via `onAutoAdvance`).
   useEffect(() => {
     const prev = prevActiveIdxRef.current;
-    // Forward jump → animate the move that lands at the new activeIdx.
-    // Backward / no-change → snap (clear any in-flight animation).
-    if (activeIdx > prev && activeIdx > 0 && activeIdx <= moves.length) {
-      setAnimIdx(activeIdx);
-    } else if (activeIdx !== prev) {
-      setAnimIdx(null);
-    }
     prevActiveIdxRef.current = activeIdx;
-  }, [activeIdx, moves.length]);
+    if (isPlaying) {
+      // While playing, activeIdx is owned by the sequence — don't
+      // run the manual-mode diff machine.
+      return;
+    }
+    if (activeIdx === prev) return;
 
-  // Spec the sequence consumes. Animating branch: single-move spec
-  // (state[idx-1] → state[idx]). Snap branch: empty-moves spec which
-  // Cube2D's animated path silently falls back to static rendering of
-  // startFacelet for, so we don't have to flip modes at the call site.
-  const spec = useMemo(() => {
-    if (animIdx == null || animIdx <= 0 || animIdx > moves.length) {
+    if (activeIdx > prev && activeIdx > 0 && activeIdx <= moves.length) {
+      setManualAnim({ kind: "forward", landIdx: activeIdx });
+    } else if (
+      activeIdx < prev &&
+      activeIdx >= 0 &&
+      activeIdx < moves.length
+    ) {
+      setManualAnim({ kind: "backward", landIdx: activeIdx });
+    } else {
+      setManualAnim({ kind: "snap" });
+    }
+  }, [activeIdx, moves.length, isPlaying]);
+
+  // -------- Play mode bookkeeping --------
+  // playStartIdx is the activeIdx captured at the moment isPlaying
+  // flipped to true. The play sequence is built from this; subsequent
+  // activeIdx changes during play come from the sequence and don't
+  // re-trigger spec rebuild.
+  //
+  // We derive it via the "store information from previous renders"
+  // pattern: a parallel state mirrors the play state, and when the
+  // mirror disagrees we snapshot the current activeIdx. This lands
+  // the snapshot the same render `isPlaying` flips, not one effect
+  // tick later (which would cause a one-frame mismatch between the
+  // play button reading "pause" and the sequence still being built
+  // from a stale playStartIdx).
+  const [prevIsPlaying, setPrevIsPlaying] = useState(isPlaying);
+  const [playStartIdx, setPlayStartIdx] = useState<number | null>(
+    isPlaying ? activeIdx : null,
+  );
+  if (prevIsPlaying !== isPlaying) {
+    setPrevIsPlaying(isPlaying);
+    if (isPlaying) {
+      setPlayStartIdx(activeIdx);
+      // Entering play also clears manual animation so the spec
+      // selector below picks the play branch on the next render.
+      setManualAnim({ kind: "snap" });
+    } else {
+      setPlayStartIdx(null);
+    }
+  }
+
+  // -------- Spec selection --------
+  // Play spec: one sequence over moves[playStartIdx..end]. Manual spec:
+  // single-move or empty. Two useMemos with disjoint deps so the play
+  // spec stays referentially stable as activeIdx ticks during play
+  // (no rebuild of the sequence between moves — that was the source
+  // of the inter-step flash).
+  const playSpec = useMemo(() => {
+    if (
+      !isPlaying ||
+      playStartIdx === null ||
+      playStartIdx >= moves.length ||
+      states.length < playStartIdx + 1
+    ) {
+      return null;
+    }
+    return {
+      startFacelet: states[playStartIdx],
+      moves: moves.slice(playStartIdx),
+      msPerMove: ANIM_MS_PER_MOVE,
+      gapMs: PLAY_STEP_DWELL_MS,
+    };
+  }, [isPlaying, playStartIdx, moves, states]);
+
+  const manualSpec = useMemo(() => {
+    if (isPlaying) return null;
+    if (manualAnim.kind === "snap") {
       const idx = Math.max(0, Math.min(activeIdx, states.length - 1));
       return {
         startFacelet: states[idx],
@@ -123,27 +181,78 @@ export default function CubeStage({
         msPerMove: ANIM_MS_PER_MOVE,
       };
     }
+    if (manualAnim.kind === "forward") {
+      const i = manualAnim.landIdx;
+      return {
+        startFacelet: states[i - 1],
+        moves: [moves[i - 1]],
+        msPerMove: ANIM_MS_PER_MOVE,
+      };
+    }
+    // backward
+    const i = manualAnim.landIdx;
     return {
-      startFacelet: states[animIdx - 1],
-      moves: [moves[animIdx - 1]],
+      startFacelet: states[i + 1],
+      moves: [inverseMove(moves[i])],
       msPerMove: ANIM_MS_PER_MOVE,
     };
-  }, [animIdx, activeIdx, states, moves]);
+  }, [isPlaying, manualAnim, activeIdx, states, moves]);
+
+  // Pick whichever spec is active. The non-null branch is referentially
+  // stable across renders that don't cross modes, so the seq returned
+  // by useCubeSequence is stable too. A "neither" fallback covers the
+  // (impossible-in-practice) case of both being null.
+  const spec = playSpec ?? manualSpec ?? {
+    startFacelet: states[0] ?? "",
+    moves: [] as MoveStr[],
+    msPerMove: ANIM_MS_PER_MOVE,
+  };
 
   const seq = useCubeSequence(spec);
 
-  // Kick off play whenever a fresh animation spec arrives. `seq`
-  // identity changes 1:1 with `spec` identity (`useCubeSequence`
-  // memoizes on the spec object), so depending on `seq` here means
-  // exactly one fire per spec change. Snap-to-empty transitions also
-  // fire here but the moves.length guard skips play() — Cube2D
-  // renders startFacelet statically and we're done.
+  // Kick off play after the sequence mounts. For play spec, this fires
+  // once per play run. For manual single-step spec, once per direction
+  // change. For empty-moves snap spec, the moves.length guard skips
+  // play() — Cube2D renders the startFacelet statically.
   useEffect(() => {
     if (spec.moves.length > 0) {
       seq.play();
     }
   }, [seq, spec.moves.length]);
 
+  // -------- Play-mode → activeIdx sync --------
+  // While playing, each move-boundary crossing in the sequence ticks
+  // activeIdx forward via onAutoAdvance. We track the last reported
+  // move index per playStartIdx so subscribe-fires that don't cross
+  // a boundary (every rAF tick) are no-ops on this path.
+  const lastReportedMoveIdxRef = useRef(-1);
+  useEffect(() => {
+    if (!isPlaying || playStartIdx === null) {
+      lastReportedMoveIdxRef.current = -1;
+      return;
+    }
+    const cur = seq.currentMoveIndex;
+    if (cur !== lastReportedMoveIdxRef.current && cur >= 0) {
+      lastReportedMoveIdxRef.current = cur;
+      onAutoAdvance(playStartIdx + cur + 1);
+    }
+    if (seq.status === "ended") {
+      // Land at the very end. The last onAutoAdvance fire above
+      // already set activeIdx = playStartIdx + (moves.length - 1) + 1
+      // = end, so just signal end-of-play here and let App flip
+      // isPlaying back to false.
+      onPlayEnd();
+    }
+  }, [
+    seq.currentMoveIndex,
+    seq.status,
+    isPlaying,
+    playStartIdx,
+    onAutoAdvance,
+    onPlayEnd,
+  ]);
+
+  // -------- Rendering --------
   // 2D — always sequence-mode; Cube2D's empty-moves path handles snap.
   const cube2D = (
     <Cube2D
@@ -153,7 +262,7 @@ export default function CubeStage({
     />
   );
 
-  // 3D — static (per-step animation lands in C·P4).
+  // 3D — static (per-step animation deferred).
   const solutionAlg = moves.slice(0, activeIdx).join(" ");
   const cube3D = (
     <TwistyPlayerWrapper
@@ -165,46 +274,14 @@ export default function CubeStage({
     />
   );
 
-  const canPlay = moves.length > 0;
-
-  function handleTogglePlay() {
-    if (isPlaying) {
-      setIsPlaying(false);
-      return;
-    }
-    // If at end-of-moves, rewind to start before kicking off — playing
-    // from the end position would immediately stop. Letting play
-    // re-rewatch the whole sequence is the natural interaction.
-    if (activeIdx >= moves.length) {
-      onActiveChange(0);
-    }
-    setIsPlaying(true);
-  }
-
-  const cubeRender =
-    renderMode === "iso" ? (
-      cube3D
-    ) : renderMode === "dual" ? (
+  if (renderMode === "iso") return cube3D;
+  if (renderMode === "dual") {
+    return (
       <div className="render-pair">
         {cube2D}
         {cube3D}
       </div>
-    ) : (
-      cube2D
     );
-
-  return (
-    <>
-      <button
-        type="button"
-        className="text-action cube-play-btn"
-        data-testid="cube-play-button"
-        onClick={handleTogglePlay}
-        disabled={!canPlay}
-      >
-        {isPlaying ? "pause" : "play"}
-      </button>
-      {cubeRender}
-    </>
-  );
+  }
+  return cube2D;
 }
