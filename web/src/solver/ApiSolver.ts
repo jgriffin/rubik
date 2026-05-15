@@ -3,9 +3,11 @@
 // beam search; this class only needs to be a thin pass-through.
 //
 // The modelName is derived from the `model_path` returned by /api/health
-// (e.g. "/.../net_final.pt" → "net_final"). If health hasn't loaded yet
-// we fall back to "fastapi" — the App will recreate this solver once
-// health resolves and the proper name will replace it on the next render.
+// (e.g. "/.../net_final.pt" → "net_final"). setModelPath() lets the App
+// push the path in after /api/health resolves, without forcing a fresh
+// ApiSolver — which matters because the active solver is keyed on
+// solverKind alone (any health-related dep would invalidate a
+// mid-download OnnxSolver and trigger a re-download).
 
 import { apiSolve } from "../api/client";
 import type { SolveRequest, SolveResponse } from "../api/client";
@@ -19,16 +21,10 @@ function deriveModelName(modelPath: string | null): string {
 
 export class ApiSolver implements Solver {
   readonly kind = "api" as const;
-  private _info: SolverInfo;
+  private _modelPath: string | null = null;
 
-  constructor(modelPath: string | null) {
-    this._info = {
-      kind: "api",
-      provider: "fastapi",
-      modelName: deriveModelName(modelPath),
-      ready: true,
-      loadDurationMs: 0,
-    };
+  setModelPath(modelPath: string | null) {
+    this._modelPath = modelPath;
   }
 
   async ready(): Promise<void> {
@@ -38,7 +34,13 @@ export class ApiSolver implements Solver {
   }
 
   info(): SolverInfo {
-    return this._info;
+    return {
+      kind: "api",
+      provider: "fastapi",
+      modelName: deriveModelName(this._modelPath),
+      ready: true,
+      loadDurationMs: 0,
+    };
   }
 
   async solve(req: SolveRequest): Promise<SolveResponse> {

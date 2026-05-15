@@ -99,18 +99,20 @@ export default function App() {
     readSolverKindFromStorage(),
   );
 
-  // Build the active Solver instance. ApiSolver is cheap to recreate
-  // when health resolves (it's a thin wrapper). OnnxSolver is heavier
-  // — but it's also recreated only on solverKind flips, not on every
-  // render, since onnx doesn't depend on health.model_path. The
-  // effect below disposes the prior instance on swap.
-  const solver: Solver = useMemo(
-    () => {
-      if (solverKind === "onnx") return new OnnxSolver();
-      return new ApiSolver(health?.model_path ?? null);
-    },
-    [solverKind, health?.model_path],
-  );
+  // Build the active Solver instance. Keyed on solverKind ONLY — the
+  // OnnxSolver does a 61 MB download on first ready(), so we cannot let
+  // /api/health resolving mid-session re-create it. ApiSolver receives
+  // the model_path via a setter from a separate effect, decoupling its
+  // info() refresh from its construction.
+  const solver: Solver = useMemo(() => {
+    if (solverKind === "onnx") return new OnnxSolver();
+    return new ApiSolver();
+  }, [solverKind]);
+  useEffect(() => {
+    if (solver instanceof ApiSolver) {
+      solver.setModelPath(health?.model_path ?? null);
+    }
+  }, [solver, health?.model_path]);
 
   // Solver-info snapshot for the UI. We keep a tick counter and read
   // `solver.info()` fresh on each render — the tick increments via the
