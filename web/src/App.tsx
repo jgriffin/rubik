@@ -13,7 +13,6 @@ import PlayPauseButton from "./components/PlayPauseButton";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
-import { ANIM_MS_PER_MOVE, PLAY_STEP_DWELL_MS } from "./components/cubeStageConstants";
 
 const SOLVED_3X3 =
   "U".repeat(9) +
@@ -46,13 +45,15 @@ export default function App() {
   const [cubeSize, setCubeSize] = useState<2 | 3>(3);
   const [renderMode, setRenderMode] = useState<RenderMode>("net");
   const [cols, setCols] = useState<Cols>(3);
-  // Section ii owns trajectory transport: the play/pause control lives
-  // in the leading [start] cell and drives `activeIdx` forward at a
-  // steady cadence. State here in App so the button can sit in MovesGrid
-  // while the animation (CubeStage) reads activeIdx independently. The
-  // cadence (ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS) is paired with the
-  // 2D cube animation duration so each step's animation completes before
-  // the next is scheduled — see `cubeStageConstants.ts`.
+  // Trajectory transport. The play/pause button (section iii header)
+  // toggles this. The actual playback timing lives inside a multi-move
+  // `CubeSequence` owned by `CubeStage` — when `isPlaying` flips true,
+  // CubeStage builds one sequence covering all remaining moves and
+  // ticks `activeIdx` forward via `handleAutoAdvance` as each move
+  // begins; the per-move `gapMs` dwell handles the inter-move pause.
+  // No App-level timer involved — keeping the sequence canonical
+  // avoids the inter-step DOM swap that the setTimeout-driven design
+  // produced as a visible flicker.
   const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
@@ -146,20 +147,27 @@ export default function App() {
     setIsPlaying(true);
   }
 
-  // Auto-advance timer. When `isPlaying`, schedule the next step
-  // (activeIdx + 1) after one full step duration (animation + dwell).
-  // Each activeIdx change re-fires this effect and schedules the next
-  // step; reaching the end folds setIsPlaying(false) into the timer
-  // callback so its setState lands inside an event, not the effect body.
-  useEffect(() => {
-    if (!isPlaying || activeIdx >= moves.length) return;
-    const timer = setTimeout(() => {
-      const nextIdx = activeIdx + 1;
-      setActiveIdx(nextIdx);
-      if (nextIdx >= moves.length) setIsPlaying(false);
-    }, ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS);
-    return () => clearTimeout(timer);
-  }, [isPlaying, activeIdx, moves.length]);
+  // activeIdx change variants.
+  // - `handleUserActiveChange`: cell clicks / arrow-key nav / card
+  //   clicks. The user has taken manual control of the trajectory, so
+  //   auto-play should yield. Wired to MovesGrid + SolutionGrid.
+  // - `handleAutoAdvance`: CubeStage's multi-move play sequence ticks
+  //   the active state forward as each move's animation begins. We
+  //   don't pause on this path — it IS the playback.
+  // Splitting the two avoids the "user clicked but playback overwrote"
+  // race the setTimeout-based design had. The auto-advance + dwell
+  // cadence now lives inside the play sequence itself (gapMs), not in
+  // a competing App-level timer.
+  function handleUserActiveChange(idx: number) {
+    if (isPlaying) setIsPlaying(false);
+    setActiveIdx(idx);
+  }
+  function handleAutoAdvance(idx: number) {
+    setActiveIdx(idx);
+  }
+  function handlePlayEnd() {
+    setIsPlaying(false);
+  }
 
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
@@ -245,7 +253,7 @@ export default function App() {
         moves={moves}
         onMovesChange={handleMovesEdit}
         activeIdx={activeIdx}
-        onActiveChange={setActiveIdx}
+        onActiveChange={handleUserActiveChange}
         canSolve={canSolve}
         isCubeSolved={isCubeSolved}
         isStartSolved={isStartSolved}
@@ -285,7 +293,10 @@ export default function App() {
         cols={cols}
         renderMode={renderMode}
         activeIdx={activeIdx}
-        onActiveChange={setActiveIdx}
+        onActiveChange={handleUserActiveChange}
+        isPlaying={isPlaying}
+        onAutoAdvance={handleAutoAdvance}
+        onPlayEnd={handlePlayEnd}
         isCubeSolved={isCubeSolved}
       />
 
