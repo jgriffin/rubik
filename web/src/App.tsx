@@ -12,7 +12,11 @@ import ColumnsSwitch from "./components/ColumnsSwitch";
 import PlayPauseButton from "./components/PlayPauseButton";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
-import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
+import { apiHealth, apiScramble, type Health, type SolveStats } from "./api/client";
+import { ApiSolver } from "./solver/ApiSolver";
+import { OnnxSolver } from "./solver/OnnxSolver";
+import type { Solver, SolverInfo, SolverKind } from "./solver/Solver";
+import SolverSwitch from "./components/SolverSwitch";
 
 const SOLVED_3X3 =
   "U".repeat(9) +
@@ -22,11 +26,43 @@ const SOLVED_3X3 =
   "L".repeat(9) +
   "B".repeat(9);
 
-function formatMeta(modelPath: string | null, timeMs: number | null): string | null {
-  if (!modelPath || timeMs == null) return null;
-  const base = modelPath.split("/").pop() || modelPath;
-  const noExt = base.replace(/\.(pt|safetensors|bin)$/i, "");
-  return `${noExt} · ${timeMs} ms`;
+// Provider strings rendered in the meta line. `fastapi` (server-side
+// solve) vs `onnx/webgpu` and `onnx/wasm` (browser-side, with the
+// chosen EP exposed so diagnostic runs read at a glance).
+function providerLabel(info: SolverInfo): string {
+  switch (info.provider) {
+    case "fastapi":
+      return "fastapi";
+    case "onnx-webgpu":
+      return "onnx/webgpu";
+    case "onnx-wasm":
+      return "onnx/wasm";
+  }
+}
+
+function formatMeta(info: SolverInfo, timeMs: number | null): string | null {
+  if (timeMs == null) return null;
+  return `${providerLabel(info)} · ${info.modelName} · ${timeMs} ms`;
+}
+
+function formatLoadingMeta(info: SolverInfo): string {
+  // While the solver is loading we surface elapsed-load time so the user
+  // can tell the 61 MB download is making progress.
+  const elapsed = info.loadDurationMs ?? 0;
+  return `${providerLabel(info)} · loading model… (${elapsed} ms elapsed)`;
+}
+
+const SOLVER_LS_KEY = "rubik:solver";
+
+function readSolverKindFromStorage(): SolverKind {
+  if (typeof window === "undefined") return "api";
+  try {
+    const v = window.localStorage.getItem(SOLVER_LS_KEY);
+    if (v === "api" || v === "onnx") return v;
+  } catch {
+    /* SSR / private-mode / cookie-blocked: fall through */
+  }
+  return "api";
 }
 
 export default function App() {
@@ -55,6 +91,98 @@ export default function App() {
   // avoids the inter-step DOM swap that the setTimeout-driven design
   // produced as a visible flicker.
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Active solver kind — persisted across sessions. Default to the
+  // FastAPI path so anonymous users hit the well-behaved server first;
+  // the ONNX path is opt-in via the header switch.
+  const [solverKind, setSolverKind] = useState<SolverKind>(() =>
+    readSolverKindFromStorage(),
+  );
+
+  // Build the active Solver instance. Keyed on solverKind ONLY — the
+  // OnnxSolver does a 61 MB download on first ready(), so we cannot let
+  // /api/health resolving mid-session re-create it. ApiSolver receives
+  // the model_path via a setter from a separate effect, decoupling its
+  // info() refresh from its construction.
+  const solver: Solver = useMemo(() => {
+    if (solverKind === "onnx") return new OnnxSolver();
+    return new ApiSolver();
+  }, [solverKind]);
+  useEffect(() => {
+    if (solver instanceof ApiSolver) {
+      solver.setModelPath(health?.model_path ?? null);
+    }
+  }, [solver, health?.model_path]);
+
+  // Solver-info snapshot for the UI. We keep a tick counter and read
+  // `solver.info()` fresh on each render — the tick increments via the
+  // polling effect below while the solver is still loading and via
+  // `solver.ready().then(...)` once it's done. This sidesteps
+  // setState-in-effect cascades while still giving the UI a live
+  // view of solver state.
+  const [tick, setTick] = useState(0);
+  const solverInfo: SolverInfo = useMemo(
+    () => solver.info(),
+    // `tick` is the live signal — it bumps when info() may have
+    // changed. `info()` is impure (reads internal solver state) so
+    // eslint can't see why `tick` matters; the disable is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [solver, tick],
+  );
+
+  // Surface solver-load errors. The OnnxSolver's session create can
+  // reject after the user flips the switch — without explicit surfacing
+  // the rejection gets eaten by the fire-and-forget ready() call below
+  // and the UI sits forever on "loading model…".
+  const [solverError, setSolverError] = useState<string | null>(null);
+  // Clear the prior solver's error when the active instance changes —
+  // "store info from prior renders" pattern (per project convention)
+  // to satisfy react-hooks/set-state-in-effect.
+  const [prevSolverForError, setPrevSolverForError] = useState(solver);
+  if (prevSolverForError !== solver) {
+    setPrevSolverForError(solver);
+    setSolverError(null);
+  }
+
+  // Drive readiness + polling. The cleanup disposes the previous
+  // solver on swap.
+  useEffect(() => {
+    let cancelled = false;
+    const bump = () => {
+      if (!cancelled) setTick((t) => t + 1);
+    };
+    // Kick ready() so OnnxSolver starts downloading right away —
+    // users who flip to the onnx switch want the download to start
+    // before they click Solve. Catch rejections to surface them, since
+    // a hung ready() otherwise leaves the UI on "loading model…".
+    void solver.ready().then(bump).catch((e) => {
+      if (cancelled) return;
+      setSolverError(String(e?.message ?? e));
+      bump();
+    });
+    // While not-yet-ready, poll at 250 ms so the elapsed-load
+    // counter ticks. Once ready, stop polling.
+    const poll = window.setInterval(() => {
+      if (cancelled) return;
+      bump();
+      if (solver.info().ready) window.clearInterval(poll);
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+      void solver.dispose();
+    };
+  }, [solver]);
+
+  function handleSolverKindChange(next: SolverKind) {
+    if (next === solverKind) return;
+    setSolverKind(next);
+    try {
+      window.localStorage.setItem(SOLVER_LS_KEY, next);
+    } catch {
+      /* storage unavailable; choice is session-local */
+    }
+  }
 
   useEffect(() => {
     apiHealth()
@@ -94,7 +222,7 @@ export default function App() {
     setIsSolving(true);
     const stateAtSolve = applyMoves(scrambleState, moves);
     try {
-      const r = await apiSolve({ state: stateAtSolve });
+      const r = await solver.solve({ state: stateAtSolve });
       const newMoves = r.moves as MoveStr[];
       setMoves((prev) => [...prev, ...newMoves]);
       setSolved(r.solved);
@@ -169,8 +297,18 @@ export default function App() {
     setIsPlaying(false);
   }
 
-  const ready = health !== null && health.warmup_done;
-  const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
+  // The page is "ready to solve" when (a) /api/health returned (we
+  // need it for scramble + the apiSolver model name) AND (b) the
+  // currently-active solver reports ready. For the API path the
+  // solver-ready flag is trivially true; for the ONNX path it gates on
+  // the 61 MB download finishing.
+  const healthReady = health !== null && health.warmup_done;
+  const ready = healthReady && solverInfo.ready;
+  // Meta line: while the active solver is still loading, surface the
+  // load progress. Once ready, show the per-solve diagnostic.
+  const metaText = solverInfo.ready
+    ? formatMeta(solverInfo, solveStats?.time_ms ?? null)
+    : formatLoadingMeta(solverInfo);
 
   // The cube's *current* state — start state with section ii's moves
   // applied. Drives the Solve affordance: visible only when the cube
@@ -192,6 +330,7 @@ export default function App() {
       <header className="head">
         <Wordmark />
         <div className="right">
+          <SolverSwitch value={solverKind} onChange={handleSolverKindChange} />
           <CubeSizeSwitch value={cubeSize} onChange={setCubeSize} />
         </div>
       </header>
@@ -316,6 +455,28 @@ export default function App() {
       {!health && !healthError && (
         <p style={{ color: "var(--dim)", fontSize: 11, marginTop: "1rem" }}>
           loading…
+        </p>
+      )}
+
+      {/* Solver-load status. Surfaces while the active solver is
+          downloading / initializing (ONNX path only — ApiSolver is
+          ready immediately). Hidden once ready so it doesn't clutter
+          the page during normal use. Error variant takes precedence
+          over the elapsed-load counter. */}
+      {solverError && (
+        <pre
+          data-testid="solver-error"
+          style={{ color: "crimson", fontSize: 11, marginTop: "0.5rem", whiteSpace: "pre-wrap" }}
+        >
+          solver load failed: {solverError}
+        </pre>
+      )}
+      {!solverError && !solverInfo.ready && (
+        <p
+          data-testid="solver-loading"
+          style={{ color: "var(--dim)", fontSize: 11, marginTop: "0.5rem" }}
+        >
+          {formatLoadingMeta(solverInfo)}
         </p>
       )}
     </main>
