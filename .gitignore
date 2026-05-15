@@ -56,6 +56,8 @@ htmlcov/
 *.pt
 *.pth
 *.safetensors
+*.onnx
+*.onnx.data
 
 # Project: training logs / runs
 # Run dirs themselves are tracked — small files (metrics.jsonl, stdout.log,
