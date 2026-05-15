@@ -39,6 +39,8 @@ type Props = {
   canSolve?: boolean;
   isCubeSolved?: boolean;
   isStartSolved?: boolean;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
   onSolve?: () => void;
   isSolving?: boolean;
   rowSize?: number;
@@ -59,6 +61,8 @@ export default function MovesGrid({
   canSolve,
   isCubeSolved,
   isStartSolved,
+  isPlaying,
+  onTogglePlay,
   onSolve,
   isSolving,
   rowSize = 10,
@@ -451,7 +455,18 @@ export default function MovesGrid({
               * state is already solved (a common case after Clear);
               * otherwise a hidden &nbsp; that reserves line-height so
               * the top label sits at a stable vertical position. */}
-            {isStartSolved ? (
+            {moves.length > 0 ? (
+              <button
+                type="button"
+                className="trailing-end-label end-play text-action"
+                data-testid="play-pause-button"
+                onClick={onTogglePlay}
+                disabled={disabled}
+                aria-label={isPlaying ? "pause" : "play"}
+              >
+                {isPlaying ? "pause" : "play"}
+              </button>
+            ) : isStartSolved ? (
               <span
                 className="trailing-end-label end-solved"
                 data-testid="start-solved-label"

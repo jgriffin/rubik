@@ -12,6 +12,7 @@ import ColumnsSwitch from "./components/ColumnsSwitch";
 import { applyMoves } from "./state/applyMove";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, apiSolve, type Health, type SolveStats } from "./api/client";
+import { ANIM_MS_PER_MOVE, PLAY_STEP_DWELL_MS } from "./components/cubeStageConstants";
 
 const SOLVED_3X3 =
   "U".repeat(9) +
@@ -44,6 +45,14 @@ export default function App() {
   const [cubeSize, setCubeSize] = useState<2 | 3>(3);
   const [renderMode, setRenderMode] = useState<RenderMode>("net");
   const [cols, setCols] = useState<Cols>(3);
+  // Section ii owns trajectory transport: the play/pause control lives
+  // in the leading [start] cell and drives `activeIdx` forward at a
+  // steady cadence. State here in App so the button can sit in MovesGrid
+  // while the animation (CubeStage) reads activeIdx independently. The
+  // cadence (ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS) is paired with the
+  // 2D cube animation duration so each step's animation completes before
+  // the next is scheduled — see `cubeStageConstants.ts`.
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     apiHealth()
@@ -56,6 +65,7 @@ export default function App() {
     setSolved(null);
     setSolveStats(null);
     setActiveIdx(0);
+    setIsPlaying(false);
   }
 
   async function handleScramble() {
@@ -78,6 +88,7 @@ export default function App() {
     // against in-flight edits doesn't drop appended moves (the editor
     // is disabled while isSolving=true so this is belt-and-suspenders).
     setError(null);
+    setIsPlaying(false);
     setIsSolving(true);
     const stateAtSolve = applyMoves(scrambleState, moves);
     try {
@@ -110,13 +121,44 @@ export default function App() {
   function handleMovesEdit(next: MoveStr[]) {
     // User edited section ii directly. Clear the solve verdict
     // (`solved`/`solveStats` describe the last Solve, not a hand-typed
-    // sequence) and clamp `activeIdx` so a previously-selected late
-    // card doesn't outlive a delete.
+    // sequence), clamp `activeIdx` so a previously-selected late card
+    // doesn't outlive a delete, and pause auto-play — the user has
+    // taken manual control of the editor, playback should yield.
     setMoves(next);
     setSolved(null);
     setSolveStats(null);
     setActiveIdx((i) => Math.min(i, next.length));
+    setIsPlaying(false);
   }
+
+  function handleTogglePlay() {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    // At end-of-moves, rewind to start before kicking off — playing
+    // from the end position would immediately stop. Re-watching the
+    // whole sequence is the natural "play" interaction here.
+    if (activeIdx >= moves.length) {
+      setActiveIdx(0);
+    }
+    setIsPlaying(true);
+  }
+
+  // Auto-advance timer. When `isPlaying`, schedule the next step
+  // (activeIdx + 1) after one full step duration (animation + dwell).
+  // Each activeIdx change re-fires this effect and schedules the next
+  // step; reaching the end folds setIsPlaying(false) into the timer
+  // callback so its setState lands inside an event, not the effect body.
+  useEffect(() => {
+    if (!isPlaying || activeIdx >= moves.length) return;
+    const timer = setTimeout(() => {
+      const nextIdx = activeIdx + 1;
+      setActiveIdx(nextIdx);
+      if (nextIdx >= moves.length) setIsPlaying(false);
+    }, ANIM_MS_PER_MOVE + PLAY_STEP_DWELL_MS);
+    return () => clearTimeout(timer);
+  }, [isPlaying, activeIdx, moves.length]);
 
   const ready = health !== null && health.warmup_done;
   const metaText = formatMeta(health?.model_path ?? null, solveStats?.time_ms ?? null);
@@ -206,6 +248,8 @@ export default function App() {
         canSolve={canSolve}
         isCubeSolved={isCubeSolved}
         isStartSolved={isStartSolved}
+        isPlaying={isPlaying}
+        onTogglePlay={handleTogglePlay}
         onSolve={handleSolve}
         isSolving={isSolving}
         disabled={!ready || isSolving}
