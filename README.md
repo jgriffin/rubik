@@ -45,6 +45,10 @@ If you want to read the code, here's where to start. Everything is parameterized
 - **`src/rubik/notation/{moves,state}.py`.** The 12 QTM moves (`R R' L L' U U' D D' F F' B B'`), sticker-indexing conventions.
 - **`src/rubik/viz/`.** `ascii.py` for tests/REPL, `svg.py` + `colors.py` for the static-HTML preview pattern (e.g. [2x2 rotations](visuals/oracle_rotations_2x2.html), [3x3 rotations](visuals/oracle_rotations_3x3.html)).
 - **`experiments/davi-2x2/`, `experiments/davi-3x3/`.** Each has reproducible run scripts, a `runs/` directory of training output, an `analysis/` layer (analyze → capture → render), and a top-level `results.md` + `intuition.md` capturing observations and hypotheses across cycles.
+- **`src/rubik/server/`.** FastAPI app (`/api/health`, `/api/scramble`, `/api/solve`) that wraps the same `beam_solve_batch` the training/eval pipeline uses. The web demo's FastAPI/MPS solver path hits this.
+- **`web/`.** React + Vite frontend. `web/src/solver/` is the runtime-agnostic solver layer: `Solver.ts` is the interface; `ApiSolver.ts` wraps the FastAPI path; `OnnxSolver.ts` wraps `onnxruntime-web` with WebGPU primary and WASM fallback; `beam.ts` is the TypeScript port of `beam_solve_batch` taking a `ValueFn` so the runtime is pluggable. `SolverSwitch.tsx` toggles between them. Block B's parity numbers and Block D's perf characterization both live in repo.
+- **`experiments/browser-solve/`.** M11 Block D — three-way latency comparison (FastAPI/MPS vs ONNX/WebGPU vs ONNX/WASM) across beam widths {32, 64, 128, 256} on a fixed 10-row corpus. `intuition.md` has the hypotheses; `results/perf-comparison.html` has the chart.
+- **`bin/site`.** Dev-site launcher. `bin/site up` ensures the FastAPI backend (port 8000) and the Vite frontend (port 5173) are both running; idempotent, fingerprints existing processes, manages pid files under `.dev/`. `bin/site down` / `status` / `logs` round it out.
 
 ## Where we are
 
@@ -59,6 +63,10 @@ The work has gone in roughly the order you'd expect, milestone by milestone, eac
 - **Several 3x3 training cycles.** Most of the recent work has been on the 3x3 training loop — dialing in scramble depth, sync intervals, network capacity, and warm-start vs fresh-init. The current best is what's in the v0.1.0 release.
 
 **v0.1.0** ([release](https://github.com/jgriffin/rubik/releases/tag/v0.1.0)) is the best 3x3 ValueNet I've trained so far — 100k training steps total, structured as a 30k fresh-init phase plus a 70k warm-start continuation.
+
+After v0.1.0 I pivoted to the visualization side and then to deployment. The result is a small **web UI** — scramble a cube, solve it, step through the solution, toggle between 2D and 3D renders, edit the move sequence directly. It runs the same beam search the eval pipeline uses; on the FastAPI/MPS path the round-trip on a width=128 solve is ~93 ms median.
+
+Then I made the whole thing **deployable without a server**. The trained `.pt` exports to ONNX with parity verified to a few × 10⁻⁵ (CPU PyTorch vs onnxruntime). The Python beam search ports to TypeScript; the value-net forward gets injected as a `ValueFn`, so the algorithm is identical and the runtime is pluggable. The browser loads the 61 MB `.onnx` via `onnxruntime-web` and runs the entire solve on the user's GPU through WebGPU. A `Solver` abstraction toggles between the FastAPI/MPS path and the in-browser ONNX path in real time from a switch in the page header. On page load it probes `/api/health` and auto-picks the best available — FastAPI/MPS when running locally with the server up; ONNX/WebGPU when there's no backend (e.g. a static deploy). WebGPU lands at ~394 ms median per width=128 solve on an M4 Max — ~4× the MPS server but well under "feels instant." WASM is the fallback for browsers without WebGPU, ~22× slower than WebGPU. Numbers, methodology, and an `intuition.md` are in `experiments/browser-solve/`.
 
 ### Solve rate by depth
 
@@ -96,7 +104,7 @@ A few honest caveats so the framing stays straight:
 - Not a fully-trained model. d=20–30 capability is still climbing at step 100k — there's headroom in another long training run.
 - Not a competitive solver. A tuned IDA* with classical pruning tables, or Kociemba's algorithm, will wipe the floor with this both in speed and solution length. What this network has going for it is that it figured out the geometry on its own without being told anything about cubes.
 - Not a generic solver. QTM moves only, M4 Max / MPS / BF16 inference, no comparison against classical solvers, no human-readable solution explanation.
-- No 3D viewer or web frontend yet. ASCII renderer for tests, HTML+SVG for static previews; that's the visualization story for now.
+- Web demo runs locally only for now — the FastAPI server + ONNX path both work end-to-end, but I haven't pushed the static-deployable build to a host. Next milestone (M12) is the Vercel deploy.
 - 2x2 has fallen behind 3x3 on a few quality-of-life details (provenance bundle, capture pipeline). If I revisit it, I'll mirror.
 
 ## Running it
@@ -114,6 +122,12 @@ uv run python experiments/davi-3x3/run.py \
 
 # Eval an existing checkpoint
 uv run python scripts/beam_eval_model.py path/to/net_final.pt --config fast_kmax30
+
+# Run the web demo (FastAPI :8000 + Vite :5173) — both servers, idempotent.
+bin/site up
+# → open http://localhost:5173/
+bin/site status     # see what's running
+bin/site down       # stop both
 ```
 
 ## References
