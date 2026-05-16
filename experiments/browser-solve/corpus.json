@@ -1,0 +1,58 @@
+{
+  "source": "tests/data/m11_parity_corpus_3x3.json",
+  "source_seed": "0xBEEF",
+  "source_scramble_depth": 14,
+  "n_rows": 10,
+  "rows": [
+    {
+      "row_idx": 0,
+      "facelet": "FDLUULRLDBFDFRBRRDUULBFURFDFRBLDDBURLBBRLLLDUFFUDBBFRU",
+      "py_solve_len": 14
+    },
+    {
+      "row_idx": 1,
+      "facelet": "LUULUUDLUBBBLRDBDDLURLFBRRRFFDDDFDBLUFFULDRRULFFBBRBRF",
+      "py_solve_len": 22
+    },
+    {
+      "row_idx": 2,
+      "facelet": "ULLBUDDFFULFBRBBUBBURFFUFFRRLDRDRFFLBRLLLRLDDUURDBBUDD",
+      "py_solve_len": 14
+    },
+    {
+      "row_idx": 3,
+      "facelet": "UBLBULFLDBUDURRUDBRDLLFFLLFUBRDDFBFRBDDBLFLRFFRRUBUDRU",
+      "py_solve_len": 14
+    },
+    {
+      "row_idx": 4,
+      "facelet": "FURFUDFLBLRBFRRUDUUBDBFRFLLRUFUDLDFBDDRBLDBBDUFLUBRLLR",
+      "py_solve_len": 14
+    },
+    {
+      "row_idx": 5,
+      "facelet": "FDBFURFRUBULFRUFLFLDRLFULFDDDRRDBRLLURULLUDBBUBRBBFDDB",
+      "py_solve_len": 22
+    },
+    {
+      "row_idx": 6,
+      "facelet": "LFLLUULRUBFDFRRUURDDRDFDRLLBFFUDLRRFBBBBLLUBDFRUUBDDBF",
+      "py_solve_len": 12
+    },
+    {
+      "row_idx": 7,
+      "facelet": "LRBUUUULBDFDBRLLBRBBRLFDRLUFFBDDRUFFFBRULDLRULFDUBRDDF",
+      "py_solve_len": 14
+    },
+    {
+      "row_idx": 8,
+      "facelet": "DDLUUURUURRFFRRFBBDFFLFDBBLRUDFDLLDLRLFLLFBRUUBBBBDURD",
+      "py_solve_len": 14
+    },
+    {
+      "row_idx": 9,
+      "facelet": "BUDBULBBURDRFRBFFDRRFRFLLLUDBLFDRBUFUUURLURDBFFLDBDLLD",
+      "py_solve_len": 12
+    }
+  ]
+}

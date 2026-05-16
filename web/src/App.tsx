@@ -54,15 +54,42 @@ function formatLoadingMeta(info: SolverInfo): string {
 
 const SOLVER_LS_KEY = "rubik:solver";
 
-function readSolverKindFromStorage(): SolverKind {
-  if (typeof window === "undefined") return "api";
+function readSolverKindFromStorage(): SolverKind | null {
+  if (typeof window === "undefined") return null;
   try {
     const v = window.localStorage.getItem(SOLVER_LS_KEY);
     if (v === "api" || v === "onnx") return v;
   } catch {
     /* SSR / private-mode / cookie-blocked: fall through */
   }
-  return "api";
+  return null;
+}
+
+function hasPersistedSolverChoice(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SOLVER_LS_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+// `?width=N` URL param hook — lets the M11 D measurement harness vary
+// beam_width per solve without recompiling. Parsed at module load (a
+// page navigation per width is the measurement protocol). Clamped to
+// [1, 1024] and silently defaults to undefined on bad input so the
+// solver falls back to its own default (128). Not exposed in the UI.
+function readBeamWidthFromUrl(): number | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = new URLSearchParams(window.location.search).get("width");
+    if (raw == null) return undefined;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 1024) return undefined;
+    return n;
+  } catch {
+    return undefined;
+  }
 }
 
 export default function App() {
@@ -92,12 +119,19 @@ export default function App() {
   // produced as a visible flicker.
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Active solver kind — persisted across sessions. Default to the
-  // FastAPI path so anonymous users hit the well-behaved server first;
-  // the ONNX path is opt-in via the header switch.
-  const [solverKind, setSolverKind] = useState<SolverKind>(() =>
-    readSolverKindFromStorage(),
+  // Active solver kind. Persisted user choices win; if there's no
+  // persisted choice (first visit), we provisionally default to "api"
+  // and let the /api/health probe below auto-detect: server reachable
+  // + model loaded → keep "api"; otherwise → flip to "onnx". This is
+  // what makes a static-deployed build (no FastAPI) Just Work — the
+  // probe fails, the auto-detect lands on ONNX.
+  const [solverKind, setSolverKind] = useState<SolverKind>(
+    () => readSolverKindFromStorage() ?? "api",
   );
+
+  // Beam-width override from `?width=N` URL param (M11 D harness).
+  // Captured once at construction; unaffected by user interactions.
+  const beamWidthOverride = useMemo(() => readBeamWidthFromUrl(), []);
 
   // Build the active Solver instance. Keyed on solverKind ONLY — the
   // OnnxSolver does a 61 MB download on first ready(), so we cannot let
@@ -186,8 +220,23 @@ export default function App() {
 
   useEffect(() => {
     apiHealth()
-      .then(setHealth)
-      .catch((e) => setHealthError(String(e)));
+      .then((h) => {
+        setHealth(h);
+        // Auto-detect: if the user has NOT explicitly chosen a solver,
+        // honor what the server reports. Model not loaded → onnx; model
+        // loaded → stay on the provisional "api" default.
+        if (!hasPersistedSolverChoice() && !h.model_loaded) {
+          setSolverKind("onnx");
+        }
+      })
+      .catch((e) => {
+        setHealthError(String(e));
+        // No backend reachable at all (e.g. a static deploy) → fall back
+        // to ONNX if the user hasn't pinned a choice.
+        if (!hasPersistedSolverChoice()) {
+          setSolverKind("onnx");
+        }
+      });
   }, []);
 
   function resetSolveState() {
@@ -222,7 +271,10 @@ export default function App() {
     setIsSolving(true);
     const stateAtSolve = applyMoves(scrambleState, moves);
     try {
-      const r = await solver.solve({ state: stateAtSolve });
+      const r = await solver.solve({
+        state: stateAtSolve,
+        ...(beamWidthOverride != null ? { beam_width: beamWidthOverride } : {}),
+      });
       const newMoves = r.moves as MoveStr[];
       setMoves((prev) => [...prev, ...newMoves]);
       setSolved(r.solved);

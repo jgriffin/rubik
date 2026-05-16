@@ -4,6 +4,90 @@ Backward-looking. Newest blocks on top. See `ROADMAP.md` for what's
 ahead, `SPEC.md` for the full project spec. Process docs at
 `@~/.claude/cc-process.md`.
 
+## 2026-05-15 — M11 Block D: browser-solve perf characterization ✅ done — Three-way latency comparison (FastAPI/MPS vs ONNX/WebGPU vs ONNX/WASM) at widths {32, 64, 128, 256} on a fixed 10-row corpus. FastAPI/MPS wins at every width: median 44/61/93/156 ms (sub-linear scaling, overhead-bound). WebGPU is 2.7-5× slower (117/208/394/775 ms, near-linear scaling). WASM is ~22-26× slower than WebGPU (2.54s / 5.08s / 10.38s / 20.18s, linear). The MPS:WebGPU gap WIDENS with width. Three integration-bug-class catches along the way: default Playwright chromium uses **swiftshader** for WebGPU (~12× wrong); switched to headed `channel: "chrome"` with adapter sanity check that hard-fails on software fallback. The methodology is reproducible — same harness re-runs for FP16 / INT8 / multi-threaded-WASM follow-ups by swapping the .onnx and re-running. Closes M11 (Block E Vercel deploy moves to M12, per user). The web App.tsx now auto-detects on `/api/health` probe: server reachable + model loaded → keep FastAPI default; otherwise → fall back to ONNX. Makes a static deploy Just Work.
+**Goal:** Earn perf intuition for the in-browser ONNX path versus the FastAPI/MPS server baseline. Measure per-solve latency for **FastAPI/MPS**, **ONNX/WASM**, and **ONNX/WebGPU** across beam widths {32, 64, 128, 256} on a fixed 10-row scramble corpus (first 10 rows of `tests/data/m11_parity_corpus_3x3.json`). Produce ONE canonical comparison HTML and a hand-written `intuition.md` per the project's cycle-reporting convention. Fourth block of M11 (the deploy block, E, is explicitly out of scope this milestone).
+**Milestone:** Fourth block of M11 ([plan](plans/m11-onnx-browser.md)). Branch `m11-block-d-perf-characterization` off main HEAD `3e24d78` (Block C merge).
+**Approach:** Five phases, each = one atomic commit.
+- **D·P0 — Open LOG block + scaffold experiment dir.** This entry. Empty `experiments/browser-solve/` with placeholder `README.md` pointing at the milestone plan and intuition convention.
+- **D·P1 — Measurement harness.** Two runners producing the same JSONL row shape:
+  - `experiments/browser-solve/measure_fastapi.py` — Python script. Loads the FastAPI server's same beam path via `rubik.server.inference.solve_facelet` (the actual code path the API calls — no proxy through HTTP, removing network as a confound). Iterates `(width, corpus_row)`, captures wall time + solve_len.
+  - `experiments/browser-solve/measure_browser.spec.ts` — Playwright spec adapted from `web/e2e/onnx-diagnose.spec.ts`. For each `(ep ∈ {webgpu, wasm}, width, row)`: navigates with `?ep=…`, waits for `solver-loading` to clear once at start of the EP (the 61 MB load is amortized across that EP's runs), pastes the facelet via `data-testid="state-paste"` (or whatever the existing test surface is), clicks Solve, reads back the meta line latency. Writes JSONL.
+  - Both produce rows like: `{"solver": "fastapi"|"onnx-wasm"|"onnx-webgpu", "width": N, "row_idx": i, "facelet": "...", "wall_ms": N, "solve_len": N, "solved": bool}`.
+- **D·P2 — Analysis + render.** `experiments/browser-solve/analysis/analyze.py` reads JSONL → per-(solver, width) stats (median, p10, p90, solve_rate) → `results/results.md` as a numbers-first table. `experiments/browser-solve/analysis/render_perf_comparison.py` produces ONE canonical `results/perf-comparison.html` with three lines (one per solver) over width, optional log-y. RUNS table at the top of each script per project convention.
+- **D·P3 — Run + intuition.** Execute both measurement runners on the user's M4 Max (FastAPI from terminal, browser via headless Playwright). Run analyze + render. Hand-write `experiments/browser-solve/intuition.md` per the project format (Observations → Hypotheses with verification plans → Open questions → optional "what we haven't verified"). Datestamp + run conditions at the top.
+- **D·P4 — Eyeball + close + merge.** User reviews `results/perf-comparison.html` + `intuition.md`. Close LOG block; merge to main with `--no-ff`. Block D (and the bulk of M11) closes.
+
+**Eyeball gate.** A `results/perf-comparison.html` file that visualizes the three latency curves and an `intuition.md` that makes a clear claim about the WebGPU-vs-MPS comparison at our model size. The numbers don't need to be Final Word — the methodology being reproducible is the M11 deliverable; future model swaps or BF16/INT8 quantization can re-run the pipeline cheaply.
+
+**Out-of-scope for D.** No FP16 model variant in this block (carries Block A's deferred follow-up forward). No INT8. No multi-threaded WASM (`numThreads=1` stays — the question of whether pthread spawn buys anything is a follow-up after this block surfaces the WASM cost). No Vercel deploy (Block E, explicitly skipped this milestone).
+
+**Design notes (decisions worth recording up front).**
+- **Tiny-corpus, single-rep.** N=10 × 1 rep across all four widths × three solvers = 120 measurements total. The user picked this scope explicitly over the full N=50 × 3-rep grid — get a first cut, see what surprises, expand only if a number is contested. Matches the project's "make it work then make it fast" pattern at the experiment-design layer: characterize coarsely first, refine later.
+- **Width=256 included for all three.** The plan mentioned width=256 as a measurement point; WASM at width=256 is ~4 min/solve so 10 solves = ~40 min. Acceptable for a one-shot run, valuable because the perf gap is widest at high widths (which is where the production-relevance question gets interesting — does FastAPI's MPS advantage shrink at width=256 because of the M4 Max MPS throughput knee from M8 cycle-2?).
+- **`measure_fastapi.py` calls the Python beam directly.** Hitting `/api/solve` via HTTP would add network roundtrip + JSON serialize as a confound. We want to measure the inference, not the API layer. The Python script imports `rubik.server.inference.solve_facelet` and times *that*. For symmetry the browser path measures user-perceived latency (which IS the API of the Solver interface) — so the comparison is "Python beam wall time" vs "browser end-to-end wall time" rather than apples-to-apples. The intuition writeup flags this asymmetry; future Block D-like blocks can normalize if needed.
+- **Static HTML render, NOT matplotlib.** Project convention — see CLAUDE.md "Avoid matplotlib unless we hit a specific need it solves." A small HTML + inline SVG comparison chart is consistent with the rest of the visuals tree.
+
+**Phases shipped:**
+- D·P0 ✅ (`1e9f010`) — LOG opener + `experiments/browser-solve/` scaffold.
+- D·P1 ✅ (`967b59b`) — measurement harness. `scripts/stage_corpus.py` (10-row corpus from `tests/data/m11_parity_corpus_3x3.json`). `measure_fastapi.py` calls `rubik.server.inference.solve_facelet` directly (no HTTP confound), 40 rows captured. `measure_browser.spec.ts` is a Playwright spec driving the actual UI via `?ep` + `?width` URL params; `playwright.config.ts` uses headed Chrome `channel: "chrome"` + `--enable-unsafe-webgpu` so WebGPU is Metal-backed, NOT swiftshader. A `webgpu adapter sanity` test hard-fails on software fallback. `web/src/App.tsx` gains a tiny `?width=N` URL-param hook for varying beam_width per cell without recompiling.
+- D·P2 ✅ (`7b70992`) — `analysis/analyze.py` + `analysis/render_perf_comparison.py`. Read JSONL, emit `results/results.md` (per-(solver,width) table + speedup ratios) and `results/perf-comparison.html` (one inline-SVG chart, three lines, log-y, no matplotlib). Hand-recovered the 80 browser rows from `/tmp/m11d-headed.log` after a concurrent file-read+rewrite race with the live spec clobbered the live file mid-run; deduped to the clean 120-row grid.
+- D·P3 ✅ (`8e25f09`) — `intuition.md` hand-written per project convention. Headline + four hypotheses with verification plans + open questions + caveats (no replication, no cold-start measurement, single-machine snapshot).
+- D·P4 ✅ — this Outcome + README updates + auto-detect-solver logic + ROADMAP M11 close + M12 add. Merge to main with `--no-ff`.
+
+**Outcome:**
+
+- **Block goal met.** Three-way perf comparison is in repo with reproducible methodology, one canonical chart, and a hand-written intuition. Closes M11.
+
+- **Headline numbers (median ms, N=10 per cell):**
+
+  | width | FastAPI/MPS | ONNX/WebGPU | ONNX/WASM | WebGPU/FastAPI | WASM/WebGPU |
+  |---|---|---|---|---|---|
+  | 32  | 44   | 117   | 2,540   | 2.7× | 21.7× |
+  | 64  | 61   | 208   | 5,081   | 3.4× | 24.4× |
+  | 128 | 93   | 394   | 10,380  | 4.2× | 26.3× |
+  | 256 | 156  | 775   | 20,178  | 5.0× | 26.0× |
+
+  Mean solve length identical across all three paths at each width (Block B parity holds at the full width sweep). Solve rates 8/10 to 10/10 across the corpus depending on scramble hardness.
+
+- **File inventory:**
+  - NEW `experiments/browser-solve/README.md` — pointer + run instructions.
+  - NEW `experiments/browser-solve/stage_corpus.py` — extracts first 10 rows from the Block B parity corpus into `corpus.json`. Idempotent.
+  - NEW `experiments/browser-solve/corpus.json` — checked-in deterministic seed (10 depth-14 scrambles, seed `0xBEEF`).
+  - NEW `experiments/browser-solve/measure_fastapi.py` — calls `rubik.server.inference.solve_facelet` directly, no HTTP. Captures `time_ms` from the SolveResponse stats. 4 widths × 10 rows = 40 measurements.
+  - NEW `experiments/browser-solve/measure_browser.spec.ts` — Playwright spec. For each `(ep ∈ {webgpu, wasm}, width ∈ {32, 64, 128, 256})`: navigates once with URL params, waits for `solver-loading` to clear, loops the 10 rows. Reads `wall_ms` from the meta line (which surfaces the solver's self-reported `time_ms`). Same JSONL row shape as `measure_fastapi.py`.
+  - NEW `experiments/browser-solve/playwright.config.ts` — local config that reuses `web/`'s webServer block but with `testDir: __dirname` so the spec only runs when invoked explicitly (NOT via `pnpm test:e2e`). Uses headed Chrome (`channel: "chrome"`) with `--enable-unsafe-webgpu` and `--enable-features=Vulkan,UseSkiaRenderer`. The "webgpu adapter sanity" test hard-fails on software fallback (swiftshader/warp/microsoft basic render).
+  - NEW `experiments/browser-solve/analysis/{analyze.py, render_perf_comparison.py, __init__.py}` — analysis + render pipeline. `analyze.py` emits `results/results.md` and appends `intuition.md` if present. `render_perf_comparison.py` emits `results/perf-comparison.html` (inline SVG, log-y, three lines).
+  - NEW `experiments/browser-solve/intuition.md` — hand-written per project convention (Observations → Hypotheses with verification plans → Open questions → "What we haven't verified" caveats).
+  - NEW `experiments/browser-solve/results/{latencies.jsonl, results.md, perf-comparison.html}` — the 120-row clean grid + the canonical writeups.
+  - MODIFIED `web/src/App.tsx` — adds:
+    - `?width=N` URL-param hook (set the beam_width per solve, default 128).
+    - Auto-detect-solver-on-health: `readSolverKindFromStorage()` now returns `SolverKind | null`; provisional default is `"api"`; on `/api/health` resolution the App auto-flips to `"onnx"` if the server reports `model_loaded=false` OR the health probe fails entirely. `hasPersistedSolverChoice()` gates the auto-flip so user-driven flips win.
+  - MODIFIED `README.md` — new paragraph in "Where we are" describing M9 + M11 (web UI + browser ONNX path); caveats list updated (the "no web frontend yet" entry retired; new "demo runs locally only, Vercel is M12" entry); "tour of the code" gains `src/rubik/server/`, `web/`, `experiments/browser-solve/`, and `bin/site`; "Running it" gets a `bin/site up` block.
+  - MODIFIED `ROADMAP.md` — M11 marked ✅ done with Block D added; new M12 (Vercel deploy) entry slotted between M11 and the M10 stretch.
+
+- **Decisions worth recording:**
+
+  - **Headed Chrome `channel: "chrome"`, not Playwright's bundled chromium.** The original measurement run came out ~12× too slow because Playwright's bundled headless shell uses `--use-angle=swiftshader-webgl` (software-rasterized WebGPU). Switching to `channel: "chrome"` (the system Google Chrome) plus `headless: false` exposes the actual Metal-3 adapter. The `webgpu adapter sanity` test confirms `{ok:true, vendor:"apple", architecture:"metal-3"}` before any measurement runs. Without that check, every WebGPU number would be wrong by an order of magnitude — and silently so, since swiftshader does work, just slowly.
+
+  - **FastAPI measurement skips HTTP.** `measure_fastapi.py` imports `solve_facelet` and times it directly — no `fetch` to `/api/solve`, no JSON serialize / deserialize, no FastAPI request handler overhead. Apples-to-apples vs the Python beam is what we want; the comparison to the browser path is implicitly "Python beam wall time vs browser end-to-end wall time," which the intuition writeup flags. Future cycles can normalize if needed.
+
+  - **Auto-detect-on-health for the solver default.** Original plan was to flip the default solver kind to `"onnx"` after Block D quantified the trade-off. The user pointed out the smarter version: probe `/api/health` and pick `"api"` if the server is up + model loaded, otherwise `"onnx"`. Same end-state for local dev (api still wins when the server's up), but the deployed-to-Vercel case Just Works without anyone editing a default. Persisted user choice always wins over auto-detection.
+
+  - **N=10 × 1 rep is a "first cut," not a "production decision."** The intuition writeup flags this explicitly. Numbers are good enough to support qualitative claims ("WebGPU is 2-5× slower than MPS"; "WASM is ~22× slower than WebGPU") but not narrow ones ("WebGPU at width=128 is exactly 4.2× slower"). Re-run with N=50 × 3 reps if any specific number is going to drive a production-grade decision.
+
+  - **Recovering from the file-clobber.** Mid-run, a concurrent `python -c "..."` script that READ + RE-WROTE `latencies.jsonl` truncated the live Playwright spec's appends. The browser rows were lost from the file but preserved in the Playwright stdout log at `/tmp/m11d-headed.log`. A 10-line parser recovered them; the final 120-row file is a clean dedupe. The Python helper scripts should NOT touch the live JSONL while a writer is active — moved that to a "what we haven't verified" item but the pragmatic fix is "wait for the run to fully complete before any post-processing."
+
+- **Tests:** vitest 287 pass / 6 skipped; eslint clean; `tsc -b --noEmit` clean; `pnpm build` clean. `uv run pytest -q` 707 pass / 1 slow deselected.
+
+- **Known follow-ups (carry into M12 / future blocks):**
+  - **FP16 model variant.** Add `--fp16` flag to `scripts/export_onnx_3x3.py`. Halve the .onnx download to ~30 MB; maybe ~1.3-1.5× faster compute on WebGPU. Block A flagged this originally.
+  - **Multi-threaded WASM.** Flip `numThreads = navigator.hardwareConcurrency` in OnnxSolver. COOP/COEP headers are already on. Re-measure to see whether the ~22× WebGPU gap closes meaningfully (H3 in `intuition.md`).
+  - **Cold-start measurement.** Block D's numbers explicitly amortize the model-load + EP-init across 10 rows per cell. The first solve on a fresh page-load takes 5-15s (61 MB download + WebGPU shader compile). A dedicated cold-start experiment would inform the "first impression" UX comparison.
+  - **Client-side scramble.** For a true static deploy, `apiScramble` needs an in-browser alternative. The move tables are already shipped in `web/src/solver/moveTables.ts`; porting `random_scrambles` is small. M12 work.
+  - **N=50 × 3 reps replication.** Run when a specific number needs to be cited authoritatively.
+
+**Commits:** `1e9f010` (D·P0) · `967b59b` (D·P1) · `7b70992` (D·P2) · `8e25f09` (D·P3) · `<close commit>` (this Outcome + README + auto-detect + ROADMAP M11 done + M12 add) · merge to main `--no-ff` on close.
+
 ## 2026-05-15 — M11 Block C: Solver abstraction + browser ONNX wire-up + UI toggle ✅ done — Browser-side ONNX path runs end-to-end on this machine: WebGPU EP, ~3-10s first-load (61 MB graph + sidecar + shader compile), **796 ms** per solve at beam_width=128 on a typical scramble. `Solver` interface (`web/src/solver/Solver.ts`) hosts both `ApiSolver` (existing FastAPI/MPS path) and `OnnxSolver` (in-browser via `onnxruntime-web`); App routes solves through the interface; `SolverSwitch` in the header right toggles them; choice persists to `localStorage`. The path through this block surfaced three real bugs (ort-web runtime served from `public/` collides with vite's "no source-import from public" rule; `solver` `useMemo` keyed on `health?.model_path` re-instantiates `OnnxSolver` mid-download; ort-web doesn't auto-fetch the external-data sidecar) — all caught and fixed with Playwright-driven diagnostic. The diagnostic `web/e2e/onnx-diagnose.spec.ts` stays in the repo as the regression gate for Block D's perf work.
 **Goal:** Land the `Solver` interface so the FastAPI/MPS path and the in-browser ONNX path live behind one method call. Refactor the existing `apiSolve` call site into an `ApiSolver`; implement `OnnxSolver` using Block B's TS beam + `onnxruntime-web` (WebGPU primary, WASM fallback); ship a UI toggle persisted in `localStorage`; surface model-loading state separately from solving state and show the active solver + execution provider + last solve latency. Third block of M11.
 **Milestone:** Third block of M11 ([plan](plans/m11-onnx-browser.md)). Branch `m11-block-c-solver-abstraction` off main HEAD `adafb0a` (Block B merge).
