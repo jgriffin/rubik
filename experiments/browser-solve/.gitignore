@@ -1,1 +1,4 @@
-/results/swiftshader-partial.archive
+# Local-only swiftshader-run evidence files — never committed. Kept on
+# disk as forensic record of the early Playwright-bundled-headless-shell
+# run that produced bogus WebGPU numbers (software-rasterized vs Metal).
+/results/*.archive
