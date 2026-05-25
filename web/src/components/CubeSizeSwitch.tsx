@@ -12,12 +12,17 @@ type Props = {
 export default function CubeSizeSwitch({ value, onChange }: Props) {
   return (
     <span className="cube-size-switch" data-testid="cube-size-switch">
+      {/* 2×2 is grayed out until the 2x2 pipeline is wired up — env, model,
+          and solver are 3x3-only today. Kept in place (per design intent);
+          enable it by dropping `disabled` once 2x2 solve/scramble work. */}
       <button
         type="button"
         data-testid="cube-size-2"
         className={`cube-size-opt ${value === 2 ? "on" : ""}`}
         onClick={() => onChange(2)}
         aria-pressed={value === 2}
+        disabled
+        title="2×2 — coming soon"
       >
         2×2
       </button>

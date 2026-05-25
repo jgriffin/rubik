@@ -517,7 +517,13 @@ export default function App() {
         metaText={metaText}
       />
 
-      {healthError && <pre data-testid="health-error">error: {healthError}</pre>}
+      {/* Only surface the /api/health probe failure when the API solver is
+          the active one — then it's actionable. In ONNX mode (e.g. a static
+          deploy with no backend) a failed probe is the expected, normal
+          condition, so showing it would just be a scary no-op error. */}
+      {healthError && solverKind === "api" && (
+        <pre data-testid="health-error">error: {healthError}</pre>
+      )}
       {!health && !healthError && (
         <p style={{ color: "var(--dim)", fontSize: 11, marginTop: "1rem" }}>
           loading…

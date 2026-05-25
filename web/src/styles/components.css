@@ -63,11 +63,16 @@
   cursor: pointer;
   transition: color 0.12s;
 }
-.cube-size-opt:hover {
+.cube-size-opt:hover:not(:disabled) {
   color: var(--accent);
 }
 .cube-size-opt.on {
   color: var(--accent);
+}
+/* 2×2 disabled until its pipeline is wired up — grayed, non-interactive. */
+.cube-size-opt:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 /* Vertical bar separator — explicit element rather than the `|` glyph
  * so we can size and color it directly. */
