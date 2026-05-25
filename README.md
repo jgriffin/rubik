@@ -104,7 +104,7 @@ A few honest caveats so the framing stays straight:
 - Not a fully-trained model. d=20–30 capability is still climbing at step 100k — there's headroom in another long training run.
 - Not a competitive solver. A tuned IDA* with classical pruning tables, or Kociemba's algorithm, will wipe the floor with this both in speed and solution length. What this network has going for it is that it figured out the geometry on its own without being told anything about cubes.
 - Not a generic solver. QTM moves only, M4 Max / MPS / BF16 inference, no comparison against classical solvers, no human-readable solution explanation.
-- Web demo runs locally only for now — the FastAPI server + ONNX path both work end-to-end, but I haven't pushed the static-deployable build to a host. Next milestone (M12) is the Vercel deploy.
+- Web demo is live at **[rubik-johngrif.vercel.app](https://rubik-johngrif.vercel.app)** — a static Vercel deploy running the entire solve in-browser via ONNX/WebGPU (no backend; WASM fallback where WebGPU is unavailable). The FastAPI/MPS path still works locally via `bin/site up`.
 - 2x2 has fallen behind 3x3 on a few quality-of-life details (provenance bundle, capture pipeline). If I revisit it, I'll mirror.
 
 ## Running it

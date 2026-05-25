@@ -58,10 +58,6 @@ htmlcov/
 *.safetensors
 *.onnx
 *.onnx.data
-# …except the web-demo model, which ships via Git LFS so static deploys
-# (Vercel) have the weights at build time. Tracked in .gitattributes.
-!web/public/models/net_final.onnx
-!web/public/models/net_final.onnx.data
 
 # Project: training logs / runs
 # Run dirs themselves are tracked — small files (metrics.jsonl, stdout.log,

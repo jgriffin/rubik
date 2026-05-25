@@ -3,9 +3,12 @@ dist
 dist-ssr
 *.local
 
-# Staged model artifacts (sourced from experiments/davi-3x3/runs/...) —
-# 61 MB blob; never committed. Re-staged via `pnpm models:sync`.
-public/models/
+# Staged model artifacts (sourced from experiments/davi-3x3/runs/...).
+# The two web-demo weights ship via Git LFS so static deploys (Vercel)
+# have them at build time; anything else staged here stays out of the repo.
+public/models/*
+!public/models/net_final.onnx
+!public/models/net_final.onnx.data
 playwright-report
 test-results
 .playwright
@@ -30,3 +33,4 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+.vercel
