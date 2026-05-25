@@ -361,13 +361,15 @@ export default function App() {
     setIsPlaying(false);
   }
 
-  // The page is "ready to solve" when (a) /api/health returned (we
-  // need it for scramble + the apiSolver model name) AND (b) the
-  // currently-active solver reports ready. For the API path the
-  // solver-ready flag is trivially true; for the ONNX path it gates on
-  // the 61 MB download finishing.
+  // The page is "ready" when the active solver's model is loaded. The
+  // API path additionally needs the backend warmed (health.warmup_done);
+  // the ONNX path is fully client-side and must NOT gate on /api/health —
+  // that probe never returns on a static, backend-less deploy, which is
+  // exactly where the ONNX path is meant to run. (For ONNX, solverInfo.ready
+  // gates on the 61 MB model download finishing.)
   const healthReady = health !== null && health.warmup_done;
-  const ready = healthReady && solverInfo.ready;
+  const ready =
+    solverInfo.ready && (solverKind === "api" ? healthReady : true);
   // Meta line: while the active solver is still loading, surface the
   // load progress. Once ready, show the per-solve diagnostic.
   const metaText = solverInfo.ready
