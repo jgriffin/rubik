@@ -11,6 +11,7 @@ import RenderModeSwitch from "./components/RenderModeSwitch";
 import ColumnsSwitch from "./components/ColumnsSwitch";
 import PlayPauseButton from "./components/PlayPauseButton";
 import { applyMoves } from "./state/applyMove";
+import { randomScrambleMoves } from "./state/scramble";
 import type { MoveStr } from "./state/faceletMoves";
 import { apiHealth, apiScramble, type Health, type SolveStats } from "./api/client";
 import { ApiSolver } from "./solver/ApiSolver";
@@ -250,13 +251,24 @@ export default function App() {
   async function handleScramble() {
     setError(null);
     resetSolveState();
-    try {
-      const r = await apiScramble({ length: scrambleLength });
-      setScrambleState(r.state);
-      setScrambleMoves(r.moves as MoveStr[]);
-    } catch (e) {
-      setError(String(e));
+    // Scramble is pure random QTM moves — no GPU/model needed. Mirror the
+    // solver auto-detect: when the server is the active solver, use it
+    // (parity with a server session); otherwise (static deploy → ONNX)
+    // generate locally. Either way fall back to client-side if the API
+    // call fails, so the button works even with no backend reachable.
+    if (solverKind === "api") {
+      try {
+        const r = await apiScramble({ length: scrambleLength });
+        setScrambleState(r.state);
+        setScrambleMoves(r.moves as MoveStr[]);
+        return;
+      } catch {
+        /* backend unreachable / model not loaded → client-side below */
+      }
     }
+    const scr = randomScrambleMoves(scrambleLength);
+    setScrambleState(applyMoves(SOLVED_3X3, scr));
+    setScrambleMoves(scr);
   }
 
   async function handleSolve() {
